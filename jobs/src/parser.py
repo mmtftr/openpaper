@@ -10,7 +10,6 @@ from PIL import Image # type: ignore
 md = MarkItDown()
 
 from src.s3_service import s3_service
-from src.llm_client import fast_llm_client
 
 logger = logging.getLogger(__name__)
 

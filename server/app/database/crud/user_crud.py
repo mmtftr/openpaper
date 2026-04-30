@@ -1,5 +1,6 @@
 import datetime
 import logging
+import os
 import secrets
 import uuid
 from typing import Optional
@@ -7,11 +8,51 @@ from uuid import UUID
 
 from app.database.crud.base_crud import CRUDBase
 from app.database.models import Session as DBSession
-from app.database.models import User
+from app.database.models import SubscriptionPlan, SubscriptionStatus, User
 from app.schemas.user import UserCreate, UserCreateWithProvider, UserUpdate
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
+
+
+def _admin_emails() -> set[str]:
+    raw = os.getenv("ADMIN_EMAILS", "")
+    return {e.strip().lower() for e in raw.split(",") if e.strip()}
+
+
+def _bootstrap_user_account(db: Session, *, user: User) -> User:
+    """Ensure a freshly-created user has admin status (if listed) and an
+    active default subscription, so the app never sees a null subscription.
+
+    Self-hosted-friendly: no Stripe round-trip needed. Admins listed in
+    ADMIN_EMAILS get is_admin=true and a Researcher subscription; everyone
+    else gets a Basic subscription with a long-running active period.
+    """
+    # Local import to avoid circular import with subscription_crud.
+    from app.database.crud.subscription_crud import subscription_crud
+
+    is_admin_email = str(user.email).lower() in _admin_emails()
+    if is_admin_email and not bool(user.is_admin):
+        user.is_admin = True  # type: ignore[assignment]
+        user.is_email_verified = True  # type: ignore[assignment]
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    plan = SubscriptionPlan.RESEARCHER if is_admin_email else SubscriptionPlan.BASIC
+    now = datetime.datetime.now(datetime.timezone.utc)
+    subscription_crud.create_or_update(
+        db=db,
+        user_id=user.id,  # type: ignore[arg-type]
+        subscription_data={
+            "plan": plan.value,
+            "status": SubscriptionStatus.ACTIVE.value,
+            "current_period_start": now,
+            "current_period_end": now + datetime.timedelta(days=365 * 10),
+            "cancel_at_period_end": False,
+        },
+    )
+    return user
 
 
 class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
@@ -50,7 +91,7 @@ class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
         db.add(db_obj)
         db.commit()
         db.refresh(db_obj)
-        return db_obj
+        return _bootstrap_user_account(db, user=db_obj)
 
     def upsert_with_provider(
         self, db: Session, *, obj_in: UserCreateWithProvider
@@ -175,7 +216,7 @@ class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
         db.add(db_obj)
         db.commit()
         db.refresh(db_obj)
-        return db_obj
+        return _bootstrap_user_account(db, user=db_obj)
 
     def update_verification_code(
         self, db: Session, *, user: User, code: str, expires_at: datetime.datetime

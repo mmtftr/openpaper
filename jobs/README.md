@@ -165,19 +165,33 @@ The following environment variables are required to run the Jobs Service:
 | `CLOUDFLARE_BUCKET_NAME`| The name of the Cloudflare R2 bucket (if used).  | Yes      |
 | `CELERY_BROKER_URL`     | The URL for the Celery message broker (RabbitMQ).   | Yes      |
 | `CELERY_RESULT_BACKEND` | The URL for the Celery result backend (Redis).   | Yes      |
-| `LLM_API_KEY`           | The API key for the LLM service.                 | Yes      |
+| `OPENAI_API_KEY`        | OpenAI (or Azure) API key.                       | Yes      |
+| `OPENAI_BASE_URL`       | Custom base URL for OpenAI-compatible APIs.      | No       |
+| `OPENAI_MODEL`          | Primary chat model / deployment name.            | No       |
+| `OPENAI_FAST_MODEL`     | Faster chat model / deployment name.             | No       |
+| `AZURE_OPENAI`          | `true` to use AzureOpenAI client + strict-mode JSON schema patching. | No |
+| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL.                       | If `AZURE_OPENAI=true` |
+| `AZURE_OPENAI_API_VERSION` | Azure API version. Defaults to `2025-04-01-preview`. | No |
 
 ### Running Locally
 
-Run the command below to install dependencies, start job service Docker containers, worker and API:
+From the repo root, Docker Compose starts the jobs API, worker, RabbitMQ, Redis, and MinIO:
+```bash
+docker compose up --build jobs-api jobs-worker
+```
+
+Run the command below to install dependencies and start the jobs service manually:
 ```bash
 uv run start
 ```
 
+If you are using Azure OpenAI or another OpenAI-compatible endpoint, copy `jobs/.env.example` to `jobs/.env`, set `OPENAI_API_KEY`, and (for Azure) set `AZURE_OPENAI=true` plus `AZURE_OPENAI_ENDPOINT`.
+
 Optionally, start Flower to monitor Celery jobs:
 ```bash
-./scripts/start_flower.sh
+docker compose --profile observability up flower
 ```
+Access the jobs API at `http://localhost:9004` when it is started through Docker Compose.
 Access the Flower dashboard at `http://localhost:5555`.
 
 ## Future Development

@@ -12,7 +12,10 @@ import { useIsDarkMode } from "@/hooks/useDarkMode"
 // Note: This provider does not work wherever adblock is enabled.
 export function PostHogProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
-        posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY as string, {
+        const token = process.env.NEXT_PUBLIC_POSTHOG_KEY;
+        if (!token) return;
+
+        posthog.init(token, {
             api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com',
             person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well
             capture_pageview: false // Disable automatic pageview capture, as we capture manually

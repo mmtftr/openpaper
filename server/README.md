@@ -9,23 +9,58 @@ This server manages the backend for the Open Paper project, which allows users t
 
 ## Setup
 
+For the full local stack, prefer the root Docker Compose workflow:
+```bash
+cd ..
+docker compose up --build
+```
+
+Compose provides Postgres, RabbitMQ, Redis, MinIO, the server, the client, and the jobs service. It also runs migrations before starting the server.
+
 1. Install dependencies
 ```bash
 uv sync
 source .venv/bin/activate
 ```
 
-2. Get an API key from [Google AI Studio](https://aistudio.google.com/apikey)
-
-3. Set up environment variables. Check `.env.example` for required and optional variables
+2. Set up environment variables. Check `.env.example` for required and optional variables
 ```bash
 touch .env
 ```
 
-Add the following environment variables to your `.env` file:
+For an OpenAI-compatible setup:
 ```bash
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/annotated-paper
-GEMINI_API_KEY="your_gemini_api_key" # Replace with your actual API key from step 3
+OPENAI_API_KEY="your_api_key"
+OPENAI_BASE_URL=""           # optional, for OpenAI-compatible providers
+OPENAI_MODEL="gpt-4.1"
+OPENAI_FAST_MODEL="gpt-4.1-mini"
+```
+
+For Azure OpenAI, set `AZURE_OPENAI=true` — `OPENAI_API_KEY` is treated as the Azure key, and structured outputs are automatically patched for Azure's strict JSON-schema rules:
+```bash
+OPENAI_API_KEY="your_azure_key"
+OPENAI_MODEL="your-chat-deployment-name"
+OPENAI_FAST_MODEL="your-fast-chat-deployment-name"
+AZURE_OPENAI=true
+AZURE_OPENAI_ENDPOINT="https://your-resource.openai.azure.com/"
+AZURE_OPENAI_API_VERSION="2025-04-01-preview"
+```
+
+For local S3-compatible storage outside compose, set:
+```bash
+S3_ENDPOINT_URL="http://localhost:9000"
+S3_PUBLIC_BASE_URL="http://localhost:9000/openpaper-local"
+S3_BUCKET_NAME="openpaper-local"
+AWS_ACCESS_KEY_ID="openpaper"
+AWS_SECRET_ACCESS_KEY="openpaper-local"
+```
+
+For Gemini instead:
+```bash
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/annotated-paper
+DEFAULT_LLM_PROVIDER=gemini
+GEMINI_API_KEY="your_gemini_api_key"
 ```
 
 ## Start the Application

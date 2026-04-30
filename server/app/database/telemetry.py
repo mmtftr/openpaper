@@ -13,22 +13,27 @@ logger = logging.getLogger(__name__)
 
 POSTHOG_API_KEY = os.getenv("POSTHOG_API_KEY", None)
 DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
+POSTHOG_HOST = os.getenv("POSTHOG_HOST", "https://us.i.posthog.com")
 
-posthog = Posthog(
-    POSTHOG_API_KEY,
-    host="https://us.i.posthog.com",
-    enable_exception_autocapture=True,
-)
+posthog = None
+posthog_sync = None
 
-posthog_sync = Posthog(
-    POSTHOG_API_KEY,
-    host="https://us.i.posthog.com",
-    sync_mode=True,
-    enable_exception_autocapture=True,
-)
+if POSTHOG_API_KEY:
+    posthog = Posthog(
+        POSTHOG_API_KEY,
+        host=POSTHOG_HOST,
+        enable_exception_autocapture=True,
+    )
 
-if DEBUG:
-    posthog.debug = True
+    posthog_sync = Posthog(
+        POSTHOG_API_KEY,
+        host=POSTHOG_HOST,
+        sync_mode=True,
+        enable_exception_autocapture=True,
+    )
+
+    if DEBUG:
+        posthog.debug = True
 
 
 def _lookup_subscription(db: Optional[Session], user_id: str):
@@ -80,7 +85,7 @@ def track_event(
     :param db: Optional request-scoped session to reuse for the subscription
                lookup. Falls back to a fresh session if None or unusable.
     """
-    if POSTHOG_API_KEY and not DEBUG:
+    if POSTHOG_API_KEY and not DEBUG and posthog is not None and posthog_sync is not None:
         subscription = None
         if user_id is None:
             user_id = "anonymous"

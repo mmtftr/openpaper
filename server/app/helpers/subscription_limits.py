@@ -54,6 +54,31 @@ SUBSCRIPTION_LIMITS = {
     },
 }
 
+# Effective-infinity limits for self-hosted admins. Big concrete numbers keep the
+# frontend's percentage / progress / "near limit" / "at limit" math well-behaved
+# without forcing every helper to special-case null or unlimited.
+UNLIMITED_LIMITS = {
+    PAPER_UPLOAD_KEY: 1_000_000,
+    KB_SIZE_KEY: 1_000_000_000,  # ~1 TB in KB
+    CHAT_CREDITS_KEY: 1_000_000_000,
+    AUDIO_OVERVIEWS_KEY: 1_000_000,
+    PROJECTS_KEY: 1_000_000,
+    DATA_TABLES_KEY: 1_000_000,
+    DISCOVER_SEARCHES_KEY: 1_000_000,
+}
+
+
+def get_effective_limits(db: Session, user: CurrentUser) -> Dict:
+    """Return the limits to enforce for this user.
+
+    Admins get UNLIMITED_LIMITS so all enforcement and frontend usage math
+    treats them as effectively uncapped.
+    """
+    if getattr(user, "is_admin", False):
+        return UNLIMITED_LIMITS
+    plan = get_user_subscription_plan(db, user)
+    return get_plan_limits(plan)
+
 
 def get_user_subscription_plan(db: Session, user: CurrentUser) -> SubscriptionPlan:
     """
@@ -100,7 +125,7 @@ def can_user_upload_paper(db: Session, user: CurrentUser) -> tuple[bool, Optiona
         tuple: (can_upload: bool, error_message: Optional[str])
     """
     plan = get_user_subscription_plan(db, user)
-    limits = get_plan_limits(plan)
+    limits = get_effective_limits(db, user)
 
     current_paper_count = paper_crud.get_total_paper_count(db=db, user=user)
     paper_limit = limits[PAPER_UPLOAD_KEY]
@@ -144,7 +169,7 @@ def can_user_create_audio_overview(
         tuple: (can_create: bool, error_message: Optional[str])
     """
     plan = get_user_subscription_plan(db, user)
-    limits = get_plan_limits(plan)
+    limits = get_effective_limits(db, user)
 
     current_audio_overviews_used = get_user_audio_overviews_used_this_month(db, user)
     audio_overview_limit = limits[AUDIO_OVERVIEWS_KEY]
@@ -188,7 +213,7 @@ def can_user_create_project(
         tuple: (can_create: bool, error_message: Optional[str])
     """
     plan = get_user_subscription_plan(db, user)
-    limits = get_plan_limits(plan)
+    limits = get_effective_limits(db, user)
 
     current_project_count = len(
         project_crud.get_all_projects_by_user_with_metadata(db=db, user=user)
@@ -234,7 +259,7 @@ def can_user_access_knowledge_base(
         tuple: (can_access: bool, error_message: Optional[str])
     """
     plan = get_user_subscription_plan(db, user)
-    limits = get_plan_limits(plan)
+    limits = get_effective_limits(db, user)
 
     current_size_mb = get_user_knowledge_base_size(db, user)
     kb_limit = limits[KB_SIZE_KEY]
@@ -278,7 +303,7 @@ def can_user_create_data_table_job(
         tuple: (can_create: bool, error_message: Optional[str])
     """
     plan = get_user_subscription_plan(db, user)
-    limits = get_plan_limits(plan)
+    limits = get_effective_limits(db, user)
 
     current_data_tables_used = data_table_job_crud.get_data_table_jobs_used_this_week(
         db, user=user
@@ -324,7 +349,7 @@ def can_user_run_discover_search(
         tuple: (can_search: bool, error_message: Optional[str])
     """
     plan = get_user_subscription_plan(db, user)
-    limits = get_plan_limits(plan)
+    limits = get_effective_limits(db, user)
 
     current_searches = discover_search_crud.get_searches_this_week(db, user=user)
     search_limit = limits[DISCOVER_SEARCHES_KEY]
@@ -377,7 +402,7 @@ def get_user_usage_info(db: Session, user: CurrentUser) -> Dict:
     Returns a dictionary with current usage and limits.
     """
     plan = get_user_subscription_plan(db, user)
-    limits = get_plan_limits(plan)
+    limits = get_effective_limits(db, user)
 
     current_paper_count = paper_crud.get_total_paper_count(db=db, user=user)
     paper_limit = limits[PAPER_UPLOAD_KEY]

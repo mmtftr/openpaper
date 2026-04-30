@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 
 import boto3
 import requests
+from botocore.config import Config
 from app.database.crud.paper_crud import PaperUpdate, paper_crud
 from app.database.crud.projects.project_paper_crud import project_paper_crud
 from app.database.models import Paper, User
@@ -23,6 +24,8 @@ AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY")
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 S3_BUCKET_NAME = os.environ.get("S3_BUCKET_NAME")
 CLOUDFLARE_BUCKET_NAME = os.environ.get("CLOUDFLARE_BUCKET_NAME")
+S3_ENDPOINT_URL = os.environ.get("S3_ENDPOINT_URL")
+S3_PUBLIC_BASE_URL = os.environ.get("S3_PUBLIC_BASE_URL")
 
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
 
@@ -37,9 +40,16 @@ class S3Service:
             aws_access_key_id=AWS_ACCESS_KEY_ID,
             aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
             region_name=AWS_REGION,
+            endpoint_url=S3_ENDPOINT_URL,
+            config=Config(s3={"addressing_style": "path"}),
         )
         self.bucket_name = S3_BUCKET_NAME
         self.cloudflare_bucket_name = CLOUDFLARE_BUCKET_NAME
+
+    def _public_url(self, object_key: str) -> str:
+        if S3_PUBLIC_BASE_URL:
+            return f"{S3_PUBLIC_BASE_URL.rstrip('/')}/{object_key}"
+        return f"https://{self.cloudflare_bucket_name}/{object_key}"
 
     def _validate_pdf_url(self, url: str) -> bool:
         """
@@ -89,7 +99,7 @@ class S3Service:
                 )
 
             # Generate the URL for the uploaded file
-            file_url = f"https://{self.cloudflare_bucket_name}/{object_key}"
+            file_url = self._public_url(object_key)
 
             return object_key, file_url
 
@@ -128,7 +138,7 @@ class S3Service:
             )
 
             # Generate the URL for the uploaded file
-            file_url = f"https://{self.cloudflare_bucket_name}/{object_key}"
+            file_url = self._public_url(object_key)
 
             return object_key, file_url
 
@@ -172,6 +182,10 @@ class S3Service:
                 Params={"Bucket": self.bucket_name, "Key": object_key},
                 ExpiresIn=expiration,
             )
+
+            if S3_ENDPOINT_URL and S3_PUBLIC_BASE_URL:
+                internal_base = f"{S3_ENDPOINT_URL.rstrip('/')}/{self.bucket_name}"
+                url = url.replace(internal_base, S3_PUBLIC_BASE_URL.rstrip("/"), 1)
 
             # Replace the S3 URL with Cloudflare URL
             if url.startswith(f"https://{self.bucket_name}.s3.amazonaws.com/"):

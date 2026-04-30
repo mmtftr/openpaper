@@ -206,28 +206,52 @@ def concatenate_wav_files(wav_files: List[str], output_path: str) -> None:
             f.write(frame_data)
 
 
+def _is_azure_openai_enabled() -> bool:
+    return os.getenv("AZURE_OPENAI", "").strip().lower() in ("1", "true", "yes")
+
+
 class OpenAISpeaker:
-    """OpenAI LLM provider implementation"""
+    """OpenAI text-to-speech client.
+
+    Uses the standard OpenAI client by default, switching to AzureOpenAI when
+    AZURE_OPENAI=true (with AZURE_OPENAI_ENDPOINT). The OPENAI_API_KEY env var
+    is used for both modes.
+    """
 
     def __init__(self):
-
-        # the azure openai endpoint isn't accepting the `file` type in the content list, so disable it for now
-        self.api_key = os.getenv("AZURE_OPENAI_API_KEY")
-        endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-        version = os.getenv("AZURE_OPENAI_VERSION", "2025-04-01-preview")
-
+        self.api_key = os.getenv("OPENAI_API_KEY")
         if not self.api_key:
-            raise ValueError("AZURE_OPENAI_API_KEY environment variable is required")
-        if not endpoint:
-            raise ValueError("AZURE_OPENAI_ENDPOINT environment variable is required")
+            raise ValueError("OPENAI_API_KEY environment variable is required")
 
-        self.client = openai.AzureOpenAI(
-            api_key=self.api_key,
-            azure_endpoint=endpoint,
-            api_version=version,
-            timeout=300.0,
-        )
-        self.model = "gpt-4o-mini-tts"
+        if _is_azure_openai_enabled():
+            endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+            if not endpoint:
+                raise ValueError(
+                    "AZURE_OPENAI=true requires AZURE_OPENAI_ENDPOINT to be set"
+                )
+            if endpoint.rstrip("/").endswith("/openai/v1"):
+                self.client = openai.OpenAI(
+                    api_key=self.api_key,
+                    base_url=endpoint,
+                    timeout=300.0,
+                )
+            else:
+                self.client = openai.AzureOpenAI(
+                    api_key=self.api_key,
+                    azure_endpoint=endpoint,
+                    api_version=os.getenv(
+                        "AZURE_OPENAI_API_VERSION", "2025-04-01-preview"
+                    ),
+                    timeout=300.0,
+                )
+        else:
+            self.client = openai.OpenAI(
+                api_key=self.api_key,
+                base_url=os.getenv("OPENAI_BASE_URL") or None,
+                timeout=300.0,
+            )
+
+        self.model = os.getenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
 
     def _generate_single_chunk(
         self,
@@ -360,7 +384,7 @@ class OpenAISpeaker:
                 pass
 
 
-speaker = OpenAISpeaker() if os.getenv("AZURE_OPENAI_API_KEY") else None
+speaker = OpenAISpeaker() if os.getenv("OPENAI_API_KEY") else None
 
 
 """"

@@ -1,19 +1,25 @@
+# syntax=docker/dockerfile:1.7
 # Use the official Node.js 24 slim image as the base image
-FROM node:24-slim as base
+FROM node:24-slim AS base
 
 
 # Set the working directory inside the container
 WORKDIR /app
 
 
-# Set as environment variable for build time
-# These are set early as they might be needed by package scripts during install
-ENV NEXT_PUBLIC_API_URL=https://api.openpaper.ai
-ENV NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_51O33aTCUG3OIDR6rhzcP0aDTftZyC07Iyf59NG8dAjPCLcmKyv0ADqSfO9CUYz5ugF7GI91JcyM6rIwp56Ehp41V00MYxGF8d7
+# Public client values are compiled into the Next.js bundle.
+# Keep local-safe defaults and override them with build args for production.
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ARG NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
+ARG NEXT_PUBLIC_POSTHOG_KEY=
+ARG NEXT_PUBLIC_POSTHOG_HOST=
+ARG UPLOAD_POSTHOG_SOURCEMAPS=false
 
-# womp womp add posthog env vars
-ENV NEXT_PUBLIC_POSTHOG_KEY=phc_i84JqfidoQncsSmusoeZF9oshYHV2SebGZkKMVtF8AG
-ENV NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=$NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+ENV NEXT_PUBLIC_POSTHOG_KEY=$NEXT_PUBLIC_POSTHOG_KEY
+ENV NEXT_PUBLIC_POSTHOG_HOST=$NEXT_PUBLIC_POSTHOG_HOST
+ENV UPLOAD_POSTHOG_SOURCEMAPS=$UPLOAD_POSTHOG_SOURCEMAPS
 
 
 # Copy package.json and yarn.lock to the working directory
@@ -22,11 +28,11 @@ ENV NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
 COPY package.json yarn.lock ./
 
 
-# Install dependencies using yarn and posthog-cli for source map uploads
+# Install dependencies.
 # Only run this if package.json or yarn.lock changed
 # Using --frozen-lockfile for reproducible and potentially faster installs
 RUN yarn install --frozen-lockfile && \
-    yarn global add @posthog/cli
+    if [ "$UPLOAD_POSTHOG_SOURCEMAPS" = "true" ]; then yarn global add @posthog/cli; fi
 
 # Add yarn global bin to PATH
 ENV PATH="/root/.yarn/bin:$PATH"
@@ -42,30 +48,38 @@ COPY . .
 # This will only run if the code (above) or dependencies (further above) changed.
 RUN yarn build
 
-# Upload source maps to PostHog, then delete them from the build
+# Optionally upload source maps to PostHog, then delete them from the build.
+# This is disabled by default for local compose builds.
 RUN --mount=type=secret,id=POSTHOG_ENV_ID \
     --mount=type=secret,id=POSTHOG_CLI_TOKEN \
-    export POSTHOG_CLI_ENV_ID="$(cat /run/secrets/POSTHOG_ENV_ID)" && \
-    export POSTHOG_CLI_TOKEN="$(cat /run/secrets/POSTHOG_CLI_TOKEN)" && \
-    posthog-cli sourcemap inject --directory .next && \
-    posthog-cli sourcemap upload --directory .next && \
-    find .next -name '*.map' -delete
+    if [ "$UPLOAD_POSTHOG_SOURCEMAPS" = "true" ]; then \
+        export POSTHOG_CLI_ENV_ID="$(cat /run/secrets/POSTHOG_ENV_ID)" && \
+        export POSTHOG_CLI_TOKEN="$(cat /run/secrets/POSTHOG_CLI_TOKEN)" && \
+        posthog-cli sourcemap inject --directory .next && \
+        posthog-cli sourcemap upload --directory .next && \
+        find .next -name '*.map' -delete; \
+    fi
 
 
 # Use the official Node.js 24 slim image for running the app
-FROM node:24-slim as production
+FROM node:24-slim AS production
 
 
 # Set the working directory
 WORKDIR /app
 
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ARG NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
+ARG NEXT_PUBLIC_POSTHOG_KEY=
+ARG NEXT_PUBLIC_POSTHOG_HOST=
 
 # Set production environment variables
 ENV NODE_ENV=production
-# Ensure NEXT_PUBLIC_API_URL is also available in the production stage if needed by the start command or runtime
-ENV NEXT_PUBLIC_API_URL=https://api.openpaper.ai
-ENV NEXT_PUBLIC_POSTHOG_KEY=phc_i84JqfidoQncsSmusoeZF9oshYHV2SebGZkKMVtF8AG
-ENV NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
+# Keep these available in the production stage for runtime checks and logs.
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=$NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+ENV NEXT_PUBLIC_POSTHOG_KEY=$NEXT_PUBLIC_POSTHOG_KEY
+ENV NEXT_PUBLIC_POSTHOG_HOST=$NEXT_PUBLIC_POSTHOG_HOST
 
 
 # Copy the built application from the base image

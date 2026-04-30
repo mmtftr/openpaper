@@ -1,42 +1,102 @@
 """
 Simplified LLM client for metadata extraction.
+
+Uses the standard OpenAI client by default and switches to AzureOpenAI when
+AZURE_OPENAI=true (with AZURE_OPENAI_ENDPOINT). Strict JSON-schema mode is
+patched for Azure to satisfy its constraints.
 """
+import asyncio
 import json
 import logging
 import os
-import re
-import io
-import asyncio
 import random
+import re
+from typing import Any, Callable, Dict, List, Optional, Type, TypeVar, Union
+
 import httpx
-from google import genai
-from google.genai import types
-from google.genai.errors import APIError, ClientError, ServerError
-from typing import Any, Dict, List, Optional, Type, TypeVar, Callable
+import openai
+from pydantic import BaseModel, ConfigDict, Field, create_model
 
-from pydantic import BaseModel, create_model, Field, ConfigDict
-
-from src.prompts import EXTRACT_COLS_INSTRUCTION, SYSTEM_INSTRUCTIONS_CACHE, EXTRACT_METADATA_PROMPT_TEMPLATE
+from src.prompts import (
+    EXTRACT_COLS_INSTRUCTION,
+    EXTRACT_METADATA_PROMPT_TEMPLATE,
+)
 from src.schemas import (
-    DataTableRow,
-    PaperMetadataExtraction,
-    TitleAuthorsAbstract,
-    InstitutionsKeywords,
-    SummaryAndCitations,
-    Highlights,
     DataTableCellValue,
+    DataTableRow,
+    Highlights,
+    InstitutionsKeywords,
+    PaperMetadataExtraction,
+    SummaryAndCitations,
+    TitleAuthorsAbstract,
 )
 from src.utils import retry_llm_operation, time_it
 
 logger = logging.getLogger(__name__)
 
-# Constants
-DEFAULT_CHAT_MODEL = "gemini-3.1-pro-preview"
-FAST_CHAT_MODEL = "gemini-3-flash-preview"
-CACHE_TTL_SECONDS = 3600
+DEFAULT_CHAT_MODEL = "gpt-4.1"
+FAST_CHAT_MODEL = "gpt-4.1-mini"
 
-# Pydantic model type variable
 T = TypeVar("T", bound=BaseModel)
+
+OpenAIClient = Union[openai.AsyncOpenAI, openai.AsyncAzureOpenAI]
+
+
+def _is_azure_openai_enabled() -> bool:
+    return os.getenv("AZURE_OPENAI", "").strip().lower() in ("1", "true", "yes")
+
+
+_UNSUPPORTED_STRICT_KEYWORDS = {
+    "minLength", "maxLength", "pattern", "format",
+    "minimum", "maximum", "multipleOf",
+    "patternProperties", "unevaluatedProperties", "propertyNames",
+    "minProperties", "maxProperties",
+    "unevaluatedItems", "contains", "minContains", "maxContains",
+    "minItems", "maxItems", "uniqueItems",
+}
+
+
+def _patch_schema_for_azure_strict(schema: Any) -> Any:
+    """Patch a JSON schema for Azure OpenAI strict mode.
+
+    - $ref nodes must have no sibling keywords
+    - additionalProperties: false on every object
+    - all properties listed in required
+    - unsupported keywords stripped
+    """
+    if not isinstance(schema, dict):
+        return schema
+
+    if "$ref" in schema:
+        ref = schema["$ref"]
+        schema.clear()
+        schema["$ref"] = ref
+        return schema
+
+    for key in _UNSUPPORTED_STRICT_KEYWORDS:
+        schema.pop(key, None)
+
+    if schema.get("type") == "object" or "properties" in schema:
+        schema["additionalProperties"] = False
+        props = schema.get("properties", {})
+        schema["required"] = list(props.keys())
+        for prop in props.values():
+            _patch_schema_for_azure_strict(prop)
+
+    if "items" in schema:
+        _patch_schema_for_azure_strict(schema["items"])
+
+    for sub in (
+        schema.get("anyOf", [])
+        + schema.get("allOf", [])
+        + schema.get("oneOf", [])
+    ):
+        _patch_schema_for_azure_strict(sub)
+
+    for defn in schema.get("$defs", {}).values():
+        _patch_schema_for_azure_strict(defn)
+
+    return schema
 
 
 class JSONParser:
@@ -49,13 +109,11 @@ class JSONParser:
 
         json_data = json_data.strip()
 
-        # Case 1: Try parsing directly first
         try:
             return json.loads(json_data)
         except json.JSONDecodeError:
             pass
 
-        # Case 2: Check for code block format
         if "```" in json_data:
             code_blocks = re.findall(r"```(?:json)?\s*([\s\S]*?)```", json_data)
 
@@ -76,208 +134,138 @@ class JSONParser:
 
 
 class AsyncLLMClient:
+    """OpenAI-backed async LLM client used by jobs.
+
+    Reads its configuration from the environment so the same instance works
+    for OpenAI and AzureOpenAI deployments.
     """
-    A simple LLM client for metadata extraction.
-    This is a placeholder implementation that would need to be replaced
-    with actual LLM API calls (OpenAI, Anthropic, Google, etc.)
-    """
 
-    DEFAULT_TIMEOUT = 90_000  # 90s for text/cached operations
-    PDF_TIMEOUT = 120_000    # 120s for PDF file operations
+    DEFAULT_TIMEOUT_SECONDS = 90.0
 
-    def __init__(
-        self,
-        api_key: str,
-        default_model: Optional[str] = None,
-    ):
-        self.api_key = api_key
-        self.default_model: str = default_model or DEFAULT_CHAT_MODEL
-
-    def _create_client(self, timeout: int = DEFAULT_TIMEOUT) -> genai.Client:
-        """Create a fresh client instance for thread-safe concurrent calls."""
+    def __init__(self, default_model: Optional[str] = None):
+        self.api_key = os.getenv("OPENAI_API_KEY")
         if not self.api_key:
-            raise ValueError("API key is not set")
-        return genai.Client(
+            raise ValueError("OPENAI_API_KEY environment variable is required")
+
+        self.is_azure = _is_azure_openai_enabled()
+        if self.is_azure:
+            self.azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+            if not self.azure_endpoint:
+                raise ValueError(
+                    "AZURE_OPENAI=true requires AZURE_OPENAI_ENDPOINT to be set"
+                )
+            self.azure_api_version = os.getenv(
+                "AZURE_OPENAI_API_VERSION", "2025-04-01-preview"
+            )
+            self.base_url = None
+        else:
+            self.azure_endpoint = None
+            self.azure_api_version = None
+            self.base_url = os.getenv("OPENAI_BASE_URL") or None
+
+        self.default_model = default_model or DEFAULT_CHAT_MODEL
+
+    def _create_client(
+        self, timeout: float = DEFAULT_TIMEOUT_SECONDS
+    ) -> OpenAIClient:
+        """Create a fresh client instance for thread-safe concurrent calls."""
+        if self.is_azure:
+            # Azure's v1 OpenAI-compatible endpoint (ending /openai/v1) works
+            # with the plain async OpenAI client; the deployment-routed Azure
+            # URL needs AsyncAzureOpenAI.
+            assert self.azure_endpoint is not None
+            if self.azure_endpoint.rstrip("/").endswith("/openai/v1"):
+                return openai.AsyncOpenAI(
+                    api_key=self.api_key,
+                    base_url=self.azure_endpoint,
+                    timeout=timeout,
+                )
+            return openai.AsyncAzureOpenAI(
+                api_key=self.api_key,
+                azure_endpoint=self.azure_endpoint,
+                api_version=self.azure_api_version,
+                timeout=timeout,
+            )
+        return openai.AsyncOpenAI(
             api_key=self.api_key,
-            http_options=types.HttpOptions(timeout=timeout),
+            base_url=self.base_url,
+            timeout=timeout,
         )
-
-    async def create_cache(self, cache_content: str, client: genai.Client, model: Optional[str] = None) -> str:
-        """Create a cache entry for the given content.
-
-        Args:
-            cache_content (str): The content to cache.
-            client: The genai client to use.
-            model: Optional model override. Defaults to self.default_model.
-
-        Returns:
-            str: The cache key for the stored content.
-        """
-        cached_content = await client.aio.caches.create(
-            model=model or self.default_model,
-            config=types.CreateCachedContentConfig(
-                contents=types.Content(
-                    role='user',
-                    parts=[
-                        types.Part.from_text(text=cache_content),
-                        types.Part.from_text(text=SYSTEM_INSTRUCTIONS_CACHE)
-                    ]
-                ),
-                display_name="Paper Metadata Cache",
-                ttl='3600s'
-            )
-        )
-
-        if cached_content and cached_content.name:
-            logger.info(f"Cache created successfully: {cached_content.name}")
-        else:
-            logger.error("Failed to create cache entry")
-            raise ValueError("Cache creation failed")
-
-        return cached_content.name
-
-    async def create_file_cache(
-        self,
-        file_path: str,
-        client: genai.Client,
-        system_instructions: Optional[str] = None,
-    ):
-        """Create a cache entry for the given file.
-
-        Args:
-            file_path (str): The path to the file to cache.
-            client: The genai client to use.
-
-        Returns:
-            str: The cache key for the stored file.
-        """
-        # Read the file content
-        with open(file_path, 'rb') as f:
-            file_content = f.read()
-
-        doc_io = io.BytesIO(file_content)
-        document = await client.aio.files.upload(
-            file=doc_io,
-            config=types.UploadFileConfig(
-                mime_type='application/pdf',
-            )
-        )
-
-        cached_content = await client.aio.caches.create(
-            model=self.default_model,
-            config=types.CreateCachedContentConfig(
-                contents=document,
-                display_name="Paper Metadata Cache",
-                ttl='3600s',
-                system_instruction=system_instructions or SYSTEM_INSTRUCTIONS_CACHE
-            ),
-        )
-
-        if cached_content and cached_content.name:
-            logger.info(f"File cache created successfully: {cached_content.name}")
-        else:
-            logger.error("Failed to create cache entry")
-            raise ValueError("Cache creation failed")
-
-        return cached_content.name
 
     async def generate_content(
         self,
         prompt: str,
-        image_bytes: Optional[bytes] = None,
-        image_mime_type: Optional[str] = None,
-        cache_key: Optional[str] = None,
+        client: OpenAIClient,
         model: Optional[str] = None,
         schema: Optional[Type[BaseModel]] = None,
-        file_path: Optional[str] = None,
         max_retries: int = 3,
         base_delay: float = 1.0,
-        client: Optional[genai.Client] = None,
     ) -> str:
-        """
-        Generate content using the LLM with automatic retry and exponential backoff.
-
-        Args:
-            prompt: The prompt to send to the LLM
-            model: Optional specific model to use, defaults to self.default_model
-            max_retries: Maximum number of retry attempts (default: 3)
-            base_delay: Base delay in seconds for exponential backoff (default: 1.0)
-            client: Optional client to use (for concurrent calls)
-
-        Returns:
-            str: The generated content from the LLM
-        """
-        if not client:
-            raise ValueError("Client is required for generate_content")
-
+        """Generate content with automatic retry and exponential backoff."""
         if not model:
             model = self.default_model
 
-        parts = []
-        if image_bytes:
-            parts.append(types.Part.from_bytes(data=image_bytes, mime_type=image_mime_type or 'image/png'))
-
-        if file_path:
-            with open(file_path, "rb") as f:
-                file_data = f.read()
-            parts.append(types.Part.from_bytes(data=file_data, mime_type='application/pdf'))
-
-
-        parts.append(types.Part.from_text(text=prompt))
-
-        config = types.GenerateContentConfig(
-            cached_content=cache_key
-        )
-
+        kwargs: Dict[str, Any] = {}
         if schema:
-            config.response_mime_type = 'application/json'
-            config.response_schema = schema.model_json_schema()
+            schema_dict = schema.model_json_schema()
+            if self.is_azure:
+                schema_dict = _patch_schema_for_azure_strict(schema_dict)
+            kwargs["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "structured_response",
+                    "strict": True,
+                    "schema": schema_dict,
+                },
+            }
 
         last_exception: Optional[Exception] = None
-
         for attempt in range(max_retries + 1):
             try:
-                response = await client.aio.models.generate_content(
+                response = await client.chat.completions.create(
                     model=model,
-                    contents=types.Content(
-                        role='user',
-                        parts=parts
-                    ),
-                    config=config
+                    messages=[{"role": "user", "content": prompt}],
+                    **kwargs,
                 )
 
-                if response and response.text:
-                    return response.text
+                if response.choices and response.choices[0].message.content:
+                    return response.choices[0].message.content
 
                 raise ValueError("No content generated from LLM response")
-
-            except (ServerError, ClientError, APIError, httpx.TimeoutException) as e:
+            except (
+                openai.APIConnectionError,
+                openai.APITimeoutError,
+                openai.APIStatusError,
+                openai.RateLimitError,
+                httpx.TimeoutException,
+            ) as e:
                 last_exception = e
                 if attempt < max_retries:
-                    # Exponential backoff with jitter
-                    backoff_time = base_delay * (2 ** attempt) * (0.5 + 0.5 * random.random())
+                    backoff_time = (
+                        base_delay * (2 ** attempt) * (0.5 + 0.5 * random.random())
+                    )
                     logger.warning(
-                        f"LLM API error (attempt {attempt + 1}/{max_retries + 1}): {e}. "
-                        f"Retrying in {backoff_time:.2f}s"
+                        "LLM API error (attempt %s/%s): %s. Retrying in %.2fs",
+                        attempt + 1,
+                        max_retries + 1,
+                        e,
+                        backoff_time,
                     )
                     await asyncio.sleep(backoff_time)
                 else:
-                    logger.error(f"All {max_retries + 1} attempts failed for generate_content: {e}")
+                    logger.error(
+                        "All %s attempts failed for generate_content: %s",
+                        max_retries + 1,
+                        e,
+                    )
 
-        # If we reach here, all retries failed
-        raise last_exception or ValueError("Failed to generate content after all retries")
+        raise last_exception or ValueError(
+            "Failed to generate content after all retries"
+        )
 
 
 class PaperOperations(AsyncLLMClient):
-    """
-    Simplified LLM client for metadata extraction.
-    This is a placeholder implementation that would need to be replaced
-    with actual LLM API calls (OpenAI, Anthropic, Google, etc.)
-    """
-
-    def __init__(self, api_key: str, default_model: Optional[str] = None):
-        """Initialize the LLM client for paper operations."""
-        super().__init__(api_key, default_model=default_model)
+    """OpenAI-backed paper-metadata extraction operations."""
 
     async def _extract_single_metadata_field(
         self,
@@ -285,30 +273,16 @@ class PaperOperations(AsyncLLMClient):
         paper_content: str,
         schema: Type[BaseModel],
         status_callback: Callable[[str], None],
-        client: genai.Client,
-        cache_key: Optional[str] = None,
+        client: OpenAIClient,
         llm_model: Optional[str] = None,
     ) -> T:
-        """
-        Helper function to extract a single metadata field.
-
-        Args:
-            model: The Pydantic model for the data to extract.
-            paper_content: The paper content.
-            status_callback: Optional function to update task status.
-            client: The genai client to use.
-            llm_model: Optional LLM model override.
-
-        Returns:
-            An instance of the provided Pydantic model.
-        """
-        prompt = EXTRACT_METADATA_PROMPT_TEMPLATE.format(
-        )
-
-        if paper_content and not cache_key:
+        prompt = EXTRACT_METADATA_PROMPT_TEMPLATE.format()
+        if paper_content:
             prompt = f"Paper Content:\n\n{paper_content}\n\n{prompt}"
 
-        response = await self.generate_content(prompt, cache_key=cache_key, schema=schema, client=client, model=llm_model)
+        response = await self.generate_content(
+            prompt, schema=schema, client=client, model=llm_model
+        )
         response_json = JSONParser.validate_and_extract_json(response)
         instance = model.model_validate(response_json)
 
@@ -320,11 +294,8 @@ class PaperOperations(AsyncLLMClient):
             institutions = getattr(instance, "institutions", [])
             first_keyword = keywords[0] if keywords else ""
             if first_keyword:
-                status_callback(
-                    f"Building on {first_keyword} context"
-                )
+                status_callback(f"Building on {first_keyword} context")
             elif institutions:
-                institutions = getattr(instance, "institutions", [])
                 first_institution = institutions[0] if institutions else ""
                 status_callback(
                     f"Adding context from institution: {first_institution}"
@@ -334,16 +305,12 @@ class PaperOperations(AsyncLLMClient):
         elif model == Highlights:
             highlights = getattr(instance, "highlights", [])
             if highlights:
-                status_callback(
-                    f"Formulated {len(highlights)} annotations"
-                )
+                status_callback(f"Formulated {len(highlights)} annotations")
             else:
                 status_callback("No annotations extracted")
         elif model == TitleAuthorsAbstract:
             title = getattr(instance, "title", "")
-            status_callback(
-                f"Reading {title if title else 'untitled paper'}"
-            )
+            status_callback(f"Reading {title if title else 'untitled paper'}")
         else:
             status_callback(f"Successfully extracted {model.__name__}")
 
@@ -354,33 +321,28 @@ class PaperOperations(AsyncLLMClient):
         self,
         paper_content: str,
         status_callback: Callable[[str], None],
-        client: genai.Client,
-        cache_key: Optional[str] = None,
+        client: OpenAIClient,
         llm_model: Optional[str] = None,
     ) -> TitleAuthorsAbstract:
-        result = await self._extract_single_metadata_field(
+        return await self._extract_single_metadata_field(
             model=TitleAuthorsAbstract,
-            cache_key=cache_key,
             schema=TitleAuthorsAbstract,
             paper_content=paper_content,
             status_callback=status_callback,
             client=client,
             llm_model=llm_model,
         )
-        return result
 
     @retry_llm_operation(max_retries=3, delay=1.0)
     async def extract_institutions_keywords(
         self,
         paper_content: str,
         status_callback: Callable[[str], None],
-        client: genai.Client,
-        cache_key: Optional[str] = None,
+        client: OpenAIClient,
         llm_model: Optional[str] = None,
     ) -> InstitutionsKeywords:
         return await self._extract_single_metadata_field(
             model=InstitutionsKeywords,
-            cache_key=cache_key,
             schema=InstitutionsKeywords,
             paper_content=paper_content,
             status_callback=status_callback,
@@ -393,36 +355,31 @@ class PaperOperations(AsyncLLMClient):
         self,
         paper_content: str,
         status_callback: Callable[[str], None],
-        client: genai.Client,
-        cache_key: Optional[str] = None,
+        client: OpenAIClient,
         llm_model: Optional[str] = None,
     ) -> SummaryAndCitations:
-        result = await self._extract_single_metadata_field(
+        return await self._extract_single_metadata_field(
             model=SummaryAndCitations,
-            cache_key=cache_key,
             schema=SummaryAndCitations,
             paper_content=paper_content,
             status_callback=status_callback,
             client=client,
             llm_model=llm_model,
         )
-        return result
 
     @retry_llm_operation(max_retries=3, delay=1.0)
     async def extract_highlights(
         self,
         paper_content: str,
         status_callback: Callable[[str], None],
-        client: genai.Client,
-        cache_key: Optional[str] = None,
+        client: OpenAIClient,
         llm_model: Optional[str] = None,
     ) -> Highlights:
         return await self._extract_single_metadata_field(
             model=Highlights,
+            schema=Highlights,
             paper_content=paper_content,
             status_callback=status_callback,
-            cache_key=cache_key,
-            schema=Highlights,
             client=client,
             llm_model=llm_model,
         )
@@ -430,82 +387,72 @@ class PaperOperations(AsyncLLMClient):
     async def extract_paper_metadata(
         self,
         paper_content: str,
-        job_id: str,  # Add job_id here
+        job_id: str,
         status_callback: Optional[Callable[[str], None]] = None,
     ) -> PaperMetadataExtraction:
-        """
-        Extract metadata from paper content using LLM.
-
-        Args:
-            paper_content: The extracted text content from the PDF
-            status_callback: Optional function to update task status
-
-        Returns:
-            PaperMetadataExtraction: Extracted metadata
-        """
+        """Extract metadata from paper content using LLM."""
         async with time_it("Extracting paper metadata from LLM", job_id=job_id):
-            # Check for model override via environment variable
             extraction_model = os.getenv("EXTRACTION_MODEL")
             if extraction_model:
                 logger.info(f"Using extraction model override: {extraction_model}")
 
-            # Create a fresh client for this operation
             client = self._create_client()
-
             try:
-                try:
-                    async with time_it("Creating cache for paper content", job_id=job_id):
-                        cache_key = await self.create_cache(paper_content, client, model=extraction_model)
-                except Exception as e:
-                    logger.error(f"Failed to create cache: {e}", exc_info=True)
-                    cache_key = None
-
-                # Run all extraction tasks concurrently
-                async with time_it("Running all metadata extraction tasks concurrently", job_id=job_id):
+                async with time_it(
+                    "Running all metadata extraction tasks concurrently",
+                    job_id=job_id,
+                ):
                     tasks = [
-                        asyncio.create_task(time_it("Extracting title, authors, and abstract", job_id=job_id)(
-                            self.extract_title_authors_abstract
-                        )(
-                            paper_content=paper_content,
-                            cache_key=cache_key,
-                            status_callback=status_callback,
-                            client=client,
-                            llm_model=extraction_model,
-                        )),
-                        asyncio.create_task(time_it("Extracting institutions and keywords", job_id=job_id)(
-                            self.extract_institutions_keywords
-                        )(
-                            paper_content=paper_content,
-                            cache_key=cache_key,
-                            status_callback=status_callback,
-                            client=client,
-                            llm_model=extraction_model,
-                        )),
-                        asyncio.create_task(time_it("Extracting summary and citations", job_id=job_id)(
-                            self.extract_summary_and_citations
-                        )(
-                            paper_content=paper_content,
-                            cache_key=cache_key,
-                            status_callback=status_callback,
-                            client=client,
-                            llm_model=extraction_model,
-                        )),
-                        asyncio.create_task(time_it("Extracting highlights", job_id=job_id)(
-                            self.extract_highlights
-                        )(
-                            paper_content=paper_content,
-                            cache_key=cache_key,
-                            status_callback=status_callback,
-                            client=client,
-                            llm_model=extraction_model,
-                        )),
+                        asyncio.create_task(
+                            time_it(
+                                "Extracting title, authors, and abstract",
+                                job_id=job_id,
+                            )(self.extract_title_authors_abstract)(
+                                paper_content=paper_content,
+                                status_callback=status_callback,
+                                client=client,
+                                llm_model=extraction_model,
+                            )
+                        ),
+                        asyncio.create_task(
+                            time_it(
+                                "Extracting institutions and keywords",
+                                job_id=job_id,
+                            )(self.extract_institutions_keywords)(
+                                paper_content=paper_content,
+                                status_callback=status_callback,
+                                client=client,
+                                llm_model=extraction_model,
+                            )
+                        ),
+                        asyncio.create_task(
+                            time_it(
+                                "Extracting summary and citations",
+                                job_id=job_id,
+                            )(self.extract_summary_and_citations)(
+                                paper_content=paper_content,
+                                status_callback=status_callback,
+                                client=client,
+                                llm_model=extraction_model,
+                            )
+                        ),
+                        asyncio.create_task(
+                            time_it("Extracting highlights", job_id=job_id)(
+                                self.extract_highlights
+                            )(
+                                paper_content=paper_content,
+                                status_callback=status_callback,
+                                client=client,
+                                llm_model=extraction_model,
+                            )
+                        ),
                     ]
 
-                    # Use shield to prevent task cancellation during cleanup
                     shielded_tasks = [asyncio.shield(task) for task in tasks]
-                    results = await asyncio.gather(*shielded_tasks, return_exceptions=True)
+                    results = await asyncio.gather(
+                        *shielded_tasks, return_exceptions=True
+                    )
 
-                # Process results and handle potential errors
                 (
                     title_authors_abstract,
                     institutions_keywords,
@@ -513,7 +460,6 @@ class PaperOperations(AsyncLLMClient):
                     highlights,
                 ) = results
 
-                # Combine the results into the final metadata object
                 return PaperMetadataExtraction(
                     title=getattr(title_authors_abstract, "title", ""),
                     authors=getattr(title_authors_abstract, "authors", []),
@@ -525,7 +471,9 @@ class PaperOperations(AsyncLLMClient):
                         summary_and_citations, "summary_citations", []
                     ),
                     highlights=getattr(highlights, "highlights", []),
-                    publish_date=getattr(title_authors_abstract, "publish_date", None),
+                    publish_date=getattr(
+                        title_authors_abstract, "publish_date", None
+                    ),
                 )
 
             except Exception as e:
@@ -537,75 +485,59 @@ class PaperOperations(AsyncLLMClient):
     async def extract_data_table(
         self,
         columns: List[str],
-        file_path: str,
+        paper_content: str,
         paper_id: str,
     ) -> DataTableRow:
-        """
-        Extract structured data table from paper content.
-
-        Args:
-            columns: List of column names for the data table
-            file_path: The file path to the PDF
-        Returns:
-            str: JSON string representing the data table
-        """
-        # Create a fresh client with longer timeout since we're sending full PDFs
-        client = self._create_client(timeout=self.PDF_TIMEOUT)
-
+        """Extract structured data table values for the given columns."""
+        client = self._create_client()
         try:
             cols_str = "\n".join(f"- {col}" for col in columns)
             prompt = EXTRACT_COLS_INSTRUCTION.format(
-                cols_str=cols_str,
-                n_cols=len(columns)
+                cols_str=cols_str, n_cols=len(columns)
             )
+            prompt = f"Paper Content:\n\n{paper_content}\n\n{prompt}"
 
-            # Create the dynamic schema that matches DataTableRow structure
-            # Each column maps to a DataTableCellValue (value + citations)
             field_definitions: Dict[str, Any] = {
-                col: (DataTableCellValue, Field(description=f"Value and citations for column '{col}'"))
+                col: (
+                    DataTableCellValue,
+                    Field(description=f"Value and citations for column '{col}'"),
+                )
                 for col in columns
             }
 
-            # Create the values model that enforces all column names as required fields
             ValuesModel = create_model(
-                'ValuesModel',
-                __config__=ConfigDict(),  # Prevent extra fields
-                **field_definitions
+                "ValuesModel",
+                __config__=ConfigDict(),
+                **field_definitions,
             )
 
             response = await self.generate_content(
                 prompt,
                 model=self.default_model,
-                file_path=file_path,
                 schema=ValuesModel,
                 client=client,
             )
 
-            # Parse and validate the response
             response_json = JSONParser.validate_and_extract_json(response)
             values_instance = ValuesModel.model_validate(response_json)
 
-            # Convert the Pydantic model to a dict for DataTableRow
             values_dict: Dict[str, DataTableCellValue] = {
-                col: getattr(values_instance, col)
-                for col in columns
+                col: getattr(values_instance, col) for col in columns
             }
 
-            # Create and return the DataTableRow
-            return DataTableRow(
-                paper_id=paper_id,
-                values=values_dict
-            )
+            return DataTableRow(paper_id=paper_id, values=values_dict)
         except Exception as e:
             logger.error(f"Error extracting data table: {str(e)}", exc_info=True)
-            raise ValueError(f"Failed to extract DT for paper {paper_id}: {str(e)}")
+            raise ValueError(
+                f"Failed to extract DT for paper {paper_id}: {str(e)}"
+            )
 
 
-# Create a single instance to use throughout the application
-api_key = os.getenv("GOOGLE_API_KEY")
+def _resolve_model(env_var: str, fallback: str) -> str:
+    return os.getenv(env_var) or fallback
 
-if not api_key:
-    raise ValueError("GOOGLE_API_KEY environment variable is not set")
 
-llm_client = PaperOperations(api_key=api_key, default_model=DEFAULT_CHAT_MODEL)
-fast_llm_client = PaperOperations(api_key=api_key, default_model=FAST_CHAT_MODEL)
+llm_client = PaperOperations(default_model=_resolve_model("OPENAI_MODEL", DEFAULT_CHAT_MODEL))
+fast_llm_client = PaperOperations(
+    default_model=_resolve_model("OPENAI_FAST_MODEL", FAST_CHAT_MODEL)
+)

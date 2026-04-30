@@ -508,45 +508,45 @@ export function SidePanelContent({
                 for (const event of parts) {
                     if (!event.trim()) continue;
 
+                    let parsedChunk;
                     try {
-                        // Parse the JSON chunk
-                        const parsedChunk = JSON.parse(event.trim());
-                        const chunkType = parsedChunk.type;
-                        const chunkContent = parsedChunk.content;
-
-                        if (chunkType === 'content') {
-                            contentChunks++;
-                            console.log(`Processing content chunk #${contentChunks}:`, chunkContent);
-
-                            // Add this content to our accumulated content
-                            accumulatedContent += chunkContent;
-
-                            // Update the message with the new content
-                            setStreamingChunks(prev => {
-                                const newChunks = [...prev, chunkContent];
-                                // Update previous content for animation tracking
-                                return newChunks;
-                            });
-                        }
-                        else if (chunkType === 'references') {
-                            referenceChunks++;
-                            console.log(`Processing references chunk #${referenceChunks}:`, chunkContent);
-
-                            // Store the references
-                            references = chunkContent;
-
-                            // Update the message with the references
-                            setStreamingReferences(chunkContent);
-                        } else if (chunkType === 'error') {
-                            console.error('Server error in stream:', chunkContent);
-                            throw new Error(`Server error: ${chunkContent}`);
-                        } else {
-                            console.warn(`Unknown chunk type: ${chunkType}`);
-                        }
-                    } catch (error) {
-                        console.error('Error processing event:', error, 'Raw event:', event);
-                        // Continue processing other events rather than breaking
+                        parsedChunk = JSON.parse(event.trim());
+                    } catch (parseError) {
+                        console.error('Error parsing event JSON:', parseError, 'Raw event:', event);
                         continue;
+                    }
+
+                    const chunkType = parsedChunk.type;
+                    const chunkContent = parsedChunk.content;
+
+                    if (chunkType === 'content') {
+                        contentChunks++;
+                        console.log(`Processing content chunk #${contentChunks}:`, chunkContent);
+
+                        // Add this content to our accumulated content
+                        accumulatedContent += chunkContent;
+
+                        // Update the message with the new content
+                        setStreamingChunks(prev => {
+                            const newChunks = [...prev, chunkContent];
+                            // Update previous content for animation tracking
+                            return newChunks;
+                        });
+                    }
+                    else if (chunkType === 'references') {
+                        referenceChunks++;
+                        console.log(`Processing references chunk #${referenceChunks}:`, chunkContent);
+
+                        // Store the references
+                        references = chunkContent;
+
+                        // Update the message with the references
+                        setStreamingReferences(chunkContent);
+                    } else if (chunkType === 'error') {
+                        console.error('Server error in stream:', chunkContent);
+                        throw new Error(`Server error: ${chunkContent}`);
+                    } else {
+                        console.warn(`Unknown chunk type: ${chunkType}`);
                     }
                 }
             }

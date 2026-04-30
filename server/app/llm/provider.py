@@ -46,6 +46,71 @@ from openai.types.chat import (
 logger = logging.getLogger(__name__)
 
 
+def _is_azure_openai_enabled() -> bool:
+    return os.getenv("AZURE_OPENAI", "").strip().lower() in ("1", "true", "yes")
+
+
+def _is_openai_compatible_azure_endpoint(url: Optional[str]) -> bool:
+    """Azure exposes an OpenAI-compatible v1 endpoint ending in `/openai/v1`.
+    Such endpoints work with the plain `openai.OpenAI` client (with base_url),
+    not the deployment-routed `openai.AzureOpenAI` client.
+    """
+    return bool(url) and url.rstrip("/").endswith("/openai/v1")
+
+
+_UNSUPPORTED_STRICT_KEYWORDS = {
+    "minLength", "maxLength", "pattern", "format",
+    "minimum", "maximum", "multipleOf",
+    "patternProperties", "unevaluatedProperties", "propertyNames",
+    "minProperties", "maxProperties",
+    "unevaluatedItems", "contains", "minContains", "maxContains",
+    "minItems", "maxItems", "uniqueItems",
+}
+
+
+def _patch_schema_for_azure_strict(schema: Any) -> Any:
+    """Patch a JSON schema for Azure OpenAI strict structured-output mode.
+
+    - $ref nodes must have no sibling keywords
+    - additionalProperties: false on every object
+    - all properties listed in required
+    - unsupported keywords stripped
+    """
+    if not isinstance(schema, dict):
+        return schema
+
+    if "$ref" in schema:
+        ref = schema["$ref"]
+        schema.clear()
+        schema["$ref"] = ref
+        return schema
+
+    for key in _UNSUPPORTED_STRICT_KEYWORDS:
+        schema.pop(key, None)
+
+    if schema.get("type") == "object" or "properties" in schema:
+        schema["additionalProperties"] = False
+        props = schema.get("properties", {})
+        schema["required"] = list(props.keys())
+        for prop in props.values():
+            _patch_schema_for_azure_strict(prop)
+
+    if "items" in schema:
+        _patch_schema_for_azure_strict(schema["items"])
+
+    for sub in (
+        schema.get("anyOf", [])
+        + schema.get("allOf", [])
+        + schema.get("oneOf", [])
+    ):
+        _patch_schema_for_azure_strict(sub)
+
+    for defn in schema.get("$defs", {}).values():
+        _patch_schema_for_azure_strict(defn)
+
+    return schema
+
+
 class LLMProvider(Enum):
     GEMINI = "gemini"
     OPENAI = "openai"
@@ -436,18 +501,45 @@ class OpenAIProvider(BaseLLMProvider):
         fast_model: Optional[str] = None,
         supports_pdf_input: bool = True,
     ):
-
         # Allow explicit api_key/base_url overrides while keeping env-based defaults.
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY environment variable is required")
 
-        # For standard OpenAI, base_url should be None. For OpenAI-compatible
-        # providers, pass a custom base_url when constructing this provider.
-        self._client = openai.OpenAI(api_key=self.api_key, base_url=base_url)
-        self._default_model = default_model or "gpt-5.4"
-        self._fast_model = fast_model or "gpt-4.1"
+        # AZURE_OPENAI=true triggers Azure-strict schema patching. The HTTP
+        # client choice depends on the endpoint shape: Azure's v1
+        # OpenAI-compatible endpoint (ending /openai/v1) uses the plain
+        # OpenAI client, while the deployment-routed Azure URL uses
+        # AzureOpenAI.
+        self.is_azure = _is_azure_openai_enabled() and base_url is None
+        if self.is_azure:
+            azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+            if not azure_endpoint:
+                raise ValueError(
+                    "AZURE_OPENAI=true requires AZURE_OPENAI_ENDPOINT to be set"
+                )
+            if _is_openai_compatible_azure_endpoint(azure_endpoint):
+                self._client = openai.OpenAI(
+                    api_key=self.api_key, base_url=azure_endpoint
+                )
+            else:
+                self._client = openai.AzureOpenAI(
+                    api_key=self.api_key,
+                    azure_endpoint=azure_endpoint,
+                    api_version=os.getenv(
+                        "AZURE_OPENAI_API_VERSION", "2025-04-01-preview"
+                    ),
+                )
+        else:
+            # For standard OpenAI, base_url should be None. For OpenAI-compatible
+            # providers, pass a custom base_url when constructing this provider.
+            resolved_base_url = base_url or os.getenv("OPENAI_BASE_URL")
+            self._client = openai.OpenAI(
+                api_key=self.api_key, base_url=resolved_base_url
+            )
+
+        self._default_model = default_model or os.getenv("OPENAI_MODEL") or "gpt-5.4"
+        self._fast_model = fast_model or os.getenv("OPENAI_FAST_MODEL") or "gpt-4.1"
         # Some OpenAI-compatible endpoints (Cerebras, Groq) reject `file` content
         # blocks. When False, FileContent for PDFs is text-extracted inline.
         self.supports_pdf_input = supports_pdf_input
@@ -490,12 +582,17 @@ class OpenAIProvider(BaseLLMProvider):
 
         # Apply structured output schema if provided
         if schema:
+            schema_for_request = (
+                _patch_schema_for_azure_strict(json.loads(json.dumps(schema)))
+                if self.is_azure
+                else schema
+            )
             kwargs["response_format"] = {
                 "type": "json_schema",
                 "json_schema": {
                     "name": "structured_response",
                     "strict": True,
-                    "schema": schema,
+                    "schema": schema_for_request,
                 },
             }
 

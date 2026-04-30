@@ -356,36 +356,37 @@ function ProjectConversationPageContent() {
                     for (const event of parts) {
                         if (!event.trim()) continue;
 
+                        let parsedChunk;
                         try {
-                            const parsedChunk = JSON.parse(event.trim());
-
-                            if (parsedChunk && typeof parsedChunk === 'object' && 'type' in parsedChunk) {
-                                const chunkType = parsedChunk.type;
-                                const chunkContent = parsedChunk.content;
-
-                                if (chunkType === 'content') {
-                                    accumulatedContent += chunkContent;
-                                    setStreamingChunks(prev => [...prev, chunkContent]);
-                                } else if (chunkType === 'references') {
-                                    references = chunkContent;
-                                    setStreamingReferences(chunkContent);
-                                } else if (chunkType === 'status') {
-                                    setStatusMessage(chunkContent);
-                                } else if (chunkType === 'error') {
-                                    console.error('Server error in stream:', chunkContent);
-                                    throw new Error(`Server error: ${chunkContent}`);
-                                } else {
-                                    console.warn(`Unknown chunk type: ${chunkType}`, parsedChunk);
-                                }
-                            } else if (parsedChunk) {
-                                console.warn('Received unexpected chunk format:', parsedChunk);
-                            }
+                            parsedChunk = JSON.parse(event.trim());
                         } catch (parseError) {
                             console.error('Error parsing JSON event:', parseError);
                             console.error('Raw event that failed to parse:', JSON.stringify(event));
                             console.error('Event length:', event.length);
                             console.error('Event preview (first 200 chars):', event.substring(0, 200));
                             continue;
+                        }
+
+                        if (parsedChunk && typeof parsedChunk === 'object' && 'type' in parsedChunk) {
+                            const chunkType = parsedChunk.type;
+                            const chunkContent = parsedChunk.content;
+
+                            if (chunkType === 'content') {
+                                accumulatedContent += chunkContent;
+                                setStreamingChunks(prev => [...prev, chunkContent]);
+                            } else if (chunkType === 'references') {
+                                references = chunkContent;
+                                setStreamingReferences(chunkContent);
+                            } else if (chunkType === 'status') {
+                                setStatusMessage(chunkContent);
+                            } else if (chunkType === 'error') {
+                                console.error('Server error in stream:', chunkContent);
+                                throw new Error(`Server error: ${chunkContent}`);
+                            } else {
+                                console.warn(`Unknown chunk type: ${chunkType}`, parsedChunk);
+                            }
+                        } else if (parsedChunk) {
+                            console.warn('Received unexpected chunk format:', parsedChunk);
                         }
                     }
                 }

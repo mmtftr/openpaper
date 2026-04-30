@@ -13,6 +13,7 @@ class SubscriptionCreate(BaseModel):
     """Schema for creating a subscription"""
 
     user_id: uuid.UUID
+    plan: str = SubscriptionPlan.BASIC.value
     stripe_customer_id: Optional[str] = None
     stripe_subscription_id: Optional[str] = None
     stripe_price_id: Optional[str] = None
@@ -26,6 +27,7 @@ class SubscriptionCreate(BaseModel):
 class SubscriptionUpdate(BaseModel):
     """Schema for updating a subscription"""
 
+    plan: Optional[str] = None
     stripe_customer_id: Optional[str] = None
     stripe_subscription_id: Optional[str] = None
     stripe_price_id: Optional[str] = None

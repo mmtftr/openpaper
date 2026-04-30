@@ -6,6 +6,7 @@ from typing import Callable, List, Tuple, Optional
 from src.schemas import DataTableRow, DataTableSchema, DataTableResult, DataTableCellValue, DocumentMapping
 from src.s3_service import s3_service
 from src.llm_client import fast_llm_client
+from src.parser import extract_text_from_pdf
 
 
 logger = logging.getLogger(__name__)
@@ -45,10 +46,13 @@ async def _process_single_paper(
             with tempfile.NamedTemporaryFile(delete_on_close=True) as temp_file:
                 temp_file.write(raw_file_bytes)
                 temp_file_path = temp_file.name
+                paper_content = await asyncio.to_thread(
+                    extract_text_from_pdf, temp_file_path
+                )
 
                 # Use LLM to extract data for the specified columns
                 paper_col_values: DataTableRow = await fast_llm_client.extract_data_table(
-                    file_path=temp_file_path,
+                    paper_content=paper_content,
                     columns=columns,
                     paper_id=paper_id
                 )

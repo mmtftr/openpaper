@@ -31,13 +31,61 @@ class ModelType(Enum):
 class BaseLLMClient:
     """Unified LLM client that supports multiple providers"""
 
-    def __init__(self, default_provider: LLMProvider = LLMProvider.GEMINI):
-        self.default_provider = default_provider
+    def __init__(self, default_provider: Optional[LLMProvider] = None):
         self._providers: Dict[LLMProvider, BaseLLMProvider] = {}
 
-        # Initialize all providers to ensure they are ready for use
+        if default_provider is None:
+            env_value = os.getenv("DEFAULT_LLM_PROVIDER", LLMProvider.OPENAI.value)
+            try:
+                default_provider = LLMProvider(env_value.lower())
+            except ValueError:
+                logger.warning(
+                    "Invalid DEFAULT_LLM_PROVIDER=%s, using %s",
+                    env_value,
+                    LLMProvider.OPENAI.value,
+                )
+                default_provider = LLMProvider.OPENAI
+
+        # Eagerly initialize every provider whose credentials are present.
+        # Missing credentials are silent — the provider is just unavailable.
         for provider in LLMProvider:
-            self._initialize_provider(provider)
+            if self._is_provider_configured(provider):
+                try:
+                    self._initialize_provider(provider)
+                except Exception as exc:
+                    logger.warning(
+                        "Skipping unavailable provider %s: %s", provider.value, exc
+                    )
+
+        # If the requested default isn't actually configured (common in
+        # self-hosted setups that only configure one provider), fall back to
+        # whatever IS available. This keeps callers like
+        # `BaseLLMClient(default_provider=GEMINI)` working when Gemini is
+        # absent but OpenAI is set up.
+        if default_provider not in self._providers and self._providers:
+            available = next(iter(self._providers.keys()))
+            logger.info(
+                "Default provider %s not configured; using %s instead",
+                default_provider.value,
+                available.value,
+            )
+            default_provider = available
+        self.default_provider = default_provider
+
+    def _is_provider_configured(self, provider: LLMProvider) -> bool:
+        if provider == LLMProvider.GEMINI:
+            return bool(os.getenv("GEMINI_API_KEY"))
+        if provider == LLMProvider.OPENAI:
+            return bool(os.getenv("OPENAI_API_KEY"))
+        if provider == LLMProvider.GROQ:
+            return bool(os.getenv("GROQ_API_KEY") and os.getenv("GROQ_BASE_URL"))
+        if provider == LLMProvider.CEREBRAS:
+            return bool(
+                os.getenv("CEREBRAS_API_KEY") and os.getenv("CEREBRAS_BASE_URL")
+            )
+        if provider == LLMProvider.ANTHROPIC:
+            return bool(os.getenv("ANTHROPIC_API_KEY"))
+        return False
 
     def get_chat_model_options(
         self, exclude: Optional[List[LLMProvider]] = None
@@ -92,11 +140,28 @@ class BaseLLMClient:
                 raise ValueError(f"Unsupported LLM provider: {provider}")
 
     def _get_provider(self, provider: Optional[LLMProvider] = None) -> BaseLLMProvider:
-        """Get the appropriate provider, initializing if necessary"""
+        """Get the appropriate provider.
+
+        If the requested provider isn't configured, fall back to the default
+        provider so call sites that hardcode a non-default (e.g. CEREBRAS for
+        evidence gathering) keep working in self-hosted setups that only
+        configure one provider.
+        """
         target_provider = provider or self.default_provider
 
         if target_provider not in self._providers:
-            self._initialize_provider(target_provider)
+            if target_provider != self.default_provider:
+                logger.debug(
+                    "Provider %s not configured; falling back to %s",
+                    target_provider.value,
+                    self.default_provider.value,
+                )
+                target_provider = self.default_provider
+
+            if target_provider not in self._providers:
+                raise ValueError(
+                    f"LLM provider '{target_provider.value}' is not configured"
+                )
 
         return self._providers[target_provider]
 
