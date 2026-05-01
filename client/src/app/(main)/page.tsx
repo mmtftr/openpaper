@@ -538,7 +538,7 @@ export default function Home() {
 			<Dialog open={isUploading} onOpenChange={(open) => !open && setIsUploading(false)}>
 				<DialogContent
 					className="sm:max-w-md"
-					hideCloseButton
+					showCloseButton={false}
 					onInteractOutside={(e) => {
 						e.preventDefault();
 					}}>

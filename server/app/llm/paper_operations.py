@@ -3,7 +3,6 @@ import re
 import uuid
 from typing import AsyncGenerator, Literal, Optional, Sequence, Union
 
-import httpx
 from app.database.crud.paper_crud import paper_crud
 from app.database.models import Paper
 from app.llm.base import BaseLLMClient, ModelType
@@ -68,20 +67,7 @@ class PaperOperations(BaseLLMClient):
             schema=audio_overview_schema,
         )
 
-        signed_url = s3_service.get_cached_presigned_url(
-            db,
-            paper_id=str(paper.id),
-            object_key=str(paper.s3_object_key),
-            current_user=user,
-        )
-
-        if not signed_url:
-            raise ValueError(
-                f"Could not generate presigned URL for paper with ID {paper_id}."
-            )
-
-        # Retrieve and encode the PDF byte
-        pdf_bytes = httpx.get(signed_url).content
+        pdf_bytes = s3_service.get_object_bytes(str(paper.s3_object_key))
 
         message_content = [
             FileContent(
@@ -168,20 +154,7 @@ class PaperOperations(BaseLLMClient):
         START_DELIMITER = "---EVIDENCE---"
         END_DELIMITER = "---END-EVIDENCE---"
 
-        signed_url = s3_service.get_cached_presigned_url(
-            db,
-            paper_id=str(paper.id),
-            object_key=str(paper.s3_object_key),
-            current_user=current_user,
-        )
-
-        if not signed_url:
-            raise ValueError(
-                f"Could not generate presigned URL for paper with ID {paper_id}."
-            )
-
-        # Retrieve and encode the PDF byte
-        pdf_bytes = httpx.get(signed_url).content
+        pdf_bytes = s3_service.get_object_bytes(str(paper.s3_object_key))
 
         message_content = [
             TextContent(text=formatted_prompt),

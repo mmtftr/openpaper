@@ -326,7 +326,7 @@ export const ConversationView = ({
 						) : (
 							<>
 								<Dialog open={!isPapersLoading && papers.length === 0 && messages.length === 0 && !authLoading}>
-									<DialogContent hideCloseButton onInteractOutside={(e) => e.preventDefault()}>
+									<DialogContent showCloseButton={false} onInteractOutside={(e) => e.preventDefault()}>
 										<DialogHeader>
 											<div className="flex items-center justify-center mb-4">
 												<div className="flex items-center justify-center w-12 h-12 rounded-full bg-primary/10">

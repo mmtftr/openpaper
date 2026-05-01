@@ -213,6 +213,18 @@ class S3Service:
             logger.error(f"Error generating presigned URL: {e}")
             return None
 
+    def get_object_bytes(self, object_key: str) -> bytes:
+        """
+        Fetch the raw bytes of an S3 object directly via boto3.
+
+        Used when the server itself needs the file (e.g. for sending to an
+        LLM). Bypasses the public presigned URL — the container can talk to
+        MinIO/S3 directly and shouldn't be making egress through the public
+        host to fetch its own objects.
+        """
+        response = self.s3_client.get_object(Bucket=self.bucket_name, Key=object_key)
+        return response["Body"].read()
+
     def get_file_size_in_kb(self, object_key: str) -> Optional[int]:
         """
         Get the size of a file in KB from S3
