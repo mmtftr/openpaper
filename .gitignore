@@ -57,3 +57,6 @@ benchmark_manifest.json
 eval_dataset.json
 eval*.json
 comparison_all.csv
+
+# local notes
+PDF_HIGHLIGHTER_CAVEATS.md

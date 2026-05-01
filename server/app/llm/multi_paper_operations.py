@@ -46,6 +46,8 @@ class MultiPaperOperations(EvidenceOperations):
         evidence_gathered: EvidenceCollection,
         llm_provider: Optional[LLMProvider] = None,
         user_references: Optional[Sequence[str]] = None,
+        model: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
         db: Session = Depends(get_db),
     ) -> AsyncGenerator[Union[str, dict], None]:
         """
@@ -120,6 +122,8 @@ class MultiPaperOperations(EvidenceOperations):
                     system_prompt=formatted_system_prompt,
                     history=conversation_history,
                     provider=llm_provider,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
                 )
                 while True:
                     chunk = await asyncio.to_thread(get_next_chunk, blocking_iterator)

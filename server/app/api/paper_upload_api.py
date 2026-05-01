@@ -135,7 +135,7 @@ async def get_upload_status(
     return JSONResponse(status_code=200, content=response_content)
 
 
-@paper_upload_router.post("/from-url/")
+@paper_upload_router.post("/from-url")
 async def upload_pdf_from_url(
     request: UploadFromUrlSchema,
     background_tasks: BackgroundTasks,
@@ -206,7 +206,7 @@ async def upload_pdf_from_url(
     )
 
 
-@paper_upload_router.post("/")
+@paper_upload_router.post("")
 async def upload_pdf(
     request: Request,
     background_tasks: BackgroundTasks,

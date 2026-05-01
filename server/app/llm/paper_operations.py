@@ -107,6 +107,8 @@ class PaperOperations(BaseLLMClient):
         user_references: Optional[Sequence[str]] = None,
         response_style: Optional[str] = "normal",
         model_type: ModelType = ModelType.DEFAULT,
+        model: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
         db: Session = Depends(get_db),
     ) -> AsyncGenerator[Union[str, dict], None]:
         """
@@ -173,6 +175,8 @@ class PaperOperations(BaseLLMClient):
             history=conversation_history,
             provider=llm_provider,
             model_type=model_type,
+            model=model,
+            reasoning_effort=reasoning_effort,
         ):
             text = chunk.text
 

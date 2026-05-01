@@ -591,6 +591,8 @@ export default function PaperView() {
         composeHighlightId,
         onComposeHighlightDismiss,
         addAnnotation,
+        updateAnnotation,
+        removeAnnotation,
     };
 
     if (isMobile) {

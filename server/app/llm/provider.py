@@ -119,6 +119,39 @@ class LLMProvider(Enum):
     ANTHROPIC = "anthropic"
 
 
+@dataclass
+class ModelOption:
+    """A user-selectable chat model exposed by a provider."""
+
+    id: str
+    name: str
+
+
+def _parse_models_env(value: Optional[str]) -> List[ModelOption]:
+    """Parse a CSV env var into a list of ModelOptions.
+
+    Each entry is either a bare model id (`gpt-5`) or `id|Display Name`
+    (`gpt-5|GPT-5`). Whitespace is trimmed.
+    """
+    if not value:
+        return []
+    out: List[ModelOption] = []
+    for entry in value.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if "|" in entry:
+            mid, mname = entry.split("|", 1)
+            mid = mid.strip()
+            mname = mname.strip() or mid
+        else:
+            mid = entry
+            mname = entry
+        if mid:
+            out.append(ModelOption(id=mid, name=mname))
+    return out
+
+
 class LLMResponse:
     """Standardized response format across all LLM providers"""
 
@@ -214,6 +247,20 @@ class BaseLLMProvider(ABC):
     def get_fast_model(self) -> str:
         """Get the fast model for this provider"""
         pass
+
+    def get_supported_models(self) -> List[ModelOption]:
+        """Models this provider exposes for user selection.
+
+        Defaults to `[default, fast]` (deduped). Subclasses override to read
+        an env-configurable list.
+        """
+        out: List[ModelOption] = []
+        seen: set = set()
+        for mid in (self.get_default_model(), self.get_fast_model()):
+            if mid and mid not in seen:
+                seen.add(mid)
+                out.append(ModelOption(id=mid, name=mid))
+        return out
 
     @abstractmethod
     def _convert_message_content(self, content: MessageParam) -> Any:
@@ -346,6 +393,9 @@ class GeminiProvider(BaseLLMProvider):
         **kwargs,
     ) -> Iterator[StreamChunk]:
         """Send streaming message to Gemini"""
+        # Gemini doesn't expose a comparable reasoning-effort knob; drop it
+        # so it doesn't reach the SDK as an unrecognized kwarg.
+        kwargs.pop("reasoning_effort", None)
 
         config = GenerateContentConfig(
             system_instruction=system_prompt,
@@ -435,6 +485,16 @@ class GeminiProvider(BaseLLMProvider):
     def get_fast_model(self) -> str:
         return self._fast_model
 
+    def get_supported_models(self) -> List[ModelOption]:
+        parsed = _parse_models_env(os.getenv("GEMINI_MODELS"))
+        if parsed:
+            if not any(m.id == self._default_model for m in parsed):
+                parsed.insert(
+                    0, ModelOption(id=self._default_model, name=self._default_model)
+                )
+            return parsed
+        return super().get_supported_models()
+
     def _convert_chat_history_to_api_format(
         self,
         messages: List[Message],
@@ -500,6 +560,7 @@ class OpenAIProvider(BaseLLMProvider):
         default_model: Optional[str] = None,
         fast_model: Optional[str] = None,
         supports_pdf_input: bool = True,
+        models_env_var: Optional[str] = "OPENAI_MODELS",
     ):
         # Allow explicit api_key/base_url overrides while keeping env-based defaults.
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
@@ -543,6 +604,7 @@ class OpenAIProvider(BaseLLMProvider):
         # Some OpenAI-compatible endpoints (Cerebras, Groq) reject `file` content
         # blocks. When False, FileContent for PDFs is text-extracted inline.
         self.supports_pdf_input = supports_pdf_input
+        self._models_env_var = models_env_var
 
     @property
     def client(self) -> openai.OpenAI:
@@ -640,6 +702,16 @@ class OpenAIProvider(BaseLLMProvider):
     ) -> Iterator[StreamChunk]:
         """Send streaming message to OpenAI"""
         messages = self._prepare_openai_messages(history, message, system_prompt, file)
+
+        # Map our generic reasoning effort levels to OpenAI's chat completions
+        # API. xhigh has no native equivalent, so it falls through to high.
+        # Only attached for the canonical OpenAI provider — OpenAI-compatible
+        # endpoints (Groq/Cerebras) reject unknown kwargs.
+        reasoning_effort = kwargs.pop("reasoning_effort", None)
+        if reasoning_effort and self._models_env_var == "OPENAI_MODELS":
+            mapped = "high" if reasoning_effort == "xhigh" else reasoning_effort
+            kwargs["reasoning_effort"] = mapped
+
         stream = self.client.chat.completions.create(
             model=model,
             messages=messages,
@@ -836,6 +908,20 @@ class OpenAIProvider(BaseLLMProvider):
     def get_fast_model(self) -> str:
         return self._fast_model
 
+    def get_supported_models(self) -> List[ModelOption]:
+        parsed = (
+            _parse_models_env(os.getenv(self._models_env_var))
+            if self._models_env_var
+            else []
+        )
+        if parsed:
+            if not any(m.id == self._default_model for m in parsed):
+                parsed.insert(
+                    0, ModelOption(id=self._default_model, name=self._default_model)
+                )
+            return parsed
+        return super().get_supported_models()
+
 
 class AnthropicProvider(BaseLLMProvider):
     """Anthropic (Claude) LLM provider implementation.
@@ -958,6 +1044,10 @@ class AnthropicProvider(BaseLLMProvider):
             tool_calls=tool_calls,
         )
 
+    # Levels accepted by Anthropic's output_config.effort. low/medium/high/
+    # xhigh all map straight through; our UI doesn't expose `max`.
+    _SUPPORTED_EFFORT = {"low", "medium", "high", "xhigh", "max"}
+
     def send_message_stream(
         self,
         model: str,
@@ -967,6 +1057,7 @@ class AnthropicProvider(BaseLLMProvider):
         file: FileContent | None = None,
         **kwargs,
     ) -> Iterator[StreamChunk]:
+        reasoning_effort = kwargs.pop("reasoning_effort", None)
         params: Dict[str, Any] = {
             "model": model,
             "max_tokens": kwargs.pop("max_tokens", self.DEFAULT_MAX_TOKENS_STREAM),
@@ -986,6 +1077,9 @@ class AnthropicProvider(BaseLLMProvider):
             new_message=message,
             file=file,
         )
+
+        if reasoning_effort and reasoning_effort in self._SUPPORTED_EFFORT:
+            params["output_config"] = {"effort": reasoning_effort}
 
         params.update(kwargs)
 
@@ -1008,6 +1102,16 @@ class AnthropicProvider(BaseLLMProvider):
 
     def get_fast_model(self) -> str:
         return self._fast_model
+
+    def get_supported_models(self) -> List[ModelOption]:
+        parsed = _parse_models_env(os.getenv("ANTHROPIC_MODELS"))
+        if parsed:
+            if not any(m.id == self._default_model for m in parsed):
+                parsed.insert(
+                    0, ModelOption(id=self._default_model, name=self._default_model)
+                )
+            return parsed
+        return super().get_supported_models()
 
     def _convert_tool_declaration(self, func_decl: Dict[str, Any]) -> Dict[str, Any]:
         """Convert the generic tool-declaration shape to Anthropic's.

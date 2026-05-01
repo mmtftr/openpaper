@@ -36,8 +36,7 @@ export function useAnnotations(paperId: string) {
                 method: 'DELETE',
             });
 
-            const updatedAnnotations = annotations.filter(a => a.id !== annotationId);
-            setAnnotations(updatedAnnotations);
+            setAnnotations(prev => prev.filter(a => a.id !== annotationId));
         } catch (error) {
             console.error('Error removing annotation:', error);
             throw error;
@@ -56,11 +55,9 @@ export function useAnnotations(paperId: string) {
                 }),
             });
 
-            const updatedAnnotations = annotations.map(a =>
-                a.id === annotationId ? updatedAnnotation : a
+            setAnnotations(prev =>
+                prev.map(a => (a.id === annotationId ? updatedAnnotation : a))
             );
-
-            setAnnotations(updatedAnnotations);
             return updatedAnnotation;
         } catch (error) {
             console.error('Error updating annotation:', error);

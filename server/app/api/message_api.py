@@ -2,7 +2,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import AsyncGenerator, List, Optional, Union
+from typing import AsyncGenerator, List, Literal, Optional, Union
 
 from app.auth.dependencies import get_required_user
 from app.database.crud.conversation_crud import conversation_crud
@@ -84,12 +84,21 @@ async def _stream_chat_chunks(
 
 @message_router.get("/models")
 async def get_available_models() -> dict:
-    return {
-        "models": operations.get_chat_model_options(
-            exclude=[LLMProvider.GROQ, LLMProvider.CEREBRAS]
-        ),
-        "default": operations.default_provider.value,
-    }
+    models = operations.get_chat_models(
+        exclude=[LLMProvider.GROQ, LLMProvider.CEREBRAS]
+    )
+    default_id: Optional[str] = None
+    default_provider = operations.default_provider.value
+    for entry in models:
+        if entry["provider"] == default_provider:
+            default_id = entry["id"]
+            break
+    if default_id is None and models:
+        default_id = models[0]["id"]
+    return {"models": models, "default": default_id}
+
+
+ReasoningEffort = Literal["low", "medium", "high", "xhigh"]
 
 
 class MultiPaperChatRequest(BaseModel):
@@ -97,6 +106,8 @@ class MultiPaperChatRequest(BaseModel):
     user_query: str
     user_references: Optional[List[str]] = None
     llm_provider: Optional[LLMProvider] = None
+    model: Optional[str] = None
+    reasoning_effort: Optional[ReasoningEffort] = None
     project_id: Optional[str] = None
 
 
@@ -213,6 +224,8 @@ async def chat_message_multipaper(
                 chat_generator = operations.chat_with_papers(
                     question=request.user_query,
                     llm_provider=request.llm_provider,
+                    model=request.model,
+                    reasoning_effort=request.reasoning_effort,
                     user_references=request.user_references,
                     evidence_gathered=evidence_collection,
                     conversation_id=request.conversation_id,
@@ -324,6 +337,8 @@ class ChatMessageRequest(BaseModel):
     user_references: Optional[List[str]] = None
     style: Optional[ResponseStyle] = ResponseStyle.NORMAL
     llm_provider: Optional[LLMProvider] = None
+    model: Optional[str] = None
+    reasoning_effort: Optional[ReasoningEffort] = None
 
 
 @message_router.post("/chat/paper")
@@ -354,6 +369,8 @@ async def chat_message_stream(
                     question=request.user_query,
                     current_user=current_user,
                     llm_provider=request.llm_provider,
+                    model=request.model,
+                    reasoning_effort=request.reasoning_effort,
                     user_references=request.user_references,
                     response_style=request.style,
                     db=db,

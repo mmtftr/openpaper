@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { File, User as UserIcon } from 'lucide-react';
+import { File, Pencil, Trash2, User as UserIcon } from 'lucide-react';
 
 import {
 	HighlightColor,
@@ -79,6 +79,8 @@ interface AnnotationsViewProps {
 	composeHighlightId?: string | null;
 	onComposeHighlightDismiss?: (cancelledHighlightId?: string | null) => void;
 	addAnnotation?: (highlightId: string, content: string) => Promise<PaperHighlightAnnotation>;
+	updateAnnotation?: (annotationId: string, content: string) => Promise<unknown> | void;
+	removeAnnotation?: (annotationId: string) => void;
 	readonly?: boolean;
 }
 
@@ -97,6 +99,8 @@ export function AnnotationsView({
 	composeHighlightId = null,
 	onComposeHighlightDismiss,
 	addAnnotation,
+	updateAnnotation,
+	removeAnnotation,
 	readonly = false,
 }: AnnotationsViewProps) {
 	const firstAnnotationRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -112,6 +116,11 @@ export function AnnotationsView({
 	const [replyDraft, setReplyDraft] = useState('');
 	const [isReplySaving, setIsReplySaving] = useState(false);
 	const replyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+	/** id of the annotation currently being edited in-place (null = none) */
+	const [editingId, setEditingId] = useState<string | null>(null);
+	const [editDraft, setEditDraft] = useState('');
+	const [isEditSaving, setIsEditSaving] = useState(false);
+	const editTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
 	const threads = useMemo<AnnotationThread[]>(() => {
 		const annotationMap = new Map<string, PaperHighlightAnnotation[]>();
@@ -207,6 +216,8 @@ export function AnnotationsView({
 	useEffect(() => {
 		setReplyOpen(false);
 		setReplyDraft('');
+		setEditingId(null);
+		setEditDraft('');
 	}, [activeHighlight?.id]);
 
 	useLayoutEffect(() => {
@@ -216,6 +227,17 @@ export function AnnotationsView({
 		el.focus();
 		autoResizeReplyTextarea(el);
 	}, [replyOpen]);
+
+	useLayoutEffect(() => {
+		if (!editingId) return;
+		const el = editTextareaRef.current;
+		if (!el) return;
+		el.focus();
+		// place caret at end so the user can keep typing
+		const len = el.value.length;
+		el.setSelectionRange(len, len);
+		autoResizeReplyTextarea(el);
+	}, [editingId]);
 
 	useLayoutEffect(() => {
 		if (!composeHighlightId) return;
@@ -267,6 +289,40 @@ export function AnnotationsView({
 			setExpandedThreads((prev) => ({ ...prev, [highlightId]: true }));
 		} finally {
 			setIsReplySaving(false);
+		}
+	};
+
+	const handleEditStart = (annotation: PaperHighlightAnnotation) => {
+		setEditingId(annotation.id);
+		setEditDraft(annotation.content);
+		setReplyOpen(false);
+		setExpandedThreads((prev) => ({ ...prev, [annotation.highlight_id]: true }));
+	};
+
+	const handleEditCancel = () => {
+		setEditingId(null);
+		setEditDraft('');
+	};
+
+	const handleEditSave = async (annotationId: string) => {
+		if (!updateAnnotation || !editDraft.trim() || isEditSaving) return;
+		setIsEditSaving(true);
+		try {
+			await updateAnnotation(annotationId, editDraft.trim());
+			setEditingId(null);
+			setEditDraft('');
+		} finally {
+			setIsEditSaving(false);
+		}
+	};
+
+	const handleDelete = (annotationId: string) => {
+		if (!removeAnnotation) return;
+		// match InlineAnnotationCard: no confirm dialog
+		removeAnnotation(annotationId);
+		if (editingId === annotationId) {
+			setEditingId(null);
+			setEditDraft('');
 		}
 	};
 
@@ -398,6 +454,9 @@ export function AnnotationsView({
 									) : null}
 									{visible.map((annotation) => {
 										const isAI = annotation.role === 'assistant';
+										const canEdit = !isAI && !readonly && isActive && Boolean(updateAnnotation);
+										const canDelete = !isAI && !readonly && isActive && Boolean(removeAnnotation);
+										const isEditing = editingId === annotation.id;
 										return (
 										<div key={annotation.id} className="flex flex-col gap-2">
 											<div className="flex items-center gap-2">
@@ -417,13 +476,115 @@ export function AnnotationsView({
 												<span className="text-xs text-muted-foreground">
 													{formatAnnotationDate(annotation.created_at)}
 												</span>
+												{(canEdit || canDelete) && !isEditing && (
+													<div
+														className="ml-auto flex items-center gap-0.5"
+														onMouseDown={(e) => e.stopPropagation()}
+														onClick={(e) => e.stopPropagation()}
+													>
+														{canEdit && (
+															<Button
+																type="button"
+																variant="ghost"
+																size="icon"
+																className="h-6 w-6 text-muted-foreground hover:text-foreground"
+																title="Edit"
+																aria-label="Edit annotation"
+																onClick={(e) => {
+																	e.stopPropagation();
+																	handleEditStart(annotation);
+																}}
+																onMouseDown={(e) => e.stopPropagation()}
+															>
+																<Pencil size={12} />
+															</Button>
+														)}
+														{canDelete && (
+															<Button
+																type="button"
+																variant="ghost"
+																size="icon"
+																className="h-6 w-6 text-muted-foreground hover:text-destructive"
+																title="Delete"
+																aria-label="Delete annotation"
+																onClick={(e) => {
+																	e.stopPropagation();
+																	handleDelete(annotation.id);
+																}}
+																onMouseDown={(e) => e.stopPropagation()}
+															>
+																<Trash2 size={12} />
+															</Button>
+														)}
+													</div>
+												)}
 											</div>
 											<div className="pl-10">
-												<CollapsibleNoteText
-													content={annotation.content}
-													isActive={isActive}
-													paragraphClassName="text-sm text-foreground leading-snug whitespace-pre-wrap break-words"
-												/>
+												{isEditing ? (
+													<div
+														className="flex flex-col gap-2"
+														onMouseDown={(e) => e.stopPropagation()}
+														onClick={(e) => e.stopPropagation()}
+													>
+														<textarea
+															ref={editTextareaRef}
+															value={editDraft}
+															onChange={(e) => {
+																setEditDraft(e.target.value);
+																autoResizeReplyTextarea(e.target);
+															}}
+															onKeyDown={(e) => {
+																if (e.key === 'Enter' && !e.shiftKey) {
+																	e.preventDefault();
+																	void handleEditSave(annotation.id);
+																} else if (e.key === 'Escape') {
+																	e.preventDefault();
+																	handleEditCancel();
+																}
+															}}
+															onMouseDown={(e) => e.stopPropagation()}
+															aria-label="Edit annotation"
+															className={inlineReplyTextareaClassName}
+															disabled={isEditSaving}
+															rows={3}
+														/>
+														<div className="flex items-center justify-end gap-2">
+															<Button
+																type="button"
+																variant="ghost"
+																size="sm"
+																className="h-7 px-2 text-xs text-muted-foreground"
+																disabled={isEditSaving}
+																onClick={(e) => {
+																	e.stopPropagation();
+																	handleEditCancel();
+																}}
+																onMouseDown={(e) => e.stopPropagation()}
+															>
+																Cancel
+															</Button>
+															<Button
+																type="button"
+																size="sm"
+																className="h-7 px-3 text-xs"
+																disabled={isEditSaving || !editDraft.trim()}
+																onClick={(e) => {
+																	e.stopPropagation();
+																	void handleEditSave(annotation.id);
+																}}
+																onMouseDown={(e) => e.stopPropagation()}
+															>
+																Save
+															</Button>
+														</div>
+													</div>
+												) : (
+													<CollapsibleNoteText
+														content={annotation.content}
+														isActive={isActive}
+														paragraphClassName="text-sm text-foreground leading-snug whitespace-pre-wrap break-words"
+													/>
+												)}
 											</div>
 										</div>
 									)})}

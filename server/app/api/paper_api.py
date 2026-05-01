@@ -395,6 +395,38 @@ async def update_paper_note(
     return JSONResponse(content=updated_paper_note.to_dict(), status_code=200)
 
 
+@paper_router.get("/conversations")
+async def get_paper_conversations(
+    paper_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_required_user),
+) -> JSONResponse:
+    """List every conversation tied to this paper (newest-updated first)."""
+    casted_paper_id = uuid.UUID(paper_id)
+
+    document = paper_crud.get(db, id=paper_id, user=current_user)
+    if not document:
+        return JSONResponse(status_code=404, content={"message": "Document not found"})
+
+    conversations = conversation_crud.get_document_conversations(
+        db, paper_id=casted_paper_id, current_user=current_user
+    )
+    conversations = sorted(conversations, key=lambda c: c.updated_at, reverse=True)  # type: ignore[arg-type]
+
+    return JSONResponse(
+        status_code=200,
+        content=[
+            {
+                "id": str(c.id),
+                "title": c.title,
+                "created_at": c.created_at.isoformat() if c.created_at else None,  # type: ignore[union-attr]
+                "updated_at": c.updated_at.isoformat() if c.updated_at else None,  # type: ignore[union-attr]
+            }
+            for c in conversations
+        ],
+    )
+
+
 @paper_router.get("/conversation")
 async def get_mru_paper_conversation(
     paper_id: str,

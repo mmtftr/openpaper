@@ -14,6 +14,7 @@ from app.llm.provider import (
     LLMProvider,
     LLMResponse,
     MessageParam,
+    ModelOption,
     OpenAIProvider,
     StreamChunk,
     ToolCallResult,
@@ -87,24 +88,36 @@ class BaseLLMClient:
             return bool(os.getenv("ANTHROPIC_API_KEY"))
         return False
 
-    def get_chat_model_options(
+    def get_chat_models(
         self, exclude: Optional[List[LLMProvider]] = None
-    ) -> Dict[LLMProvider, str]:
-        def _get_display_name(model_name: str) -> str:
-            """Format model name for display"""
-            split_by_dash = model_name.split("-")
-            if len(split_by_dash) > 1:
-                return "-".join([part.lower() for part in split_by_dash[:2]])
-            return model_name.lower()
+    ) -> List[Dict[str, str]]:
+        """Return all user-selectable chat models, attributed by provider.
 
+        Each entry: {id, name, provider}. Order is by provider iteration
+        order, then by each provider's own ordering.
+        """
         excluded = set(exclude or [])
-        return {
-            provider: _get_display_name(
-                self._get_model_for_type(ModelType.DEFAULT, provider)
-            )
-            for provider in self._providers.keys()
-            if provider not in excluded
-        }
+        out: List[Dict[str, str]] = []
+        for provider, instance in self._providers.items():
+            if provider in excluded:
+                continue
+            for option in instance.get_supported_models():
+                out.append(
+                    {"id": option.id, "name": option.name, "provider": provider.value}
+                )
+        return out
+
+    def resolve_model(self, model_id: str) -> tuple[LLMProvider, str]:
+        """Find which provider supplies this model id.
+
+        Returns (provider, model_id). Raises ValueError if no provider exposes
+        a model with this id.
+        """
+        for provider, instance in self._providers.items():
+            for option in instance.get_supported_models():
+                if option.id == model_id:
+                    return provider, option.id
+        raise ValueError(f"Model id '{model_id}' not found in any configured provider")
 
     def _initialize_provider(self, provider: LLMProvider) -> None:
         """Initialize a provider if not already done"""
@@ -125,6 +138,7 @@ class BaseLLMClient:
                     default_model="openai/gpt-oss-120b",
                     fast_model="moonshotai/kimi-k2-instruct-0905",
                     supports_pdf_input=False,
+                    models_env_var=None,
                 )
             elif provider == LLMProvider.CEREBRAS:
                 self._providers[provider] = OpenAIProvider(
@@ -133,6 +147,7 @@ class BaseLLMClient:
                     default_model="gpt-oss-120b",
                     fast_model="zai-glm-4.7",
                     supports_pdf_input=False,
+                    models_env_var=None,
                 )
             elif provider == LLMProvider.ANTHROPIC:
                 self._providers[provider] = AnthropicProvider()
@@ -266,12 +281,28 @@ class BaseLLMClient:
         file: FileContent | None = None,
         model_type: ModelType = ModelType.DEFAULT,
         provider: Optional[LLMProvider] = None,
+        model: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
         **kwargs,
     ) -> Iterator[StreamChunk]:
-        """Send a message and stream the response"""
-        model = self._get_model_for_type(model_type, provider)
+        """Send a message and stream the response.
+
+        If `model` is provided, resolves to whichever provider owns that id
+        and routes the call there; `model_type` and `provider` are ignored.
+
+        `reasoning_effort` (low/medium/high/xhigh) is forwarded so each
+        provider can translate it to its native reasoning knob.
+        """
+        if reasoning_effort:
+            kwargs["reasoning_effort"] = reasoning_effort
+        if model:
+            resolved_provider, resolved_model = self.resolve_model(model)
+            return self._get_provider(resolved_provider).send_message_stream(
+                resolved_model, message, history, system_prompt, file, **kwargs
+            )
+        chosen_model = self._get_model_for_type(model_type, provider)
         return self._get_provider(provider).send_message_stream(
-            model, message, history, system_prompt, file, **kwargs
+            chosen_model, message, history, system_prompt, file, **kwargs
         )
 
     # Convenience properties for backward compatibility

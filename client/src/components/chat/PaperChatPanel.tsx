@@ -17,7 +17,15 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
-import { CheckIcon, CpuIcon, LockIcon } from "lucide-react";
+import {
+    BrainIcon,
+    CheckIcon,
+    CpuIcon,
+    LockIcon,
+    MessageSquarePlusIcon,
+    MessagesSquareIcon,
+    Trash2Icon,
+} from "lucide-react";
 
 import { ChatMessage, CreditUsage, Reference } from "@/lib/schema";
 import { fetchFromApi, fetchStreamFromApi } from "@/lib/api";
@@ -43,6 +51,16 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
     HoverCard,
     HoverCardContent,
@@ -98,12 +116,37 @@ interface PaperChatPanelProps {
     headerSlot?: React.ReactNode;
 }
 
+type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
+
+const REASONING_EFFORT_OPTIONS: { id: ReasoningEffort; label: string }[] = [
+    { id: "low", label: "Low" },
+    { id: "medium", label: "Medium" },
+    { id: "high", label: "High" },
+    { id: "xhigh", label: "xhigh" },
+];
+
 interface ChatRequestBody {
     user_query: string;
     conversation_id: string | null;
     paper_id: string;
     user_references: string[];
-    llm_provider?: string;
+    model?: string;
+    reasoning_effort?: ReasoningEffort;
+}
+
+interface ConversationSummary {
+    id: string;
+    title: string | null;
+    updated_at: string | null;
+}
+
+const conversationStorageKey = (paperId: string) =>
+    `openpaper:active-conversation:${paperId}`;
+
+interface ModelOption {
+    id: string;
+    name: string;
+    provider: string;
 }
 
 const END_DELIMITER = "END_OF_STREAM";
@@ -139,6 +182,10 @@ export function PaperChatPanel({
     const { subscription, refetch: refetchSubscription } = useSubscription();
 
     const [conversationId, setConversationId] = useState<string | null>(null);
+    const [conversations, setConversations] = useState<ConversationSummary[]>(
+        []
+    );
+    const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [currentMessage, setCurrentMessage] = useState("");
     const [hasMoreMessages, setHasMoreMessages] = useState(true);
@@ -161,9 +208,9 @@ export function PaperChatPanel({
 
     const [creditUsage, setCreditUsage] = useState<CreditUsage | null>(null);
     const [selectedModel, setSelectedModel] = useState("");
-    const [availableModels, setAvailableModels] = useState<
-        Record<string, string>
-    >({});
+    const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
+    const [reasoningEffort, setReasoningEffort] =
+        useState<ReasoningEffort>("medium");
     const [nextMonday, setNextMonday] = useState(new Date());
 
     const starterQuestions = useMemo(() => {
@@ -230,33 +277,147 @@ export function PaperChatPanel({
     useEffect(() => {
         if (!paperData) return;
         let cancelled = false;
-        async function fetchConversation() {
-            let retrieved = null;
+
+        async function init() {
+            let list: ConversationSummary[] = [];
             try {
                 const response = await fetchFromApi(
-                    `/api/paper/conversation?paper_id=${id}`,
+                    `/api/paper/conversations?paper_id=${id}`,
                     { method: "GET" }
                 );
-                if (response && response.id) retrieved = response.id;
+                if (Array.isArray(response)) list = response;
             } catch (err) {
-                console.error("Error fetching conversation ID:", err);
+                console.error("Error fetching conversations:", err);
+            }
+
+            if (cancelled) return;
+            setConversations(list);
+
+            const remembered =
+                typeof window !== "undefined"
+                    ? window.localStorage.getItem(
+                          conversationStorageKey(id)
+                      )
+                    : null;
+            const fromStorage = list.find((c) => c.id === remembered);
+            const fallback = list[0];
+
+            if (fromStorage) {
+                setConversationId(fromStorage.id);
+                return;
+            }
+            if (fallback) {
+                setConversationId(fallback.id);
+                return;
+            }
+
+            try {
+                const created = await fetchFromApi(
+                    `/api/conversation/paper/${id}`,
+                    { method: "POST" }
+                );
+                if (cancelled) return;
+                setConversations([
+                    {
+                        id: created.id,
+                        title: created.title ?? null,
+                        updated_at: new Date().toISOString(),
+                    },
+                ]);
+                setConversationId(created.id);
+            } catch (err) {
+                console.error("Error creating initial conversation:", err);
+            }
+        }
+
+        init();
+        return () => {
+            cancelled = true;
+        };
+    }, [paperData, id]);
+
+    useEffect(() => {
+        if (!id || !conversationId) return;
+        if (typeof window === "undefined") return;
+        window.localStorage.setItem(
+            conversationStorageKey(id),
+            conversationId
+        );
+    }, [id, conversationId]);
+
+    const handleNewChat = useCallback(async () => {
+        if (isStreaming) {
+            abortControllerRef.current?.abort();
+        }
+        try {
+            const created = await fetchFromApi(
+                `/api/conversation/paper/${id}`,
+                { method: "POST" }
+            );
+            const summary: ConversationSummary = {
+                id: created.id,
+                title: created.title ?? null,
+                updated_at: new Date().toISOString(),
+            };
+            setConversations((prev) => [summary, ...prev]);
+            setConversationId(created.id);
+        } catch (err) {
+            console.error("Error creating new conversation:", err);
+            toast.error("Could not start a new chat.");
+        }
+    }, [id, isStreaming]);
+
+    const handleSelectConversation = useCallback(
+        (next: string) => {
+            if (next === conversationId) return;
+            if (isStreaming) abortControllerRef.current?.abort();
+            setConversationId(next);
+        },
+        [conversationId, isStreaming]
+    );
+
+    const handleConfirmDelete = useCallback(async () => {
+        const target = pendingDeleteId;
+        if (!target) return;
+        setPendingDeleteId(null);
+        try {
+            await fetchFromApi(`/api/conversation/${target}`, {
+                method: "DELETE",
+            });
+        } catch (err) {
+            console.error("Error deleting conversation:", err);
+            toast.error("Could not delete that chat.");
+            return;
+        }
+        const remaining = conversations.filter((c) => c.id !== target);
+        setConversations(remaining);
+        if (conversationId === target) {
+            const next = remaining[0];
+            if (next) {
+                setConversationId(next.id);
+            } else {
                 try {
                     const created = await fetchFromApi(
                         `/api/conversation/paper/${id}`,
                         { method: "POST" }
                     );
-                    retrieved = created.id;
-                } catch (err2) {
-                    console.error("Error fetching conversation:", err2);
+                    setConversations([
+                        {
+                            id: created.id,
+                            title: created.title ?? null,
+                            updated_at: new Date().toISOString(),
+                        },
+                    ]);
+                    setConversationId(created.id);
+                } catch (err) {
+                    console.error(
+                        "Error creating replacement conversation:",
+                        err
+                    );
                 }
             }
-            if (!cancelled) setConversationId(retrieved);
         }
-        fetchConversation();
-        return () => {
-            cancelled = true;
-        };
-    }, [paperData, id]);
+    }, [conversationId, conversations, id, pendingDeleteId]);
 
     // One-shot initial history load when both user and conversation are ready.
     useEffect(() => {
@@ -279,16 +440,19 @@ export function PaperChatPanel({
         async function fetchAvailableModels() {
             try {
                 const response = await fetchFromApi(`/api/message/models`);
+                const models: ModelOption[] = Array.isArray(response.models)
+                    ? response.models
+                    : [];
+                if (models.length === 0) return;
+                setAvailableModels(models);
+                const defaultId: string | undefined = response.default;
                 if (
-                    response.models &&
-                    Object.keys(response.models).length > 0
+                    defaultId &&
+                    models.some((m: ModelOption) => m.id === defaultId)
                 ) {
-                    setAvailableModels(response.models);
-                    if (response.default && response.models[response.default]) {
-                        setSelectedModel(
-                            (current) => current || response.default
-                        );
-                    }
+                    setSelectedModel((current) => current || defaultId);
+                } else {
+                    setSelectedModel((current) => current || models[0].id);
                 }
             } catch (err) {
                 console.error("Error fetching available models:", err);
@@ -344,6 +508,13 @@ export function PaperChatPanel({
         });
     }, [subscription]);
 
+    const reasoningEffortLabel = useMemo(() => {
+        const opt = REASONING_EFFORT_OPTIONS.find(
+            (o) => o.id === reasoningEffort
+        );
+        return opt?.label ?? "Medium";
+    }, [reasoningEffort]);
+
     const submitMessage = useCallback(
         async (textOverride?: string) => {
             const text = (textOverride ?? currentMessage).trim();
@@ -378,7 +549,8 @@ export function PaperChatPanel({
                 paper_id: id,
                 user_references: userMessageReferences,
             };
-            if (selectedModel) requestBody.llm_provider = selectedModel;
+            if (selectedModel) requestBody.model = selectedModel;
+            requestBody.reasoning_effort = reasoningEffort;
 
             const controller = new AbortController();
             abortControllerRef.current = controller;
@@ -473,6 +645,7 @@ export function PaperChatPanel({
             id,
             userMessageReferences,
             selectedModel,
+            reasoningEffort,
             transformReferencesToFormat,
             refetchSubscription,
             setUserMessageReferences,
@@ -513,22 +686,137 @@ export function PaperChatPanel({
         subscription.plan !== undefined &&
         subscription.plan !== "researcher";
 
-    const modelLabel =
-        selectedModel && availableModels[selectedModel]
-            ? availableModels[selectedModel]
-            : "Model";
+    const selectedModelOption = useMemo(
+        () => availableModels.find((m) => m.id === selectedModel),
+        [availableModels, selectedModel]
+    );
+    const modelLabel = selectedModelOption?.name ?? "Model";
+
+    const modelsByProvider = useMemo(() => {
+        const groups = new Map<string, ModelOption[]>();
+        for (const m of availableModels) {
+            const list = groups.get(m.provider) ?? [];
+            list.push(m);
+            groups.set(m.provider, list);
+        }
+        return Array.from(groups.entries());
+    }, [availableModels]);
+
+    const providerLabel = (provider: string) =>
+        provider.charAt(0).toUpperCase() + provider.slice(1);
 
     const heightClass = isMobile
         ? "h-[calc(100vh-128px)]"
         : "h-[calc(100vh-64px)]";
 
+    const formatConversationTitle = (
+        c: ConversationSummary,
+        index: number
+    ) => c.title?.trim() || `Chat ${index + 1}`;
+
     return (
         <div className={cn("flex flex-col", heightClass, "min-h-0")}>
-            {headerSlot && (
-                <div className="flex items-center justify-end gap-1 px-2 py-1.5 border-b border-border/40">
-                    {headerSlot}
+            <div className="flex items-center justify-between gap-1 px-2 py-1.5 border-b border-border/40">
+                <div className="flex items-center gap-1">
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 text-muted-foreground hover:text-foreground"
+                        onClick={handleNewChat}
+                        aria-label="Start a new chat"
+                        title="New chat"
+                    >
+                        <MessageSquarePlusIcon className="size-4" />
+                    </Button>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="size-7 text-muted-foreground hover:text-foreground"
+                                aria-label="Switch chat"
+                                title="Conversations"
+                                disabled={conversations.length === 0}
+                            >
+                                <MessagesSquareIcon className="size-4" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                            align="start"
+                            className="w-72 max-h-[60vh] overflow-y-auto"
+                        >
+                            <DropdownMenuLabel className="text-xs text-muted-foreground">
+                                Chats for this paper
+                            </DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            {conversations.length === 0 ? (
+                                <DropdownMenuItem disabled>
+                                    No chats yet
+                                </DropdownMenuItem>
+                            ) : (
+                                conversations.map((c, i) => (
+                                    <DropdownMenuItem
+                                        key={c.id}
+                                        onSelect={(e) => {
+                                            e.preventDefault();
+                                            handleSelectConversation(c.id);
+                                        }}
+                                        className="flex items-center gap-2"
+                                    >
+                                        <span className="flex-1 truncate text-sm">
+                                            {formatConversationTitle(c, i)}
+                                        </span>
+                                        {c.id === conversationId && (
+                                            <CheckIcon className="size-3.5 text-green-500 shrink-0" />
+                                        )}
+                                        <button
+                                            type="button"
+                                            className="text-muted-foreground/70 hover:text-destructive shrink-0 p-0.5"
+                                            aria-label={`Delete ${formatConversationTitle(
+                                                c,
+                                                i
+                                            )}`}
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                setPendingDeleteId(c.id);
+                                            }}
+                                        >
+                                            <Trash2Icon className="size-3.5" />
+                                        </button>
+                                    </DropdownMenuItem>
+                                ))
+                            )}
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                 </div>
-            )}
+                {headerSlot}
+            </div>
+
+            <AlertDialog
+                open={!!pendingDeleteId}
+                onOpenChange={(open) => {
+                    if (!open) setPendingDeleteId(null);
+                }}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete this chat?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This conversation and its messages will be removed.
+                            This can&apos;t be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleConfirmDelete}>
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
 
             <Conversation className="flex-1 min-h-0">
                 <ConversationContent className="flex flex-col gap-6 px-3 py-4">
@@ -771,34 +1059,43 @@ export function PaperChatPanel({
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent
                                     align="start"
-                                    className="w-56"
+                                    className="w-64 max-h-[60vh] overflow-y-auto"
                                 >
-                                    <DropdownMenuLabel className="text-xs text-muted-foreground">
-                                        Model
-                                    </DropdownMenuLabel>
-                                    <DropdownMenuSeparator />
-                                    {Object.entries(availableModels).length ===
-                                    0 ? (
+                                    {availableModels.length === 0 ? (
                                         <DropdownMenuItem disabled>
                                             No models available
                                         </DropdownMenuItem>
                                     ) : isGated ? (
                                         <>
-                                            {Object.entries(
-                                                availableModels
-                                            ).map(([key, name]) => (
-                                                <DropdownMenuItem
-                                                    key={key}
-                                                    onClick={() => {
-                                                        window.location.href =
-                                                            "/pricing";
-                                                    }}
-                                                    className="flex items-center justify-between text-muted-foreground"
-                                                >
-                                                    <span>{name}</span>
-                                                    <LockIcon className="h-3 w-3" />
-                                                </DropdownMenuItem>
-                                            ))}
+                                            {modelsByProvider.map(
+                                                ([provider, items], gi) => (
+                                                    <div key={provider}>
+                                                        {gi > 0 && (
+                                                            <DropdownMenuSeparator />
+                                                        )}
+                                                        <DropdownMenuLabel className="text-xs text-muted-foreground">
+                                                            {providerLabel(
+                                                                provider
+                                                            )}
+                                                        </DropdownMenuLabel>
+                                                        {items.map((m) => (
+                                                            <DropdownMenuItem
+                                                                key={m.id}
+                                                                onClick={() => {
+                                                                    window.location.href =
+                                                                        "/pricing";
+                                                                }}
+                                                                className="flex items-center justify-between text-muted-foreground"
+                                                            >
+                                                                <span className="truncate">
+                                                                    {m.name}
+                                                                </span>
+                                                                <LockIcon className="h-3 w-3 shrink-0" />
+                                                            </DropdownMenuItem>
+                                                        ))}
+                                                    </div>
+                                                )
+                                            )}
                                             <DropdownMenuSeparator />
                                             <DropdownMenuItem
                                                 onClick={() => {
@@ -811,23 +1108,81 @@ export function PaperChatPanel({
                                             </DropdownMenuItem>
                                         </>
                                     ) : (
-                                        Object.entries(availableModels).map(
-                                            ([key, name]) => (
-                                                <DropdownMenuItem
-                                                    key={key}
-                                                    onClick={() =>
-                                                        setSelectedModel(key)
-                                                    }
-                                                    className="flex items-center justify-between"
-                                                >
-                                                    <span>{name}</span>
-                                                    {key === selectedModel && (
-                                                        <CheckIcon className="h-3.5 w-3.5 text-green-500" />
+                                        modelsByProvider.map(
+                                            ([provider, items], gi) => (
+                                                <div key={provider}>
+                                                    {gi > 0 && (
+                                                        <DropdownMenuSeparator />
                                                     )}
-                                                </DropdownMenuItem>
+                                                    <DropdownMenuLabel className="text-xs text-muted-foreground">
+                                                        {providerLabel(
+                                                            provider
+                                                        )}
+                                                    </DropdownMenuLabel>
+                                                    {items.map((m) => (
+                                                        <DropdownMenuItem
+                                                            key={m.id}
+                                                            onClick={() =>
+                                                                setSelectedModel(
+                                                                    m.id
+                                                                )
+                                                            }
+                                                            className="flex items-center justify-between"
+                                                        >
+                                                            <span className="truncate">
+                                                                {m.name}
+                                                            </span>
+                                                            {m.id ===
+                                                                selectedModel && (
+                                                                <CheckIcon className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                                                            )}
+                                                        </DropdownMenuItem>
+                                                    ))}
+                                                </div>
                                             )
                                         )
                                     )}
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                                        disabled={isStreaming}
+                                        aria-label={`Reasoning effort: ${reasoningEffortLabel}`}
+                                    >
+                                        <BrainIcon className="h-3.5 w-3.5" />
+                                        <span className="truncate max-w-[7rem]">
+                                            {reasoningEffortLabel}
+                                        </span>
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent
+                                    align="start"
+                                    className="w-44"
+                                >
+                                    <DropdownMenuLabel className="text-xs text-muted-foreground">
+                                        Reasoning effort
+                                    </DropdownMenuLabel>
+                                    <DropdownMenuSeparator />
+                                    {REASONING_EFFORT_OPTIONS.map((opt) => (
+                                        <DropdownMenuItem
+                                            key={opt.id}
+                                            onClick={() =>
+                                                setReasoningEffort(opt.id)
+                                            }
+                                            className="flex items-center justify-between"
+                                        >
+                                            <span>{opt.label}</span>
+                                            {opt.id === reasoningEffort && (
+                                                <CheckIcon className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                                            )}
+                                        </DropdownMenuItem>
+                                    ))}
                                 </DropdownMenuContent>
                             </DropdownMenu>
                         </PromptInputTools>

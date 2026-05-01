@@ -7,8 +7,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: openpaper
-    ports:
-      - "5432:5432"
+    # No host publish: only used by openpaper containers (per ~/p/tmp/caddy/ports.md).
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -19,9 +18,11 @@ services:
 
   rabbitmq:
     image: rabbitmq:3.13-management
-    ports:
-      - "5672:5672"
-      - "15672:15672"
+    # Pin hostname so RabbitMQ's Mnesia path (rabbit@<hostname>) is stable
+    # across container recreates. Without this, every recreate rolls a new
+    # hostname → new empty Mnesia subdir → corrupted half-initialized broker.
+    hostname: rabbitmq
+    # No host publish: only used by openpaper containers.
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     healthcheck:
@@ -32,8 +33,7 @@ services:
 
   redis:
     image: redis:7-bookworm
-    ports:
-      - "6379:6379"
+    # No host publish: only used by openpaper containers.
     volumes:
       - redis-data:/data
     healthcheck:
@@ -49,8 +49,8 @@ services:
       MINIO_ROOT_USER: openpaper
       MINIO_ROOT_PASSWORD: openpaper-local
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:12010:9000"
+      - "127.0.0.1:12011:9001"
     volumes:
       - minio-data:/data
 
@@ -75,8 +75,8 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/openpaper
       PORT: "8000"
-      CLIENT_DOMAIN: http://${BASE_HOSTNAME:-localhost}:9002
-      API_DOMAIN: http://${BASE_HOSTNAME:-localhost}:9003
+      CLIENT_DOMAIN: http://${BASE_HOSTNAME:-localhost}:12000
+      API_DOMAIN: http://${BASE_HOSTNAME:-localhost}:12001
       WEBHOOK_BASE_URL: http://server:8000
       CELERY_BROKER_URL: pyamqp://guest:guest@rabbitmq:5672//
       CELERY_RESULT_BACKEND: redis://redis:6379/0
@@ -85,9 +85,9 @@ services:
       AWS_SECRET_ACCESS_KEY: openpaper-local
       AWS_REGION: us-east-1
       S3_BUCKET_NAME: openpaper-local
-      CLOUDFLARE_BUCKET_NAME: ${BASE_HOSTNAME:-localhost}:9000/openpaper-local
+      CLOUDFLARE_BUCKET_NAME: ${BASE_HOSTNAME:-localhost}:12010/openpaper-local
       S3_ENDPOINT_URL: http://minio:9000
-      S3_PUBLIC_BASE_URL: http://${BASE_HOSTNAME:-localhost}:9000/openpaper-local
+      S3_PUBLIC_BASE_URL: http://${BASE_HOSTNAME:-localhost}:12010/openpaper-local
       ADMIN_EMAILS: ${ADMIN_EMAILS:-admin@local.openpaper}
       SECURE_COOKIES: "false"
       SESSION_COOKIE_DOMAIN: ""
@@ -102,7 +102,7 @@ services:
       /bin/sh -c "python app/scripts/run_migrations.py &&
       gunicorn -c gunicorn.config.py app.main:app"
     ports:
-      - "9003:8000"
+      - "127.0.0.1:12001:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -135,14 +135,14 @@ services:
       AWS_SECRET_ACCESS_KEY: openpaper-local
       AWS_REGION: us-east-1
       S3_BUCKET_NAME: openpaper-local
-      CLOUDFLARE_BUCKET_NAME: ${BASE_HOSTNAME:-localhost}:9000/openpaper-local
+      CLOUDFLARE_BUCKET_NAME: ${BASE_HOSTNAME:-localhost}:12010/openpaper-local
       S3_ENDPOINT_URL: http://minio:9000
-      S3_PUBLIC_BASE_URL: http://${BASE_HOSTNAME:-localhost}:9000/openpaper-local
+      S3_PUBLIC_BASE_URL: http://${BASE_HOSTNAME:-localhost}:12010/openpaper-local
     extra_hosts:
       - "${BASE_HOSTNAME:-localhost}:host-gateway"
     command: .venv/bin/python -m uvicorn src.app:app --host 0.0.0.0 --port 8001 --log-level info
     ports:
-      - "9004:8001"
+      - "127.0.0.1:12002:8001"
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -173,9 +173,9 @@ services:
       AWS_SECRET_ACCESS_KEY: openpaper-local
       AWS_REGION: us-east-1
       S3_BUCKET_NAME: openpaper-local
-      CLOUDFLARE_BUCKET_NAME: ${BASE_HOSTNAME:-localhost}:9000/openpaper-local
+      CLOUDFLARE_BUCKET_NAME: ${BASE_HOSTNAME:-localhost}:12010/openpaper-local
       S3_ENDPOINT_URL: http://minio:9000
-      S3_PUBLIC_BASE_URL: http://${BASE_HOSTNAME:-localhost}:9000/openpaper-local
+      S3_PUBLIC_BASE_URL: http://${BASE_HOSTNAME:-localhost}:12010/openpaper-local
     extra_hosts:
       - "${BASE_HOSTNAME:-localhost}:host-gateway"
     command: >
@@ -220,18 +220,18 @@ services:
       context: ./client
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://${BASE_HOSTNAME:-localhost}:9003}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://${BASE_HOSTNAME:-localhost}:12001}
         NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
         NEXT_PUBLIC_POSTHOG_KEY: ${NEXT_PUBLIC_POSTHOG_KEY:-}
         NEXT_PUBLIC_POSTHOG_HOST: ${NEXT_PUBLIC_POSTHOG_HOST:-}
         UPLOAD_POSTHOG_SOURCEMAPS: "false"
     environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://${BASE_HOSTNAME:-localhost}:9003}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://${BASE_HOSTNAME:-localhost}:12001}
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
       NEXT_PUBLIC_POSTHOG_KEY: ${NEXT_PUBLIC_POSTHOG_KEY:-}
       NEXT_PUBLIC_POSTHOG_HOST: ${NEXT_PUBLIC_POSTHOG_HOST:-}
     ports:
-      - "9002:3000"
+      - "127.0.0.1:12000:3000"
     depends_on:
       server:
         condition: service_healthy
