@@ -420,6 +420,12 @@ async def chat_message_stream(
                     user=current_user,
                 )
 
+                # First-message title: rename_conversation is idempotent —
+                # later messages no-op once a title exists.
+                operations.rename_conversation(
+                    db=db, conversation_id=request.conversation_id, user=current_user
+                )
+
                 # Track chat message event
                 track_event(
                     "did_chat_message",

@@ -277,8 +277,8 @@ class GeminiProvider(BaseLLMProvider):
             raise ValueError("GEMINI_API_KEY environment variable is required")
 
         self._client = genai.Client(api_key=self.api_key)
-        self._default_model = "gemini-3.1-pro-preview"
-        self._fast_model = "gemini-3-flash-preview"
+        self._default_model = os.getenv("GEMINI_MODEL") or "gemini-3.1-pro-preview"
+        self._fast_model = os.getenv("GEMINI_FAST_MODEL") or "gemini-3-flash-preview"
 
     @property
     def client(self) -> genai.Client:
@@ -599,8 +599,10 @@ class OpenAIProvider(BaseLLMProvider):
                 api_key=self.api_key, base_url=resolved_base_url
             )
 
-        self._default_model = default_model or os.getenv("OPENAI_MODEL") or "gpt-5.4"
-        self._fast_model = fast_model or os.getenv("OPENAI_FAST_MODEL") or "gpt-4.1"
+        self._default_model = default_model or os.getenv("OPENAI_MODEL") or "gpt-5.5"
+        self._fast_model = (
+            fast_model or os.getenv("OPENAI_FAST_MODEL") or "gpt-5.4-mini"
+        )
         # Some OpenAI-compatible endpoints (Cerebras, Groq) reject `file` content
         # blocks. When False, FileContent for PDFs is text-extracted inline.
         self.supports_pdf_input = supports_pdf_input
@@ -947,8 +949,12 @@ class AnthropicProvider(BaseLLMProvider):
             raise ValueError("ANTHROPIC_API_KEY environment variable is required")
 
         self._client = anthropic.Anthropic(api_key=self.api_key)
-        self._default_model = default_model or "claude-opus-4-7"
-        self._fast_model = fast_model or "claude-haiku-4-5"
+        self._default_model = (
+            default_model or os.getenv("ANTHROPIC_MODEL") or "claude-opus-4-7"
+        )
+        self._fast_model = (
+            fast_model or os.getenv("ANTHROPIC_FAST_MODEL") or "claude-haiku-4-5"
+        )
 
     @property
     def client(self) -> anthropic.Anthropic:

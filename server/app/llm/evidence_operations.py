@@ -108,7 +108,7 @@ class EvidenceOperations(BaseLLMClient):
         evidence_collection = EvidenceCollection()
 
         n_iterations = 0
-        max_iterations = 4
+        max_iterations = 10
 
         if project_id:
             project = project_crud.get(db, id=project_id, user=current_user)

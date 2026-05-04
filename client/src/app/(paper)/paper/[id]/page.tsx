@@ -109,6 +109,9 @@ export default function PaperView() {
     const [composeHighlightId, setComposeHighlightId] = useState<string | null>(null);
     const [activeCitationKey, setActiveCitationKey] = useState<string | null>(null);
     const [activeCitationMessageIndex, setActiveCitationMessageIndex] = useState<number | null>(null);
+    const [flashCitation, setFlashCitation] = useState<{ key: string; messageIndex: number } | null>(null);
+    const pendingCitationLookupRef = useRef<{ key: string; messageIndex: number; term: string } | null>(null);
+    const flashCitationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [explicitSearchTerm, setExplicitSearchTerm] = useState<string | undefined>(undefined);
     const [isSharing, setIsSharing] = useState(false);
     const [userMessageReferences, setUserMessageReferences] = useState<string[]>([]);
@@ -359,12 +362,39 @@ export default function PaperView() {
                     (searchTerm.startsWith("'") && searchTerm.endsWith("'"))) {
                     searchTerm = searchTerm.substring(1, searchTerm.length - 1);
                 }
+                pendingCitationLookupRef.current = { key, messageIndex, term: searchTerm };
+                // Reset any prior flash so a re-click can re-flash if it again has no match.
+                if (flashCitationTimeoutRef.current) {
+                    clearTimeout(flashCitationTimeoutRef.current);
+                    flashCitationTimeoutRef.current = null;
+                }
+                setFlashCitation(null);
                 setExplicitSearchTerm(searchTerm);
             }
         }
 
         // Clear the highlight after a few seconds
         setTimeout(() => setActiveCitationKey(null), 3000);
+    }, []);
+
+    const handleSearchComplete = useCallback((term: string, matchCount: number) => {
+        const pending = pendingCitationLookupRef.current;
+        if (!pending || pending.term !== term) return;
+        pendingCitationLookupRef.current = null;
+        if (matchCount === 0) {
+            setFlashCitation({ key: pending.key, messageIndex: pending.messageIndex });
+            if (flashCitationTimeoutRef.current) clearTimeout(flashCitationTimeoutRef.current);
+            flashCitationTimeoutRef.current = setTimeout(() => {
+                setFlashCitation(null);
+                flashCitationTimeoutRef.current = null;
+            }, 2500);
+        }
+    }, []);
+
+    useEffect(() => {
+        return () => {
+            if (flashCitationTimeoutRef.current) clearTimeout(flashCitationTimeoutRef.current);
+        };
     }, []);
 
     const handleCitationClickFromSummary = useCallback((citationKey: string, messageIndex: number) => {
@@ -471,6 +501,11 @@ export default function PaperView() {
     const matchesCurrentCitation = useCallback((key: string, messageIndex: number) => {
         return activeCitationKey === key.toString() && activeCitationMessageIndex === messageIndex;
     }, [activeCitationKey, activeCitationMessageIndex]);
+
+    const flashesCurrentCitation = useCallback((key: string, messageIndex: number) => {
+        if (!flashCitation) return false;
+        return flashCitation.key === key.toString() && flashCitation.messageIndex === messageIndex;
+    }, [flashCitation]);
 
 
     const refreshPdfUrl = useCallback(async (): Promise<string | null> => {
@@ -581,6 +616,7 @@ export default function PaperView() {
         handleUnshare,
         id,
         matchesCurrentCitation,
+        flashesCurrentCitation,
         handleCitationClickFromSummary,
         setRightSideFunction,
         setExplicitSearchTerm,
@@ -635,6 +671,7 @@ export default function PaperView() {
                                     onToggleAnnotationCards={() => setAnnotationCardsVisible((v) => !v)}
                                     annotationsPanelActive={annotationsPanelActive}
                                     onAnnotateViaSidePanel={onAnnotateViaSidePanel}
+                                    onSearchComplete={handleSearchComplete}
                                 />
                             )}
                         </div>
@@ -737,6 +774,7 @@ export default function PaperView() {
                                 sidePanelOpen={rightSideFunction !== 'Read'}
                                 isReadMode={isReadMode}
                                 onToggleReadMode={handleToggleReadMode}
+                                onSearchComplete={handleSearchComplete}
                             />
                         </div>
                     )}

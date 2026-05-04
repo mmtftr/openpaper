@@ -41,6 +41,11 @@ class ConversationOperations(BaseLLMClient):
         if not conversation:
             raise ValueError(f"Conversation with ID {conversation_id} not found.")
 
+        # Idempotent: skip if a title already exists. Lets callers fire this
+        # after every chat message — only the first exchange triggers the LLM.
+        if conversation.title:  # type: ignore[truthy-bool]
+            return str(conversation.title)
+
         chat_history = message_crud.get_conversation_messages(
             db, conversation_id=casted_uuid, current_user=user
         )

@@ -154,6 +154,8 @@ export interface PdfHighlighterViewerProps {
 	/** Focus / read mode state for the PdfToolbar toggle. */
 	isReadMode?: boolean;
 	onToggleReadMode?: () => void;
+	/** Fires once a search dispatched via `explicitSearchTerm` resolves, so callers can react to no-match. */
+	onSearchComplete?: (term: string, matchCount: number) => void;
 }
 
 /** Syncs PdfLoader's render-prop pdfDocument into parent state without calling setState during render. */
@@ -217,6 +219,7 @@ export function PdfHighlighterViewer(props: PdfHighlighterViewerProps) {
 		sidePanelOpen = false,
 		isReadMode = false,
 		onToggleReadMode,
+		onSearchComplete,
 	} = props;
 
 	// Position anchors for inline annotation cards
@@ -328,6 +331,7 @@ export function PdfHighlighterViewer(props: PdfHighlighterViewerProps) {
 		explicitSearchTerm,
 		pdfReady,
 		activeHighlightId: activeHighlight?.id,
+		onSearchComplete,
 	});
 
 	// Convert PaperHighlights to ExtendedHighlights

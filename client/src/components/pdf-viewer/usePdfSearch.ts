@@ -17,6 +17,8 @@ interface UsePdfSearchOptions {
 	pdfReady?: boolean;
 	// When set, indicates we're navigating to an existing highlight (skip yellow search overlay)
 	activeHighlightId?: string | null;
+	/** Fires once a search dispatched via `explicitSearchTerm` resolves. */
+	onSearchComplete?: (term: string, matchCount: number) => void;
 }
 
 interface UsePdfSearchReturn {
@@ -48,6 +50,7 @@ export function usePdfSearch({
 	explicitSearchTerm,
 	pdfReady = false,
 	activeHighlightId,
+	onSearchComplete,
 }: UsePdfSearchOptions): UsePdfSearchReturn {
 	const [searchText, setSearchText] = useState(explicitSearchTerm || "");
 	const [showSearchInput, setShowSearchInput] = useState(false);
@@ -298,12 +301,12 @@ export function usePdfSearch({
 
 		const ellipsisPattern = /\.{3,}|…/g;
 		const trimmedTerm = term.replace(/^(\.{3,}|…)+/, '').replace(/(\.{3,}|…)+$/, '');
-		const searchParts = trimmedTerm
+		const initialParts = trimmedTerm
 			.split(ellipsisPattern)
 			.map((part) => part.trim())
 			.filter((part) => part.length > 3);
 
-		if (searchParts.length === 0) {
+		if (initialParts.length === 0) {
 			setMatchPages([]);
 			matchPagesRef.current = [];
 			setCurrentMatchIndex(0);
@@ -311,11 +314,11 @@ export function usePdfSearch({
 			return [];
 		}
 
-		searchPartsRef.current = searchParts;
-
-		const allMatchPages: number[] = [];
+		// Cache normalized page text once so prefix fallback reuses it without
+		// re-iterating PDF pages.
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const pdfDoc = pdfDocumentRef.current as any;
+		const pageTexts: { pageNum: number; normalized: string; spaceStripped: string }[] = [];
 
 		if (pdfDoc) {
 			for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
@@ -325,33 +328,77 @@ export function usePdfSearch({
 					const pageText = textContent.items
 						.map((item: { str?: string }) => item.str || '')
 						.join(' ');
-
-					const normalizedPageText = normalizeForSearch(pageText).toLowerCase();
-					const spaceStrippedPageText = normalizedPageText.replace(/\s+/g, '');
-
-					for (const searchPart of searchParts) {
-						const normalizedSearch = normalizeForSearch(searchPart).toLowerCase();
-						const spaceStrippedSearch = normalizedSearch.replace(/\s+/g, '');
-
-						let searchIn = normalizedPageText;
-						let searchFor = normalizedSearch;
-						if (!searchIn.includes(searchFor)) {
-							searchIn = spaceStrippedPageText;
-							searchFor = spaceStrippedSearch;
-						}
-
-						let pos = 0;
-						while ((pos = searchIn.indexOf(searchFor, pos)) !== -1) {
-							allMatchPages.push(pageNum);
-							pos += searchFor.length;
-						}
-					}
+					const normalized = normalizeForSearch(pageText).toLowerCase();
+					pageTexts.push({
+						pageNum,
+						normalized,
+						spaceStripped: normalized.replace(/\s+/g, ''),
+					});
 				} catch (err) {
 					console.warn(`Failed to extract text from page ${pageNum}:`, err);
 				}
 			}
 		}
 
+		const countMatches = (parts: string[]): number[] => {
+			const matchPagesLocal: number[] = [];
+			for (const page of pageTexts) {
+				for (const part of parts) {
+					const normalizedSearch = normalizeForSearch(part).toLowerCase();
+					if (!normalizedSearch) continue;
+					const spaceStrippedSearch = normalizedSearch.replace(/\s+/g, '');
+					let searchIn = page.normalized;
+					let searchFor = normalizedSearch;
+					if (!searchIn.includes(searchFor)) {
+						searchIn = page.spaceStripped;
+						searchFor = spaceStrippedSearch;
+					}
+					if (!searchFor) continue;
+					let pos = 0;
+					while ((pos = searchIn.indexOf(searchFor, pos)) !== -1) {
+						matchPagesLocal.push(page.pageNum);
+						pos += searchFor.length;
+					}
+				}
+			}
+			return matchPagesLocal;
+		};
+
+		let searchParts = initialParts;
+		let allMatchPages = countMatches(searchParts);
+
+		// Prefix fallback: when the full term yields nothing, find the longest
+		// word-prefix of the original (un-split) term that still matches. Citation
+		// text often has a shorter prefix that's verbatim in the PDF even when the
+		// LLM expanded the rest.
+		if (allMatchPages.length === 0 && pageTexts.length > 0) {
+			const words = trimmedTerm.split(/\s+/).filter(Boolean);
+			const MIN_PREFIX_WORDS = 5;
+			if (words.length > MIN_PREFIX_WORDS) {
+				let lo = MIN_PREFIX_WORDS;
+				let hi = words.length - 1;
+				let bestPrefix: string | null = null;
+				let bestPages: number[] = [];
+				while (lo <= hi) {
+					const mid = Math.floor((lo + hi) / 2);
+					const prefix = words.slice(0, mid).join(' ');
+					const pages = countMatches([prefix]);
+					if (pages.length > 0) {
+						bestPrefix = prefix;
+						bestPages = pages;
+						lo = mid + 1;
+					} else {
+						hi = mid - 1;
+					}
+				}
+				if (bestPrefix) {
+					searchParts = [bestPrefix];
+					allMatchPages = bestPages;
+				}
+			}
+		}
+
+		searchPartsRef.current = searchParts;
 		matchPagesRef.current = allMatchPages;
 		setMatchPages(allMatchPages);
 		setCurrentMatchIndex(0);
@@ -483,9 +530,12 @@ export function usePdfSearch({
 			}
 			// Reset the flag after search completes
 			skipVisualHighlightRef.current = false;
+			if (explicitSearchTerm) {
+				onSearchComplete?.(explicitSearchTerm, pages.length);
+			}
 		};
 		doSearch();
-	}, [explicitSearchTerm, pdfReady, performSearch, goToMatch, activeHighlightId]);
+	}, [explicitSearchTerm, pdfReady, performSearch, goToMatch, activeHighlightId, onSearchComplete]);
 
 	// Handle keyboard shortcut for search (Cmd/Ctrl + F)
 	useEffect(() => {

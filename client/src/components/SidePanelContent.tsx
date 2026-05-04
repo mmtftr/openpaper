@@ -35,6 +35,7 @@ interface SidePanelContentProps {
     handleUnshare: () => void;
     id: string;
     matchesCurrentCitation: (key: string, messageIndex: number) => boolean;
+    flashesCurrentCitation?: (key: string, messageIndex: number) => boolean;
     handleCitationClickFromSummary: (citationKey: string, messageIndex: number) => void;
     setRightSideFunction: (value: string) => void;
     setExplicitSearchTerm: (value: string) => void;
@@ -62,6 +63,7 @@ export function SidePanelContent({
     handleUnshare,
     id,
     matchesCurrentCitation,
+    flashesCurrentCitation,
     handleCitationClickFromSummary,
     setRightSideFunction,
     setExplicitSearchTerm,
@@ -272,6 +274,7 @@ export function SidePanelContent({
                     setUserMessageReferences={setUserMessageReferences}
                     handleCitationClick={handleCitationClick}
                     matchesCurrentCitation={matchesCurrentCitation}
+                    flashesCurrentCitation={flashesCurrentCitation}
                     setExplicitSearchTerm={setExplicitSearchTerm}
                     headerSlot={<MetadataPopover paperData={paperData} />}
                 />
