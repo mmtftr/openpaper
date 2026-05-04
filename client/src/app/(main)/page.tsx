@@ -11,11 +11,11 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { MessageCircleWarning, File } from "lucide-react";
+import { MessageCircleWarning } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import Link from "next/link";
 import EnigmaticLoadingExperience from "@/components/EnigmaticLoadingExperience";
-import { PaperItem, JobStatusType, PaperUploadJobStatusResponse, Project } from "@/lib/schema";
+import { PaperItem, PaperUploadJobStatusResponse, Project } from "@/lib/schema";
 import { toast } from "sonner";
 import { useSubscription, isStorageAtLimit, isPaperUploadAtLimit, isPaperUploadNearLimit, isStorageNearLimit } from "@/hooks/useSubscription";
 import { uploadFiles, uploadFromUrlWithFallback } from "@/lib/uploadUtils";
@@ -32,9 +32,6 @@ const DEFAULT_PAPER_UPLOAD_ERROR_MESSAGE = "We encountered an error processing y
 
 export default function Home() {
 	const [isUploading, setIsUploading] = useState(false);
-
-	// eslint-disable-next-line @typescript-eslint/no-unused-vars
-	const [jobUploadStatus, setJobUploadStatus] = useState<JobStatusType | null>(null);
 
 	const [relevantPapers, setRelevantPapers] = useState<PaperItem[]>([]);
 	const [projects, setProjects] = useState<Project[]>([]);
@@ -246,7 +243,6 @@ export default function Home() {
 	const pollJobStatus = async (jobId: string) => {
 		try {
 			const response: PaperUploadJobStatusResponse = await fetchFromApi(`/api/paper/upload/status/${jobId}`);
-			setJobUploadStatus(response.status);
 
 			if (response.celery_progress_message) {
 				setCeleryMessage(response.celery_progress_message);
@@ -262,7 +258,6 @@ export default function Home() {
 				console.error('Upload job failed');
 				setShowErrorAlert(true);
 				setIsUploading(false);
-				setJobUploadStatus(null);
 			} else {
 				setTimeout(() => pollJobStatus(jobId), 2000);
 			}
@@ -467,22 +462,15 @@ export default function Home() {
 							/>
 						</section>
 
-						{/* Two Column Layout for Projects and Papers */}
-						<div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-							{
-								projects.length > 0 && (
-									<section>
-										{/* Projects Section */}
-										<ProjectsPreview limit={4} />
-									</section>
-								)
-							}
-
-							{/* Recent Papers Section */}
+						{projects.length > 0 && (
 							<section>
-								<RecentPapersGrid papers={relevantPapers} limit={4} />
+								<ProjectsPreview limit={4} />
 							</section>
-						</div>
+						)}
+
+						<section>
+							<RecentPapersGrid papers={relevantPapers} limit={8} />
+						</section>
 					</div>
 				)}
 			</div>

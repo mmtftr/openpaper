@@ -111,7 +111,7 @@ export function RecentPapersGrid({ papers: propPapers, limit = 6 }: RecentPapers
                     <Skeleton className="h-6 w-32" />
                     <Skeleton className="h-4 w-24" />
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                     {[...Array(limit)].map((_, i) => (
                         <PaperCardSkeleton key={i} />
                     ))}
@@ -140,7 +140,7 @@ export function RecentPapersGrid({ papers: propPapers, limit = 6 }: RecentPapers
                 </Link>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {papers.map((paper) => (
                     <PaperCardCompact key={paper.id} paper={paper} />
                 ))}

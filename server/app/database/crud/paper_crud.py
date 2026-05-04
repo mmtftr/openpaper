@@ -108,7 +108,7 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
         )
 
     def get_top_relevant_papers(
-        self, db: Session, *, user: CurrentUser, limit: int = 3
+        self, db: Session, *, user: CurrentUser, limit: int = 9
     ) -> List[Paper]:
         """
         Get recent papers with priority logic:
