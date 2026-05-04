@@ -20,6 +20,7 @@ import "katex/dist/katex.min.css";
 import {
     BrainIcon,
     CheckIcon,
+    CornerDownRightIcon,
     CpuIcon,
     LockIcon,
     MessageSquarePlusIcon,
@@ -112,6 +113,7 @@ interface PaperChatPanelProps {
     setUserMessageReferences: React.Dispatch<React.SetStateAction<string[]>>;
     handleCitationClick: (key: string, messageIndex: number) => void;
     matchesCurrentCitation: (key: string, messageIndex: number) => boolean;
+    flashesCurrentCitation?: (key: string, messageIndex: number) => boolean;
     setExplicitSearchTerm: (value: string) => void;
     headerSlot?: React.ReactNode;
 }
@@ -175,6 +177,7 @@ export function PaperChatPanel({
     setUserMessageReferences,
     handleCitationClick,
     matchesCurrentCitation,
+    flashesCurrentCitation,
     setExplicitSearchTerm,
     headerSlot,
 }: PaperChatPanelProps) {
@@ -199,6 +202,7 @@ export function PaperChatPanel({
     const [streamingReferences, setStreamingReferences] = useState<
         Reference | undefined
     >(undefined);
+    const [streamingSourcesOpen, setStreamingSourcesOpen] = useState(false);
     const [errorState, setErrorState] = useState<{
         failedUserMessage: string;
     } | null>(null);
@@ -344,6 +348,20 @@ export function PaperChatPanel({
             conversationId
         );
     }, [id, conversationId]);
+
+    const refreshConversations = useCallback(async () => {
+        try {
+            const response = await fetchFromApi(
+                `/api/paper/conversations?paper_id=${id}`,
+                { method: "GET" }
+            );
+            if (Array.isArray(response)) {
+                setConversations(response);
+            }
+        } catch (err) {
+            console.error("Error refreshing conversations:", err);
+        }
+    }, [id]);
 
     const handleNewChat = useCallback(async () => {
         if (isStreaming) {
@@ -542,6 +560,7 @@ export function PaperChatPanel({
             setIsStreaming(true);
             setStreamingText("");
             setStreamingReferences(undefined);
+            setStreamingSourcesOpen(false);
 
             const requestBody: ChatRequestBody = {
                 user_query: text,
@@ -608,6 +627,14 @@ export function PaperChatPanel({
                         references,
                     };
                     setMessages((prev) => [...prev, finalMessage]);
+                }
+                // After the first message the server auto-generates a title;
+                // refetch so the picker shows it instead of "Chat N".
+                const activeBeforeStream = conversations.find(
+                    (c) => c.id === conversationId
+                );
+                if (!activeBeforeStream?.title) {
+                    refreshConversations();
                 }
                 try {
                     await refetchSubscription();
@@ -859,6 +886,8 @@ export function PaperChatPanel({
                                 user={user}
                                 handleCitationClick={handleCitationClick}
                                 matchesCurrentCitation={matchesCurrentCitation}
+                                flashesCurrentCitation={flashesCurrentCitation}
+                                onJumpToReference={setExplicitSearchTerm}
                             />
                         ))
                     )}
@@ -932,45 +961,60 @@ export function PaperChatPanel({
                         </Message>
                     )}
 
-                    {isStreaming && (
-                        <Message from="assistant">
-                            <MessageContent className="!text-foreground">
-                                {streamingText.length > 0 ? (
-                                    <AnimatedMarkdown
-                                        content={streamingText}
-                                        className="prose-sm"
-                                        components={citationComponents(
-                                            handleCitationClick,
-                                            messages.length,
-                                            streamingReferences?.citations || []
-                                        )}
-                                    />
-                                ) : (
-                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                        <Loader size={14} />
-                                        <span>Thinking…</span>
-                                    </div>
-                                )}
-                            </MessageContent>
-                            {streamingReferences?.citations &&
-                                streamingReferences.citations.length > 0 && (
-                                    <div className="mt-2">
-                                        <PaperSources
-                                            citations={
-                                                streamingReferences.citations
-                                            }
-                                            messageIndex={messages.length}
-                                            handleCitationClick={
-                                                handleCitationClick
-                                            }
-                                            matchesCurrentCitation={
-                                                matchesCurrentCitation
-                                            }
+                    {isStreaming && (() => {
+                        const streamingIndex = messages.length;
+                        const onStreamingCitationClick = (
+                            key: string,
+                            msgIdx: number
+                        ) => {
+                            handleCitationClick(key, msgIdx);
+                            if (msgIdx === streamingIndex)
+                                setStreamingSourcesOpen(true);
+                        };
+                        return (
+                            <Message from="assistant">
+                                <MessageContent className="!text-foreground">
+                                    {streamingText.length > 0 ? (
+                                        <AnimatedMarkdown
+                                            content={streamingText}
+                                            className="prose-sm"
+                                            components={citationComponents(
+                                                onStreamingCitationClick,
+                                                streamingIndex,
+                                                streamingReferences?.citations || []
+                                            )}
                                         />
-                                    </div>
-                                )}
-                        </Message>
-                    )}
+                                    ) : (
+                                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                            <Loader size={14} />
+                                            <span>Thinking…</span>
+                                        </div>
+                                    )}
+                                </MessageContent>
+                                {streamingReferences?.citations &&
+                                    streamingReferences.citations.length > 0 && (
+                                        <div className="mt-2">
+                                            <PaperSources
+                                                citations={
+                                                    streamingReferences.citations
+                                                }
+                                                messageIndex={streamingIndex}
+                                                handleCitationClick={
+                                                    onStreamingCitationClick
+                                                }
+                                                matchesCurrentCitation={
+                                                    matchesCurrentCitation
+                                                }
+                                                open={streamingSourcesOpen}
+                                                onOpenChange={
+                                                    setStreamingSourcesOpen
+                                                }
+                                            />
+                                        </div>
+                                    )}
+                            </Message>
+                        );
+                    })()}
                 </ConversationContent>
                 <ConversationScrollButton />
             </Conversation>
@@ -1328,6 +1372,8 @@ interface PaperMessageProps {
     user: ReturnType<typeof useAuth>["user"];
     handleCitationClick: (key: string, messageIndex: number) => void;
     matchesCurrentCitation: (key: string, messageIndex: number) => boolean;
+    flashesCurrentCitation?: (key: string, messageIndex: number) => boolean;
+    onJumpToReference: (text: string) => void;
 }
 
 function PaperMessage({
@@ -1336,9 +1382,29 @@ function PaperMessage({
     user,
     handleCitationClick,
     matchesCurrentCitation,
+    flashesCurrentCitation,
+    onJumpToReference,
 }: PaperMessageProps) {
     const citations = message.references?.citations ?? [];
     const isUser = message.role === "user";
+
+    const [sourcesOpen, setSourcesOpen] = useState(false);
+    const hasFlash = flashesCurrentCitation
+        ? citations.some((c) => flashesCurrentCitation(c.key, index))
+        : false;
+    // Auto-open when a citation we own is flashing (couldn't be located in the
+    // PDF). Sticky-open after the flash clears so the user can close manually.
+    useEffect(() => {
+        if (hasFlash) setSourcesOpen(true);
+    }, [hasFlash]);
+
+    const onCitationClick = useCallback(
+        (key: string, msgIdx: number) => {
+            handleCitationClick(key, msgIdx);
+            if (msgIdx === index) setSourcesOpen(true);
+        },
+        [handleCitationClick, index]
+    );
 
     return (
         <div data-message-index={index}>
@@ -1361,6 +1427,24 @@ function PaperMessage({
                         </AvatarFallback>
                     </Avatar>
                 )}
+                {isUser && citations.length > 0 && (
+                    <div className="ml-auto flex flex-col items-end gap-1">
+                        {citations.map((c, i) => (
+                            <button
+                                key={`${c.key}-${i}`}
+                                type="button"
+                                onClick={() => onJumpToReference(c.reference)}
+                                className="group flex items-start gap-1 max-w-[260px] rounded-md border-l-2 border-primary/60 bg-muted/40 px-2 py-1 text-left hover:bg-muted/70 transition-colors"
+                                title="Jump to this section in the PDF"
+                            >
+                                <CornerDownRightIcon className="size-3 mt-0.5 shrink-0 text-muted-foreground" />
+                                <span className="text-xs text-muted-foreground line-clamp-2 leading-snug group-hover:text-foreground">
+                                    {c.reference}
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+                )}
                 <MessageContent>
                     <div className="prose dark:prose-invert prose-sm !max-w-none">
                         <Markdown
@@ -1370,7 +1454,7 @@ function PaperMessage({
                             ]}
                             rehypePlugins={[rehypeKatex]}
                             components={citationComponents(
-                                handleCitationClick,
+                                onCitationClick,
                                 index,
                                 citations
                             )}
@@ -1385,8 +1469,11 @@ function PaperMessage({
                     <PaperSources
                         citations={citations}
                         messageIndex={index}
-                        handleCitationClick={handleCitationClick}
+                        handleCitationClick={onCitationClick}
                         matchesCurrentCitation={matchesCurrentCitation}
+                        flashesCurrentCitation={flashesCurrentCitation}
+                        open={sourcesOpen}
+                        onOpenChange={setSourcesOpen}
                         rightSlot={
                             <ChatMessageActions
                                 message={message.content}
@@ -1405,7 +1492,10 @@ interface PaperSourcesProps {
     messageIndex: number;
     handleCitationClick: (key: string, messageIndex: number) => void;
     matchesCurrentCitation: (key: string, messageIndex: number) => boolean;
+    flashesCurrentCitation?: (key: string, messageIndex: number) => boolean;
     rightSlot?: React.ReactNode;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
 }
 
 function PaperSources({
@@ -1413,10 +1503,13 @@ function PaperSources({
     messageIndex,
     handleCitationClick,
     matchesCurrentCitation,
+    flashesCurrentCitation,
     rightSlot,
+    open,
+    onOpenChange,
 }: PaperSourcesProps) {
     return (
-        <Sources>
+        <Sources open={open} onOpenChange={onOpenChange}>
             <div className="flex items-center justify-between gap-2">
                 <SourcesTrigger
                     count={citations.length}
@@ -1431,6 +1524,12 @@ function PaperSources({
                             citation.key,
                             messageIndex
                         );
+                        const flashed = flashesCurrentCitation
+                            ? flashesCurrentCitation(
+                                  citation.key,
+                                  messageIndex
+                              )
+                            : false;
                         return (
                             <li
                                 key={`${citation.key}-${refIndex}`}
@@ -1455,7 +1554,10 @@ function PaperSources({
                                 }}
                                 className={cn(
                                     "flex gap-1.5 items-baseline rounded px-1.5 py-0.5 cursor-pointer transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                    active &&
+                                    flashed &&
+                                        "bg-yellow-200/80 dark:bg-yellow-500/30 animate-pulse",
+                                    !flashed &&
+                                        active &&
                                         "bg-blue-100 dark:bg-blue-900/40"
                                 )}
                             >

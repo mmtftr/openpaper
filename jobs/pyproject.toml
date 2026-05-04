@@ -29,7 +29,7 @@ dependencies = [
     "psutil>=5.9.0",
     "types-psutil>=7.0.0.20250601",
     "openai>=1.82.0",
-    "posthog>=6.1.0",
+    "logfire[fastapi,httpx,celery,system-metrics]>=3.0.0",
 ]
 
 [project.scripts]

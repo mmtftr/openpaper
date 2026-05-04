@@ -1,6 +1,7 @@
 import logging
 import os
 
+import logfire
 import uvicorn  # type: ignore
 from app.api.annotation_api import annotation_router
 from app.api.api import router
@@ -41,11 +42,22 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
+logfire.configure(
+    service_name="openpaper-server",
+    send_to_logfire="if-token-present",
+)
+logfire.instrument_pydantic()
+logfire.instrument_openai()
+logfire.instrument_anthropic()
+logfire.instrument_google_genai()
+logfire.instrument_httpx(capture_all=True)
+
 app = FastAPI(
     title="Open Paper",
     description="A web application for uploading and annotating papers.",
     version="1.0.0",
 )
+logfire.instrument_fastapi(app, capture_headers=True)
 
 client_domain = os.getenv("CLIENT_DOMAIN", "http://localhost:3000")
 

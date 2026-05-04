@@ -3,9 +3,19 @@ Celery application configuration and setup.
 """
 import os
 from dotenv import load_dotenv
+import logfire
 from celery import Celery # type: ignore
 
 load_dotenv()  # Load environment variables from .env file
+
+logfire.configure(
+    service_name="openpaper-jobs",
+    send_to_logfire="if-token-present",
+)
+logfire.instrument_pydantic()
+logfire.instrument_openai()
+logfire.instrument_celery()
+logfire.instrument_httpx(capture_all=True)
 
 BROKER_URL = os.getenv("CELERY_BROKER_URL", "pyamqp://guest@localhost:5672//")
 BACKEND_URL = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")

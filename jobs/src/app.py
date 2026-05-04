@@ -7,7 +7,9 @@ from pydantic import BaseModel
 from typing import Dict, Any, Optional
 import logging
 
-from src.celery_app import celery_app
+import logfire
+
+from src.celery_app import celery_app  # configures logfire as a side effect
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -18,6 +20,7 @@ app = FastAPI(
     description="Celery-based service for processing PDF files",
     version="1.0.0"
 )
+logfire.instrument_fastapi(app, capture_headers=True)
 
 
 class TaskSubmission(BaseModel):

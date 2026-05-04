@@ -7,7 +7,7 @@ import { Separator } from "@/components/ui/separator";
 import { AuthProvider } from "@/lib/auth";
 
 import { Toaster } from "@/components/ui/sonner";
-import { PostHogProvider, ThemeProvider } from "@/lib/providers";
+import { AnalyticsProvider, ThemeProvider } from "@/lib/providers";
 import { SidebarController } from "@/components/utils/SidebarAutoCollapse";
 import Image from "next/image";
 import Link from "next/link";
@@ -92,7 +92,7 @@ export default function RootLayout({
 			>
 				<ThemeProvider>
 					<AuthProvider>
-						<PostHogProvider>
+						<AnalyticsProvider>
 							<SidebarProvider>
 								<AppSidebar />
 								<SidebarInset>
@@ -114,7 +114,7 @@ export default function RootLayout({
 									</SidebarController>
 								</SidebarInset>
 							</SidebarProvider>
-						</PostHogProvider>
+						</AnalyticsProvider>
 					</AuthProvider>
 				</ThemeProvider>
 				<Toaster
