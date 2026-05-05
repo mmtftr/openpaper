@@ -18,6 +18,7 @@ from app.schemas.responses import (
     ToolCall,
     ToolCallResult,
 )
+from pydantic import BaseModel
 from google import genai
 from google.genai.types import (
     AutomaticFunctionCallingConfig,
@@ -56,59 +57,6 @@ def _is_openai_compatible_azure_endpoint(url: Optional[str]) -> bool:
     not the deployment-routed `openai.AzureOpenAI` client.
     """
     return bool(url) and url.rstrip("/").endswith("/openai/v1")
-
-
-_UNSUPPORTED_STRICT_KEYWORDS = {
-    "minLength", "maxLength", "pattern", "format",
-    "minimum", "maximum", "multipleOf",
-    "patternProperties", "unevaluatedProperties", "propertyNames",
-    "minProperties", "maxProperties",
-    "unevaluatedItems", "contains", "minContains", "maxContains",
-    "minItems", "maxItems", "uniqueItems",
-}
-
-
-def _patch_schema_for_azure_strict(schema: Any) -> Any:
-    """Patch a JSON schema for Azure OpenAI strict structured-output mode.
-
-    - $ref nodes must have no sibling keywords
-    - additionalProperties: false on every object
-    - all properties listed in required
-    - unsupported keywords stripped
-    """
-    if not isinstance(schema, dict):
-        return schema
-
-    if "$ref" in schema:
-        ref = schema["$ref"]
-        schema.clear()
-        schema["$ref"] = ref
-        return schema
-
-    for key in _UNSUPPORTED_STRICT_KEYWORDS:
-        schema.pop(key, None)
-
-    if schema.get("type") == "object" or "properties" in schema:
-        schema["additionalProperties"] = False
-        props = schema.get("properties", {})
-        schema["required"] = list(props.keys())
-        for prop in props.values():
-            _patch_schema_for_azure_strict(prop)
-
-    if "items" in schema:
-        _patch_schema_for_azure_strict(schema["items"])
-
-    for sub in (
-        schema.get("anyOf", [])
-        + schema.get("allOf", [])
-        + schema.get("oneOf", [])
-    ):
-        _patch_schema_for_azure_strict(sub)
-
-    for defn in schema.get("$defs", {}).values():
-        _patch_schema_for_azure_strict(defn)
-
-    return schema
 
 
 class LLMProvider(Enum):
@@ -187,6 +135,72 @@ MessageContent = Union[TextContent, FileContent, SupplementaryContent]
 MessageParam = Union[str, Sequence[MessageContent]]
 
 
+def _run_structured_via_pai(
+    pai_model_or_name: Any,
+    contents: Union[str, "MessageParam"],
+    system_prompt: Optional[str],
+    output_type: type[BaseModel],
+    response_provider: "LLMProvider",
+    response_model_label: str,
+    *,
+    history: Optional[List[Message]] = None,
+    function_declarations: Optional[List[Dict]] = None,
+    tool_call_results: Optional[List[ToolCallResult]] = None,
+    model_settings: Optional[Any] = None,
+) -> "LLMResponse":
+    """Run a structured-output call through pydantic_ai.
+
+    Returns an LLMResponse whose `.text` is the parsed output's JSON
+    serialization, so callers using `Model.model_validate_json(response.text)`
+    keep working.
+
+    Multi-turn tool state and chat history aren't wired through pydantic_ai
+    yet; today's only structured-output caller (helpers/discover) doesn't
+    use them. Surface the gap with a clear error rather than silently
+    falling back.
+    """
+    from app.llm._pai_compat import run_async
+    from pydantic_ai import Agent
+
+    if function_declarations or tool_call_results:
+        raise NotImplementedError(
+            "Structured outputs combined with tool calls aren't supported "
+            "through the pydantic_ai path yet."
+        )
+    if history:
+        raise NotImplementedError(
+            "Structured outputs with chat history aren't supported through "
+            "the pydantic_ai path yet."
+        )
+
+    if isinstance(contents, str):
+        user_prompt = contents
+    elif isinstance(contents, list) and all(
+        isinstance(c, TextContent) for c in contents
+    ):
+        user_prompt = "\n\n".join(c.text for c in contents)  # type: ignore[union-attr]
+    else:
+        raise NotImplementedError(
+            "Structured outputs only support str or TextContent[] today; "
+            "got mixed/file content."
+        )
+
+    agent_kwargs: Dict[str, Any] = {
+        "output_type": output_type,
+        "instructions": system_prompt or None,
+    }
+    if model_settings is not None:
+        agent_kwargs["model_settings"] = model_settings
+
+    agent = Agent(pai_model_or_name, **agent_kwargs)
+    result = run_async(agent.run(user_prompt))
+    return LLMResponse(
+        text=result.output.model_dump_json(),
+        model=response_model_label,
+        provider=response_provider,
+    )
+
+
 class BaseLLMProvider(ABC):
     """Abstract base class for LLM providers"""
 
@@ -206,22 +220,16 @@ class BaseLLMProvider(ABC):
         function_declarations: Optional[List[Dict]] = None,
         tool_call_results: Optional[List[ToolCallResult]] = None,
         enable_thinking: bool = False,
-        schema: Optional[Dict] = None,
+        output_type: Optional[type[BaseModel]] = None,
         **kwargs,
     ) -> LLMResponse:
-        """Generate content using the provider's API
+        """Generate content using the provider's API.
 
         Args:
-            model: The model identifier to use
-            contents: The message content to send
-            system_prompt: Optional system prompt
-            history: Optional conversation history
-            function_declarations: Optional list of tool/function declarations
-            tool_call_results: Optional list of tool call results from previous calls
-            enable_thinking: Whether to enable thinking/reasoning mode
-            schema: Optional JSON schema dict for structured output. When provided,
-                the response will be constrained to match this schema.
-            **kwargs: Additional provider-specific arguments
+            output_type: Pydantic model class for structured output. When provided,
+                the response is constrained to its JSON schema via the provider's
+                native structured output support, and `LLMResponse.text` is the
+                serialized JSON (callers parse with `output_type.model_validate_json`).
         """
         pass
 
@@ -293,9 +301,22 @@ class GeminiProvider(BaseLLMProvider):
         function_declarations: Optional[List[Dict]] = None,
         tool_call_results: Optional[List[ToolCallResult]] = None,
         enable_thinking: bool = False,
-        schema: Optional[Dict] = None,
+        output_type: Optional[type[BaseModel]] = None,
         **kwargs,
     ) -> LLMResponse:
+        if output_type is not None:
+            return _run_structured_via_pai(
+                f"google-gla:{model}",
+                contents=contents,
+                system_prompt=system_prompt,
+                output_type=output_type,
+                response_provider=LLMProvider.GEMINI,
+                response_model_label=model,
+                history=history,
+                function_declarations=function_declarations,
+                tool_call_results=tool_call_results,
+            )
+
         tool_options: List[FunctionDeclaration] = []
 
         def get_thought(response: GenerateContentResponse) -> str:
@@ -315,11 +336,6 @@ class GeminiProvider(BaseLLMProvider):
         tools = Tool(function_declarations=tool_options) if tool_options else None
 
         config = GenerateContentConfig()
-
-        # Apply structured output schema if provided
-        if schema:
-            config.response_mime_type = "application/json"
-            config.response_schema = schema
 
         if tools:
             config.tools = [tools]
@@ -621,9 +637,20 @@ class OpenAIProvider(BaseLLMProvider):
         function_declarations: Optional[List[Dict]] = None,
         tool_call_results: Optional[List[ToolCallResult]] = None,
         enable_thinking: bool = True,
-        schema: Optional[Dict] = None,
+        output_type: Optional[type[BaseModel]] = None,
         **kwargs,
     ) -> LLMResponse:
+        if output_type is not None:
+            return self._structured_output_via_pai(
+                model=model,
+                contents=contents,
+                system_prompt=system_prompt,
+                history=history,
+                function_declarations=function_declarations,
+                tool_call_results=tool_call_results,
+                output_type=output_type,
+            )
+
         # Convert to OpenAI format
         all_messages = self._prepare_openai_messages(
             history=history or [],
@@ -643,22 +670,6 @@ class OpenAIProvider(BaseLLMProvider):
 
         if tools:
             kwargs["tools"] = tools
-
-        # Apply structured output schema if provided
-        if schema:
-            schema_for_request = (
-                _patch_schema_for_azure_strict(json.loads(json.dumps(schema)))
-                if self.is_azure
-                else schema
-            )
-            kwargs["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "structured_response",
-                    "strict": True,
-                    "schema": schema_for_request,
-                },
-            }
 
         if enable_thinking:
             logger.debug(
@@ -924,6 +935,40 @@ class OpenAIProvider(BaseLLMProvider):
             return parsed
         return super().get_supported_models()
 
+    def _structured_output_via_pai(
+        self,
+        model: str,
+        contents: Union[str, MessageParam],
+        system_prompt: Optional[str],
+        history: Optional[List[Message]],
+        function_declarations: Optional[List[Dict]],
+        tool_call_results: Optional[List[ToolCallResult]],
+        output_type: type[BaseModel],
+    ) -> LLMResponse:
+        from app.llm._pai_compat import make_openai_chat_model
+
+        # Forward our existing OpenAI-compatible config (Azure, Groq, Cerebras,
+        # standard OpenAI) into the pydantic_ai model.
+        client_base_url = (
+            str(self._client.base_url) if self._client.base_url else None
+        )
+        pai_model = make_openai_chat_model(
+            model,
+            api_key=self.api_key,
+            base_url=None if self.is_azure else client_base_url,
+        )
+        return _run_structured_via_pai(
+            pai_model,
+            contents=contents,
+            system_prompt=system_prompt,
+            output_type=output_type,
+            response_provider=LLMProvider.OPENAI,
+            response_model_label=model,
+            history=history,
+            function_declarations=function_declarations,
+            tool_call_results=tool_call_results,
+        )
+
 
 class AnthropicProvider(BaseLLMProvider):
     """Anthropic (Claude) LLM provider implementation.
@@ -969,9 +1014,25 @@ class AnthropicProvider(BaseLLMProvider):
         function_declarations: Optional[List[Dict]] = None,
         tool_call_results: Optional[List[ToolCallResult]] = None,
         enable_thinking: bool = False,
-        schema: Optional[Dict] = None,
+        output_type: Optional[type[BaseModel]] = None,
         **kwargs,
     ) -> LLMResponse:
+        if output_type is not None:
+            from pydantic_ai.models.anthropic import AnthropicModelSettings
+
+            return _run_structured_via_pai(
+                f"anthropic:{model}",
+                contents=contents,
+                system_prompt=system_prompt,
+                output_type=output_type,
+                response_provider=LLMProvider.ANTHROPIC,
+                response_model_label=model,
+                history=history,
+                function_declarations=function_declarations,
+                tool_call_results=tool_call_results,
+                model_settings=AnthropicModelSettings(anthropic_cache=True),
+            )
+
         params: Dict[str, Any] = {
             "model": model,
             "max_tokens": kwargs.pop("max_tokens", self.DEFAULT_MAX_TOKENS_NONSTREAM),
@@ -1003,16 +1064,9 @@ class AnthropicProvider(BaseLLMProvider):
             params["tools"] = [
                 self._convert_tool_declaration(fd) for fd in function_declarations
             ]
-            # Match Gemini's behavior: force at least one tool call when tools
-            # are provided and no structured-output schema. Callers that want
-            # auto selection can override via kwargs.
-            if not schema:
-                params.setdefault("tool_choice", {"type": "any"})
-
-        if schema:
-            params["output_config"] = {
-                "format": {"type": "json_schema", "schema": schema}
-            }
+            # Force at least one tool call when tools are provided. Callers
+            # that want auto selection can override via kwargs.
+            params.setdefault("tool_choice", {"type": "any"})
 
         params.update(kwargs)
 

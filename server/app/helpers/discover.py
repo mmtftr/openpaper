@@ -42,10 +42,10 @@ def decompose_query(question: str) -> list[str]:
         system_prompt=DECOMPOSE_PROMPT,
         model_type=ModelType.FAST,
         enable_thinking=False,
-        schema=DecomposeResponse.model_json_schema(),
+        output_type=DecomposeResponse,
     )
 
-    parsed = DecomposeResponse.model_validate(json.loads(response.text))
+    parsed = DecomposeResponse.model_validate_json(response.text)
     return parsed.subqueries
 
 

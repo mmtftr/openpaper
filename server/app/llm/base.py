@@ -20,6 +20,7 @@ from app.llm.provider import (
     ToolCallResult,
 )
 from app.llm.utils import retry_llm_operation
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -204,15 +205,17 @@ class BaseLLMClient:
         model_type: ModelType = ModelType.DEFAULT,
         provider: Optional[LLMProvider] = None,
         enable_thinking: bool = True,
-        schema: Optional[Dict] = None,
+        output_type: Optional[type[BaseModel]] = None,
         **kwargs,
     ) -> LLMResponse:
         """Generate content using the specified provider. Automatically retries on transient errors.
 
         Args:
-            schema: Optional JSON schema dict for structured output. When provided,
-                the LLM response will be constrained to match this schema via
-                the provider's native structured output support.
+            output_type: Pydantic model class for structured output. When provided,
+                the response is constrained to its JSON schema via the provider's
+                native structured output support; the returned `LLMResponse.text`
+                is the serialized JSON (callers parse with
+                `output_type.model_validate_json`).
         """
         start_time = time.time()
         model = self._get_model_for_type(model_type, provider)
@@ -227,7 +230,7 @@ class BaseLLMClient:
                 tool_call_results=tool_call_results,
                 history=history,
                 enable_thinking=enable_thinking,
-                schema=schema,
+                output_type=output_type,
                 **kwargs,
             )
 
