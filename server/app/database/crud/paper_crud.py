@@ -2,7 +2,7 @@ import logging
 import re
 import uuid
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.database.crud.annotation_crud import AnnotationCreate, annotation_crud
 from app.database.crud.base_crud import CRUDBase
@@ -48,6 +48,12 @@ class PaperBase(BaseModel):
     size_in_kb: Optional[int] = None
     # We can't save tuples in the db, so we use a list (length 2) to represent page offsets
     page_offset_map: Optional[dict[int, List[int]]] = None
+    # OCR pipeline outputs. parser is "mistral" | "pymupdf"; ocr is the
+    # per-page jsonb the agentic chat layer reads.
+    parser: Optional[str] = None
+    ocr: Optional[Dict[str, Any]] = None
+    figure_count: Optional[int] = None
+    page_count: Optional[int] = None
 
 
 class PaperCreate(PaperBase):

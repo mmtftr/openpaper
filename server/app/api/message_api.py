@@ -330,6 +330,9 @@ async def chat_message_multipaper(
 
 
 # Add this new model for the chat request
+ContextMode = Literal["adaptive", "comprehensive", "full", "raw"]
+
+
 class ChatMessageRequest(BaseModel):
     paper_id: str
     conversation_id: str
@@ -339,6 +342,9 @@ class ChatMessageRequest(BaseModel):
     llm_provider: Optional[LLMProvider] = None
     model: Optional[str] = None
     reasoning_effort: Optional[ReasoningEffort] = None
+    # Context mode selects how much of the paper is pre-loaded vs. fetched via
+    # tools. None = legacy whole-PDF chat (the path before slice 3).
+    context_mode: Optional[ContextMode] = None
 
 
 @message_router.post("/chat/paper")
@@ -363,18 +369,33 @@ async def chat_message_stream(
                 start_time = datetime.now(timezone.utc)
                 evidence_container = {"evidence": None}
 
-                chat_generator = operations.chat_with_paper(
-                    paper_id=request.paper_id,
-                    conversation_id=request.conversation_id,
-                    question=request.user_query,
-                    current_user=current_user,
-                    llm_provider=request.llm_provider,
-                    model=request.model,
-                    reasoning_effort=request.reasoning_effort,
-                    user_references=request.user_references,
-                    response_style=request.style,
-                    db=db,
-                )
+                if request.context_mode:
+                    chat_generator = operations.chat_with_paper_agentic(
+                        paper_id=request.paper_id,
+                        conversation_id=request.conversation_id,
+                        question=request.user_query,
+                        current_user=current_user,
+                        context_mode=request.context_mode,
+                        llm_provider=request.llm_provider,
+                        model=request.model,
+                        reasoning_effort=request.reasoning_effort,
+                        user_references=request.user_references,
+                        response_style=request.style,
+                        db=db,
+                    )
+                else:
+                    chat_generator = operations.chat_with_paper(
+                        paper_id=request.paper_id,
+                        conversation_id=request.conversation_id,
+                        question=request.user_query,
+                        current_user=current_user,
+                        llm_provider=request.llm_provider,
+                        model=request.model,
+                        reasoning_effort=request.reasoning_effort,
+                        user_references=request.user_references,
+                        response_style=request.style,
+                        db=db,
+                    )
 
                 async for chunk in _stream_chat_chunks(
                     chunk_generator=chat_generator,

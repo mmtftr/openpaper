@@ -55,11 +55,15 @@ class CitationHandler:
         Parse evidence block into structured citations
         Handles multi-line citations between @cite markers
 
-        Incoming format of evidence_text:
-        @cite[1]
-        "First piece of evidence"
-        @cite[2]
-        "Second piece of evidence"
+        Accepts two forms — `page=N` is optional and used by the agentic
+        chat to pin a citation to a single PDF page (so the reconciliation
+        step can match the quote against that page's pymupdf text):
+
+            @cite[1]
+            "First piece of evidence"
+
+            @cite[2|page=4]
+            "Second piece of evidence"
         """
         citations = []
         lines = evidence_text.strip().split("\n")
@@ -74,11 +78,16 @@ class CitationHandler:
                     current_citation["reference"] = " ".join(current_text_lines).strip()
                     citations.append(current_citation)
 
-                # Start new citation
-                match = re.search(r"@cite\[(\d+)\]", line)
+                # Start new citation. Match either `@cite[N]` or
+                # `@cite[N|page=P]` (case-insensitive on the key).
+                match = re.search(
+                    r"@cite\[(\d+)(?:\|page=(\d+))?\]", line, re.IGNORECASE
+                )
                 if match:
                     number = int(match.group(1))
                     current_citation = {"key": number, "reference": ""}
+                    if match.group(2):
+                        current_citation["page"] = int(match.group(2))
                     current_text_lines = []
             elif current_citation is not None and line:
                 # Accumulate lines for the current citation

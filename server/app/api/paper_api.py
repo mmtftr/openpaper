@@ -486,6 +486,10 @@ async def get_pdf(
         return JSONResponse(status_code=404, content={"message": "Document not found"})
 
     paper_data = paper.to_dict()
+    # `ocr` jsonb can be hundreds of KB on long papers — strip it from the
+    # paper detail response. The chat layer reads it server-side; the client
+    # only needs the parser flag and counts.
+    paper_data.pop("ocr", None)
 
     signed_url = s3_service.get_cached_presigned_url(
         db,
@@ -664,6 +668,7 @@ async def get_shared_pdf(
         return JSONResponse(status_code=404, content={"message": "Document not found"})
 
     paper_data = paper.to_dict()
+    paper_data.pop("ocr", None)
 
     signed_url = s3_service.get_cached_presigned_url_by_owner(
         db,

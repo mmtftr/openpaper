@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
     AudioLines,
+    FileText,
     Highlighter,
     Lightbulb,
     MessageCircle,
@@ -59,12 +60,19 @@ const AudioTool = {
     icon: AudioLines,
 }
 
+const DocTool = {
+    name: "Doc",
+    label: "Notes",
+    icon: FileText,
+}
+
 const PaperToolset = {
     nav: [
         ChatTool,
         OverviewTool,
         AnnotationsTool,
         AudioTool,
+        DocTool,
     ],
 }
 

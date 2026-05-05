@@ -18,6 +18,8 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import {
+    AlertTriangleIcon,
+    BookOpenIcon,
     BrainIcon,
     CheckIcon,
     CornerDownRightIcon,
@@ -30,6 +32,7 @@ import {
 
 import { ChatMessage, CreditUsage, Reference } from "@/lib/schema";
 import { fetchFromApi, fetchStreamFromApi } from "@/lib/api";
+import { setPaperChatStreaming } from "@/lib/paperDocEvents";
 import { useAuth } from "@/lib/auth";
 import {
     useSubscription,
@@ -127,6 +130,55 @@ const REASONING_EFFORT_OPTIONS: { id: ReasoningEffort; label: string }[] = [
     { id: "xhigh", label: "xhigh" },
 ];
 
+type ContextMode = "adaptive" | "comprehensive" | "full" | "raw";
+
+interface ContextModeOption {
+    id: ContextMode;
+    label: string;
+    subtitle: string;
+    recommended: boolean;
+    forParser: "mistral" | "pymupdf";
+}
+
+// Each mode is gated by which parser ran on the paper. The picker hides
+// modes that don't apply (Raw only on pymupdf-parsed papers; the rest only
+// on Mistral-parsed papers).
+const CONTEXT_MODE_OPTIONS: ContextModeOption[] = [
+    {
+        id: "adaptive",
+        label: "Adaptive",
+        subtitle:
+            "Includes abstract, intro and conclusion with model-selected access to the rest",
+        recommended: true,
+        forParser: "mistral",
+    },
+    {
+        id: "comprehensive",
+        label: "Comprehensive",
+        subtitle:
+            "Includes the main paper content and all the figures, excl. references and appendix",
+        recommended: true,
+        forParser: "mistral",
+    },
+    {
+        id: "full",
+        label: "Full",
+        subtitle: "Includes the full paper content (slow, expensive)",
+        recommended: false,
+        forParser: "mistral",
+    },
+    {
+        id: "raw",
+        label: "Raw",
+        subtitle:
+            "Includes references and appendices, no figures (fallback parsing)",
+        recommended: false,
+        forParser: "pymupdf",
+    },
+];
+
+const CONTEXT_MODE_LS_KEY = "openpaper:paper-context-mode";
+
 interface ChatRequestBody {
     user_query: string;
     conversation_id: string | null;
@@ -134,6 +186,7 @@ interface ChatRequestBody {
     user_references: string[];
     model?: string;
     reasoning_effort?: ReasoningEffort;
+    context_mode?: ContextMode;
 }
 
 interface ConversationSummary {
@@ -198,11 +251,26 @@ export function PaperChatPanel({
     const [isFetchingHistory, setIsFetchingHistory] = useState(true);
 
     const [isStreaming, setIsStreaming] = useState(false);
+
+    // Broadcast to PaperDocEditor so it can poll for agent-driven writes
+    // landing on the user's main doc. Module-level pub-sub keyed by paperId.
+    useEffect(() => {
+        setPaperChatStreaming(id, isStreaming);
+    }, [id, isStreaming]);
+    useEffect(() => {
+        return () => {
+            setPaperChatStreaming(id, false);
+        };
+    }, [id]);
+
     const [streamingText, setStreamingText] = useState("");
     const [streamingReferences, setStreamingReferences] = useState<
         Reference | undefined
     >(undefined);
     const [streamingSourcesOpen, setStreamingSourcesOpen] = useState(false);
+    // Last status event received from the agentic loop ("Searching for X",
+    // "Reading section Y"). Cleared once the answer starts streaming.
+    const [streamingStatus, setStreamingStatus] = useState<string | null>(null);
     const [errorState, setErrorState] = useState<{
         failedUserMessage: string;
     } | null>(null);
@@ -216,6 +284,45 @@ export function PaperChatPanel({
     const [reasoningEffort, setReasoningEffort] =
         useState<ReasoningEffort>("medium");
     const [nextMonday, setNextMonday] = useState(new Date());
+
+    // Context mode for the agentic chat surface. Defaults to Adaptive on
+    // Mistral-parsed papers and Raw on pymupdf-parsed papers; user choice
+    // sticks via localStorage but is filtered down to the modes valid for
+    // the current paper's parser.
+    const paperParser: "mistral" | "pymupdf" =
+        paperData?.parser === "mistral" ? "mistral" : "pymupdf";
+    const availableContextModes = useMemo(
+        () => CONTEXT_MODE_OPTIONS.filter((m) => m.forParser === paperParser),
+        [paperParser]
+    );
+    const [contextMode, setContextMode] = useState<ContextMode>(() => {
+        if (typeof window === "undefined") return "adaptive";
+        const stored = window.localStorage.getItem(CONTEXT_MODE_LS_KEY) as
+            | ContextMode
+            | null;
+        return stored ?? "adaptive";
+    });
+    useEffect(() => {
+        // If the persisted choice doesn't match this paper's parser, fall
+        // back to the first valid mode for this parser.
+        if (
+            !availableContextModes.some((m) => m.id === contextMode) &&
+            availableContextModes[0]
+        ) {
+            setContextMode(availableContextModes[0].id);
+        }
+    }, [availableContextModes, contextMode]);
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        window.localStorage.setItem(CONTEXT_MODE_LS_KEY, contextMode);
+    }, [contextMode]);
+    const contextModeLabel = useMemo(() => {
+        return (
+            CONTEXT_MODE_OPTIONS.find((m) => m.id === contextMode)?.label ??
+            "Adaptive"
+        );
+    }, [contextMode]);
+    const showContextWarning = contextMode === "full" || contextMode === "raw";
 
     const starterQuestions = useMemo(() => {
         if (
@@ -570,6 +677,7 @@ export function PaperChatPanel({
             };
             if (selectedModel) requestBody.model = selectedModel;
             requestBody.reasoning_effort = reasoningEffort;
+            requestBody.context_mode = contextMode;
 
             const controller = new AbortController();
             abortControllerRef.current = controller;
@@ -611,9 +719,23 @@ export function PaperChatPanel({
                         if (type === "content") {
                             accumulated += content;
                             setStreamingText((prev) => prev + content);
+                            setStreamingStatus(null);
                         } else if (type === "references") {
                             references = content;
                             setStreamingReferences(content);
+                        } else if (type === "references_reconciled") {
+                            // Server-side normalizer/LLM swapped the OCR
+                            // quote for the matching pymupdf substring so
+                            // the PDF highlighter actually finds it. Replace
+                            // the streamed citations in place.
+                            references = content;
+                            setStreamingReferences(content);
+                        } else if (type === "status") {
+                            setStreamingStatus(
+                                typeof content === "string"
+                                    ? content
+                                    : null
+                            );
                         } else if (type === "error") {
                             throw new Error(`Server error: ${content}`);
                         }
@@ -663,6 +785,7 @@ export function PaperChatPanel({
                     abortControllerRef.current = null;
                 }
                 setIsStreaming(false);
+                setStreamingStatus(null);
             }
         },
         [
@@ -673,6 +796,7 @@ export function PaperChatPanel({
             userMessageReferences,
             selectedModel,
             reasoningEffort,
+            contextMode,
             transformReferencesToFormat,
             refetchSubscription,
             setUserMessageReferences,
@@ -987,7 +1111,7 @@ export function PaperChatPanel({
                                     ) : (
                                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                             <Loader size={14} />
-                                            <span>Thinking…</span>
+                                            <span>{streamingStatus ?? "Thinking…"}</span>
                                         </div>
                                     )}
                                 </MessageContent>
@@ -1070,6 +1194,17 @@ export function PaperChatPanel({
                                 </button>
                             </div>
                         ))}
+                    </div>
+                )}
+
+                {showContextWarning && (
+                    <div className="mb-2 flex items-start gap-2 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+                        <AlertTriangleIcon className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                        <span>
+                            This mode sends the entire paper to the model on
+                            every turn. Adaptive is faster and cheaper for most
+                            questions.
+                        </span>
                     </div>
                 )}
 
@@ -1229,6 +1364,61 @@ export function PaperChatPanel({
                                     ))}
                                 </DropdownMenuContent>
                             </DropdownMenu>
+
+                            {availableContextModes.length > 1 && (
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                                            disabled={isStreaming}
+                                            aria-label={`Context: ${contextModeLabel}`}
+                                        >
+                                            <BookOpenIcon className="h-3.5 w-3.5" />
+                                            <span className="truncate max-w-[8rem]">
+                                                {contextModeLabel}
+                                            </span>
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent
+                                        align="start"
+                                        className="w-80"
+                                    >
+                                        <DropdownMenuLabel className="text-xs text-muted-foreground">
+                                            Paper context
+                                        </DropdownMenuLabel>
+                                        <DropdownMenuSeparator />
+                                        {availableContextModes.map((opt) => (
+                                            <DropdownMenuItem
+                                                key={opt.id}
+                                                onClick={() =>
+                                                    setContextMode(opt.id)
+                                                }
+                                                className="flex items-start gap-2 py-2"
+                                            >
+                                                <div className="flex flex-col flex-1 min-w-0">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <span className="font-medium">
+                                                            {opt.label}
+                                                        </span>
+                                                        {!opt.recommended && (
+                                                            <AlertTriangleIcon className="h-3 w-3 text-amber-500" />
+                                                        )}
+                                                    </div>
+                                                    <span className="text-xs text-muted-foreground">
+                                                        {opt.subtitle}
+                                                    </span>
+                                                </div>
+                                                {opt.id === contextMode && (
+                                                    <CheckIcon className="h-3.5 w-3.5 text-green-500 shrink-0 mt-1" />
+                                                )}
+                                            </DropdownMenuItem>
+                                        ))}
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            )}
                         </PromptInputTools>
                         <PromptInputSubmit
                             status={status}
@@ -1566,9 +1756,32 @@ function PaperSources({
                                 </span>
                                 <span
                                     id={`citation-ref-${citation.key}-${messageIndex}`}
-                                    className="text-xs text-muted-foreground line-clamp-2 leading-snug"
+                                    className="text-xs text-muted-foreground line-clamp-2 leading-snug citation-ref-md"
                                 >
-                                    {citation.reference}
+                                    <Markdown
+                                        remarkPlugins={[remarkGfm, remarkMath]}
+                                        rehypePlugins={[rehypeKatex]}
+                                        components={{
+                                            // Citations are short blurbs;
+                                            // strip block-level styling so
+                                            // they sit inline with the [N]
+                                            // marker and the line-clamp.
+                                            p: ({ children }) => <>{children}</>,
+                                            h1: ({ children }) => <strong>{children}</strong>,
+                                            h2: ({ children }) => <strong>{children}</strong>,
+                                            h3: ({ children }) => <strong>{children}</strong>,
+                                            h4: ({ children }) => <strong>{children}</strong>,
+                                            h5: ({ children }) => <strong>{children}</strong>,
+                                            h6: ({ children }) => <strong>{children}</strong>,
+                                            code: ({ children }) => (
+                                                <code className="font-mono text-[11px]">
+                                                    {children}
+                                                </code>
+                                            ),
+                                        }}
+                                    >
+                                        {citation.reference}
+                                    </Markdown>
                                 </span>
                             </li>
                         );

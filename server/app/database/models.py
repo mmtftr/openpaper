@@ -19,6 +19,7 @@ from sqlalchemy import (  # type: ignore
     Text,
     UniqueConstraint,
     and_,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -422,6 +423,14 @@ class Paper(Base):
 
     size_in_kb = Column(Integer, nullable=True)  # Size of the paper file in KB
 
+    # OCR pipeline. parser is "mistral" | "pymupdf" — selects the chat
+    # context-mode surface for this paper. ocr is the per-page jsonb (Mistral
+    # response with image_base64 stripped); used by the agentic chat tools.
+    parser = Column(Text, nullable=True)
+    ocr = Column(JSONB, nullable=True)
+    figure_count = Column(Integer, nullable=True)
+    page_count = Column(Integer, nullable=True)
+
     # Some papers can be forked/duplicated from other papers (across users). To handle this, we store the parent paper ID of the original paper.
     parent_paper_id = Column(
         UUID(as_uuid=True),
@@ -628,6 +637,63 @@ class PaperImage(Base):
     placeholder_id = Column(String, nullable=True)  # Placeholder ID for the image
 
     paper = relationship("Paper", back_populates="paper_images")
+
+
+class DocumentKind(str, Enum):
+    MAIN = "main"  # the paper's main writeup; exactly one per (paper_id, user_id)
+    NOTE = "note"  # any other doc, paper-scoped or root-level (slice 3)
+
+
+class Document(Base):
+    """User-and-agent-editable markdown documents.
+
+    Slice 1 only fills MAIN rows (one per paper per user). The schema is shaped
+    for the eventual end state — paper-scoped folder trees plus root-level user
+    docs — so we don't re-migrate when slice 3 lands.
+    """
+
+    __tablename__ = "documents"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    # NULL paper_id = root-level user doc (slice 3).
+    paper_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("papers.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+
+    # Folder hierarchy. NULL = top of its scope (paper or root).
+    parent_document_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+
+    kind = Column(String, nullable=False, default=DocumentKind.NOTE)
+    title = Column(String, nullable=False, default="Untitled")
+    content = Column(Text, nullable=False, default="")
+
+    # Bumped on every successful write; used for optimistic locking against
+    # concurrent agent + user edits.
+    revision = Column(Integer, nullable=False, default=1)
+
+    __table_args__ = (
+        Index(
+            "ux_documents_main_per_paper",
+            "paper_id",
+            "user_id",
+            unique=True,
+            postgresql_where=text("kind = 'main' AND paper_id IS NOT NULL"),
+        ),
+        Index("ix_documents_paper_user", "paper_id", "user_id"),
+        Index("ix_documents_parent", "parent_document_id"),
+    )
 
 
 class PaperNote(Base):

@@ -341,3 +341,15 @@
 .pdf-align-left .pdfViewer .page {
 	margin-left: 0 !important;
 }
+
+/*
+ * Crepe editor: kill the default browser contenteditable focus outline. The
+ * editor sits in the paper sidebar where the panel border already provides
+ * the affordance — the inner outline is just visual noise.
+ */
+.paper-doc-editor .ProseMirror,
+.paper-doc-editor .ProseMirror:focus,
+.paper-doc-editor .ProseMirror-focused {
+	outline: none !important;
+	box-shadow: none !important;
+}

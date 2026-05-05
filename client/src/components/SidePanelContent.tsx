@@ -22,6 +22,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/lib/auth';
 import { PaperChatPanel } from '@/components/chat/PaperChatPanel';
 import { MetadataPopover } from '@/components/chat/MetadataPopover';
+import { PaperDocEditor } from '@/components/PaperDocEditor';
 
 interface SidePanelContentProps {
     rightSideFunction: string;
@@ -262,6 +263,12 @@ export function SidePanelContent({
                         paper_title={paperData.title}
                         setExplicitSearchTerm={setExplicitSearchTerm}
                     />
+                </div>
+            )}
+
+            {rightSideFunction === 'Doc' && (
+                <div className={`flex flex-col ${heightClass}`}>
+                    <PaperDocEditor paperId={id} />
                 </div>
             )}
 

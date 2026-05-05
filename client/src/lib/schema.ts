@@ -27,6 +27,11 @@ export interface PaperData {
     journal?: string;
     doi?: string;
     publisher?: string;
+    // Mistral OCR pipeline. parser is "mistral" | "pymupdf" — selects which
+    // chat context modes the picker exposes for this paper.
+    parser?: "mistral" | "pymupdf";
+    page_count?: number;
+    figure_count?: number;
 }
 
 export interface SharedPaper {
@@ -91,6 +96,12 @@ export interface Citation {
     key: string;
     paper_id?: string;
     reference: string;
+    // Set by the agentic chat: 1-indexed page the quote was taken from.
+    // The PDF highlighter uses this to pin its search to the right page.
+    page?: number;
+    // "normalizer" | "llm" — set when the quote text was rewritten from the
+    // OCR form to a pymupdf-grounded form for highlighter compatibility.
+    matched_via?: string;
 }
 
 export interface Conversation {

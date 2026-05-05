@@ -243,7 +243,17 @@ class BaseLLMProvider(ABC):
         file: FileContent | None = None,
         **kwargs,
     ) -> Iterator[StreamChunk]:
-        """Send a streaming message"""
+        """Send a streaming message.
+
+        Recognized kwargs:
+        - `reasoning_effort`: low/medium/high/xhigh; ignored by providers
+          without a native reasoning knob.
+        - `tool_call_results`: list of ToolCallResult to reconstruct as proper
+          assistant-tool_calls / tool-result messages in the request, so the
+          streaming final-answer turn after an agentic loop sees the same
+          shape as the non-streaming planning turns. Without this, callers
+          had to inject tool results as plain text into the user message.
+        """
         pass
 
     @abstractmethod
@@ -412,6 +422,7 @@ class GeminiProvider(BaseLLMProvider):
         # Gemini doesn't expose a comparable reasoning-effort knob; drop it
         # so it doesn't reach the SDK as an unrecognized kwarg.
         kwargs.pop("reasoning_effort", None)
+        tool_call_results = kwargs.pop("tool_call_results", None)
 
         config = GenerateContentConfig(
             system_instruction=system_prompt,
@@ -419,7 +430,10 @@ class GeminiProvider(BaseLLMProvider):
 
         # Start with file content for caching if present
         contents = self._prepare_gemini_messages(
-            history=history, new_message=message, file=file
+            history=history,
+            new_message=message,
+            file=file,
+            tool_call_results=tool_call_results,
         )
 
         response_stream = self.client.models.generate_content_stream(
@@ -714,7 +728,14 @@ class OpenAIProvider(BaseLLMProvider):
         **kwargs,
     ) -> Iterator[StreamChunk]:
         """Send streaming message to OpenAI"""
-        messages = self._prepare_openai_messages(history, message, system_prompt, file)
+        tool_call_results = kwargs.pop("tool_call_results", None)
+        messages = self._prepare_openai_messages(
+            history,
+            message,
+            system_prompt,
+            file,
+            tool_call_results=tool_call_results,
+        )
 
         # Map our generic reasoning effort levels to OpenAI's chat completions
         # API. xhigh has no native equivalent, so it falls through to high.
@@ -1118,6 +1139,7 @@ class AnthropicProvider(BaseLLMProvider):
         **kwargs,
     ) -> Iterator[StreamChunk]:
         reasoning_effort = kwargs.pop("reasoning_effort", None)
+        tool_call_results = kwargs.pop("tool_call_results", None)
         params: Dict[str, Any] = {
             "model": model,
             "max_tokens": kwargs.pop("max_tokens", self.DEFAULT_MAX_TOKENS_STREAM),
@@ -1136,6 +1158,7 @@ class AnthropicProvider(BaseLLMProvider):
             history=history,
             new_message=message,
             file=file,
+            tool_call_results=tool_call_results,
         )
 
         if reasoning_effort and reasoning_effort in self._SUPPORTED_EFFORT:

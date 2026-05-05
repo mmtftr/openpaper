@@ -2,7 +2,7 @@
 Pydantic schemas for PDF processing.
 """
 from enum import Enum
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 from pydantic import BaseModel, Field
 
@@ -198,6 +198,15 @@ class PDFProcessingResult(BaseModel):
     preview_object_key: Optional[str] = None
     error: Optional[str] = None
     duration: Optional[float] = None  # Duration in seconds
+
+    # Mistral OCR fields. parser is "mistral" | "pymupdf" — the chat layer
+    # branches on this. ocr is the per-page jsonb (stripped of base64
+    # bitmaps); figure_count and page_count are denormalized for cheap
+    # reads without scanning ocr.pages.
+    parser: Optional[str] = None
+    ocr: Optional[Dict[str, Any]] = None
+    figure_count: Optional[int] = None
+    page_count: Optional[int] = None
 
 class DocumentMapping(BaseModel):
     title: str

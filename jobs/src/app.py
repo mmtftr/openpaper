@@ -2,6 +2,9 @@
 FastAPI application for the Celery PDF processing service.
 Provides endpoints for submitting tasks and checking status.
 """
+import os
+import tempfile
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
@@ -10,6 +13,10 @@ import logging
 import logfire
 
 from src.celery_app import celery_app  # configures logfire as a side effect
+from src.figure_renderer import render_and_upload_figures
+from src.mistral_client import MistralOCRUnavailable, mistral_ocr_client
+from src.parser_mistral import extract_with_mistral
+from src.s3_service import s3_service
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -48,6 +55,74 @@ class TaskStatus(BaseModel):
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "service": "pdf-processing"}
+
+
+class OCRRunRequest(BaseModel):
+    s3_object_key: str
+    # Where to upload re-rendered figure bitmaps. The backfill script passes
+    # `figures/{paper_id}` here so the keys are stable across re-runs.
+    key_prefix: Optional[str] = None
+
+
+class OCRRunResponse(BaseModel):
+    success: bool
+    parser: str
+    ocr: Optional[Dict[str, Any]] = None
+    raw_content: Optional[str] = None
+    page_offset_map: Optional[Dict[int, list[int]]] = None
+    figure_count: Optional[int] = None
+    page_count: Optional[int] = None
+    error: Optional[str] = None
+
+
+@app.post("/ocr/run", response_model=OCRRunResponse)
+async def run_ocr_sync(req: OCRRunRequest) -> OCRRunResponse:
+    """Synchronous Mistral OCR + figure re-render against an existing PDF in S3.
+
+    Used by the backfill script to re-OCR papers without going through the
+    full Celery upload pipeline (which also re-runs LLM metadata extraction
+    and overwrites the conversation). This endpoint just returns the OCR
+    jsonb and the rendered figures map; the caller updates the DB.
+    """
+    if not mistral_ocr_client.is_configured:
+        raise HTTPException(status_code=400, detail="MISTRAL_API_KEY not set on jobs service")
+
+    try:
+        pdf_bytes = s3_service.download_file_to_bytes(req.s3_object_key)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"S3 download failed: {e}")
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        tmp.write(pdf_bytes)
+        tmp_path = tmp.name
+
+    try:
+        result = extract_with_mistral(tmp_path, client=mistral_ocr_client)
+        result.ocr_jsonb = render_and_upload_figures(
+            tmp_path,
+            result.ocr_jsonb,
+            job_id="backfill",
+            key_prefix=req.key_prefix,
+        )
+        return OCRRunResponse(
+            success=True,
+            parser="mistral",
+            ocr=result.ocr_jsonb,
+            raw_content=result.raw_content,
+            page_offset_map=result.page_offset_map,
+            figure_count=result.figure_count,
+            page_count=result.page_count,
+        )
+    except MistralOCRUnavailable as e:
+        return OCRRunResponse(success=False, parser="mistral", error=str(e))
+    except Exception as e:
+        logger.exception("OCR run failed")
+        return OCRRunResponse(success=False, parser="mistral", error=str(e))
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 @app.get("/task/{task_id}/status", response_model=TaskStatus)
 async def get_task_status(task_id: str):

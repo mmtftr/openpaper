@@ -8,6 +8,7 @@ from typing import Callable
 from src.schemas import PDFProcessingResult, PaperMetadataExtraction
 from src.s3_service import s3_service
 from src.parser import extract_text, generate_pdf_preview, map_pages_to_text_offsets
+from src.figure_renderer import render_and_upload_figures
 from src.llm_client import llm_client
 from src.utils import time_it
 
@@ -48,15 +49,47 @@ async def process_pdf_file(
         # Extract text and page offsets from PDF
         try:
             async with time_it("Extracting text, images, and page offsets from PDF", job_id=job_id):
-                pdf_text = await extract_text(
+                extracted = await extract_text(
                     temp_file_path,
                 )
+                pdf_text = extracted.raw_content
                 status_callback(f"Processed bits and bytes")
-                logger.info(f"Extracted {len(pdf_text)} characters of text from PDF")
-                page_offsets = map_pages_to_text_offsets(temp_file_path)
+                logger.info(
+                    f"Extracted {len(pdf_text)} characters of text from PDF "
+                    f"via {extracted.parser}"
+                )
+                # When Mistral parses, it produces a page_offset_map directly
+                # against the joined per-page markdown — strictly more accurate
+                # than the pymupdf plain-text offsets we use for the fallback.
+                if extracted.page_offset_map:
+                    page_offsets = extracted.page_offset_map
+                else:
+                    page_offsets = map_pages_to_text_offsets(temp_file_path)
         except Exception as e:
             logger.error(f"Failed to extract text from PDF: {e}")
             raise Exception(f"Failed to extract text from PDF: {e}")
+
+        # Re-render figures from the source PDF at high DPI and upload to S3.
+        # Mistral's image_base64 is ~200 DPI which is borderline for figure-
+        # reading agents — we replace it in the stored jsonb with high-DPI
+        # bitmaps in S3 plus metadata so the chat layer can stream them.
+        if extracted.parser == "mistral" and extracted.ocr_jsonb:
+            try:
+                async with time_it("Re-rendering figures at high DPI", job_id=job_id):
+                    extracted.ocr_jsonb = await asyncio.to_thread(
+                        render_and_upload_figures,
+                        temp_file_path,
+                        extracted.ocr_jsonb,
+                        job_id,
+                    )
+                status_callback("Re-rendered figures")
+            except Exception as e:
+                # Figure re-render is best-effort: a failure here shouldn't
+                # block the upload from completing — the chat layer will just
+                # report figures as unavailable for this paper.
+                logger.warning(
+                    f"Figure re-render failed for job {job_id}: {e}", exc_info=True
+                )
 
         # Define async functions for I/O-bound operations
         logger.info(f"About to define async functions for job {job_id}")
@@ -136,6 +169,10 @@ async def process_pdf_file(
             raw_content=pdf_text,
             page_offset_map=page_offsets,
             duration=duration,
+            parser=extracted.parser,
+            ocr=extracted.ocr_jsonb,
+            figure_count=extracted.figure_count,
+            page_count=extracted.page_count,
         )
 
     except Exception as e:

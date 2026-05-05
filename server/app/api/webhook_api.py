@@ -5,7 +5,7 @@ Webhook handlers for PDF processing service integration.
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from app.database.crud.conversation_crud import ConversationCreate, conversation_crud
 from app.database.crud.message_crud import MessageCreate, message_crud
@@ -112,6 +112,11 @@ class PDFProcessingResult(BaseModel):
     preview_object_key: Optional[str] = None
     error: Optional[str] = None
     duration: Optional[float] = None
+
+    parser: Optional[str] = None
+    ocr: Optional[Dict[str, Any]] = None
+    figure_count: Optional[int] = None
+    page_count: Optional[int] = None
 
 
 class PdfProcessingWebhookData(BaseModel):
@@ -235,6 +240,10 @@ async def handle_paper_processing_webhook(
                     raw_content=result.raw_content,
                     page_offset_map=result.page_offset_map,
                     size_in_kb=size_in_kb,
+                    parser=result.parser,
+                    ocr=result.ocr,
+                    figure_count=result.figure_count,
+                    page_count=result.page_count,
                 ),
                 db_obj=existing_paper,
                 user=job_user,

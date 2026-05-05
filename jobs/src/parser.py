@@ -1,7 +1,7 @@
 import pymupdf # type: ignore
 import pymupdf4llm # type: ignore
 from markitdown import MarkItDown
-from typing import Tuple
+from typing import Optional, Tuple
 from io import BytesIO
 import logging
 import uuid
@@ -10,6 +10,8 @@ from PIL import Image # type: ignore
 md = MarkItDown()
 
 from src.s3_service import s3_service
+from src.mistral_client import MistralOCRClient, MistralOCRUnavailable
+from src.parser_mistral import MistralOCRResult, extract_with_mistral
 
 logger = logging.getLogger(__name__)
 
@@ -149,19 +151,64 @@ def generate_pdf_preview(file_path: str) -> Tuple[str, str]:
         logger.error(f"Error generating PDF preview: {str(e)}")
         raise
 
+class ExtractedDocument:
+    """Result of running the parser pipeline on a PDF.
+
+    Carries which parser actually ran so the webhook can persist the right
+    columns and the chat layer can pick the right context-mode surface.
+    """
+
+    def __init__(
+        self,
+        raw_content: str,
+        parser: str,
+        page_count: Optional[int] = None,
+        page_offset_map: Optional[dict] = None,
+        ocr_jsonb: Optional[dict] = None,
+        figure_count: Optional[int] = None,
+    ) -> None:
+        self.raw_content = raw_content
+        self.parser = parser  # "mistral" | "pymupdf"
+        self.page_count = page_count
+        self.page_offset_map = page_offset_map
+        self.ocr_jsonb = ocr_jsonb
+        self.figure_count = figure_count
+
+
 async def extract_text(
     file_path: str,
-) -> str:
+    mistral_client: Optional[MistralOCRClient] = None,
+) -> ExtractedDocument:
     """
-    Extract text from PDF while replacing images with placeholder IDs.
+    Extract text from PDF. Prefers direct Mistral OCR when MISTRAL_API_KEY is
+    set; falls back to MarkItDown -> pymupdf4llm on any failure (network,
+    5xx-after-retries, missing key, empty response).
 
-    Args:
-        file_path: Path to the PDF file
-
-    Returns:
-        Tuple[str]:
-        - Markdown text with image placeholders
+    Self-hosted setups without a Mistral key always take the pymupdf path.
     """
-    # If image extraction is disabled, just extract text
+    client = mistral_client or MistralOCRClient()
+
+    if client.is_configured:
+        try:
+            result: MistralOCRResult = extract_with_mistral(file_path, client=client)
+            return ExtractedDocument(
+                raw_content=sanitize_string(result.raw_content),
+                parser="mistral",
+                page_count=result.page_count,
+                page_offset_map=result.page_offset_map,
+                ocr_jsonb=result.ocr_jsonb,
+                figure_count=result.figure_count,
+            )
+        except MistralOCRUnavailable as e:
+            logger.warning(f"Mistral OCR unavailable, falling back to pymupdf: {e}")
+        except Exception as e:
+            logger.warning(
+                f"Mistral OCR raised unexpectedly, falling back to pymupdf: {e}",
+                exc_info=True,
+            )
+
     md_text = extract_text_from_pdf(file_path)
-    return md_text
+    return ExtractedDocument(
+        raw_content=md_text,
+        parser="pymupdf",
+    )

@@ -26,6 +26,22 @@ class EmailAuthClient:
         Returns:
             bool: True if email was sent successfully, False otherwise
         """
+        # Self-hosted fallback: no Resend key configured → print the code to
+        # server logs so the operator can grab it from `docker compose logs
+        # server`. This keeps the email login flow usable on local stacks
+        # without forcing every self-hoster to wire up an SMTP/Resend account.
+        if not os.getenv("RESEND_API_KEY"):
+            logger.warning(
+                "RESEND_API_KEY not set — printing verification code to logs "
+                "instead of sending email.\n"
+                "  ┌────────────────────────────────────────────────┐\n"
+                "  │ [DEV LOGIN CODE] %s → %s\n"
+                "  └────────────────────────────────────────────────┘",
+                email,
+                verification_code,
+            )
+            return True
+
         try:
             subject = "Your Open Paper verification code"
 

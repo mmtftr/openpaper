@@ -8,11 +8,13 @@ from app.api.api import router
 from app.api.auth_api import auth_router
 from app.api.conversation_api import conversation_router
 from app.api.discover_api import discover_router
+from app.api.document_api import document_router
 from app.api.highlight_api import highlight_router
 from app.api.message_api import message_router
 from app.api.onboarding_api import onboarding_router
 from app.api.paper_api import paper_router
 from app.api.paper_audio_api import paper_audio_router
+from app.api.paper_figure_api import paper_figure_router
 from app.api.paper_image_api import paper_image_router
 from app.api.paper_search_api import paper_search_router
 from app.api.paper_tag_api import paper_tag_router
@@ -46,7 +48,7 @@ logfire.configure(
     service_name="openpaper-server",
     send_to_logfire="if-token-present",
 )
-logfire.instrument_pydantic()
+logfire.instrument_pydantic(record="failure")
 logfire.instrument_openai()
 logfire.instrument_anthropic()
 logfire.instrument_google_genai()
@@ -88,6 +90,7 @@ app.include_router(paper_search_router, prefix="/api/search/global")
 app.include_router(search_router, prefix="/api/search/local")
 app.include_router(paper_audio_router, prefix="/api/paper/audio")
 app.include_router(paper_image_router, prefix="/api/paper/image")
+app.include_router(paper_figure_router, prefix="/api/paper")
 app.include_router(projects_data_table_router, prefix="/api/projects/tables")
 app.include_router(paper_upload_router, prefix="/api/paper/upload")
 app.include_router(project_audio_router, prefix="/api/projects/audio")
@@ -98,6 +101,7 @@ app.include_router(
 app.include_router(webhook_router, prefix="/api/webhooks")  # Webhook routes
 app.include_router(onboarding_router, prefix="/api/onboarding")
 app.include_router(discover_router, prefix="/api/discover")
+app.include_router(document_router, prefix="/api/document")
 
 setup_admin(app)  # Setup admin interface
 
