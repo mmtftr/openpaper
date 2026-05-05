@@ -32,6 +32,7 @@ import {
 
 import { ChatMessage, CreditUsage, Reference } from "@/lib/schema";
 import { fetchFromApi, fetchStreamFromApi } from "@/lib/api";
+import { readOpenPaperUIMessageStream } from "@/lib/uiMessageStream";
 import { setPaperChatStreaming } from "@/lib/paperDocEvents";
 import { useAuth } from "@/lib/auth";
 import {
@@ -101,6 +102,11 @@ import {
     Suggestion,
 } from "@/components/ai-elements/suggestion";
 import { Loader } from "@/components/ai-elements/loader";
+import {
+    Reasoning,
+    ReasoningContent,
+    ReasoningTrigger,
+} from "@/components/ai-elements/reasoning";
 
 import { ChatHistorySkeleton } from "@/components/ChatHistorySkeleton";
 import { ChatMessageActions } from "@/components/ChatMessageActions";
@@ -204,7 +210,6 @@ interface ModelOption {
     provider: string;
 }
 
-const END_DELIMITER = "END_OF_STREAM";
 // Server default for /api/conversation/{id}?page_size=10. Used to infer
 // "no more pages" when a fetch returns fewer than this.
 const HISTORY_PAGE_SIZE = 10;
@@ -264,6 +269,7 @@ export function PaperChatPanel({
     }, [id]);
 
     const [streamingText, setStreamingText] = useState("");
+    const [streamingReasoning, setStreamingReasoning] = useState("");
     const [streamingReferences, setStreamingReferences] = useState<
         Reference | undefined
     >(undefined);
@@ -666,6 +672,7 @@ export function PaperChatPanel({
 
             setIsStreaming(true);
             setStreamingText("");
+            setStreamingReasoning("");
             setStreamingReferences(undefined);
             setStreamingSourcesOpen(false);
 
@@ -682,6 +689,7 @@ export function PaperChatPanel({
             const controller = new AbortController();
             abortControllerRef.current = controller;
             let accumulated = "";
+            let reasoning = "";
             let references: Reference | undefined;
 
             try {
@@ -695,58 +703,29 @@ export function PaperChatPanel({
                     }
                 );
 
-                const reader = stream.getReader();
-                const decoder = new TextDecoder();
-                let buffer = "";
-
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    buffer += decoder.decode(value, { stream: true });
-                    const parts = buffer.split(END_DELIMITER);
-                    buffer = parts.pop() || "";
-
-                    for (const event of parts) {
-                        if (!event.trim()) continue;
-                        let parsed;
-                        try {
-                            parsed = JSON.parse(event.trim());
-                        } catch (e) {
-                            console.error("Error parsing event JSON:", e);
-                            continue;
-                        }
-                        const { type, content } = parsed;
-                        if (type === "content") {
-                            accumulated += content;
-                            setStreamingText((prev) => prev + content);
-                            setStreamingStatus(null);
-                        } else if (type === "references") {
-                            references = content;
-                            setStreamingReferences(content);
-                        } else if (type === "references_reconciled") {
-                            // Server-side normalizer/LLM swapped the OCR
-                            // quote for the matching pymupdf substring so
-                            // the PDF highlighter actually finds it. Replace
-                            // the streamed citations in place.
-                            references = content;
-                            setStreamingReferences(content);
-                        } else if (type === "status") {
-                            setStreamingStatus(
-                                typeof content === "string"
-                                    ? content
-                                    : null
-                            );
-                        } else if (type === "error") {
-                            throw new Error(`Server error: ${content}`);
-                        }
-                    }
-                }
+                await readOpenPaperUIMessageStream(stream, {
+                    onText: (delta) => {
+                        accumulated += delta;
+                        setStreamingText((prev) => prev + delta);
+                        setStreamingStatus(null);
+                    },
+                    onReasoning: (delta) => {
+                        reasoning += delta;
+                        setStreamingReasoning((prev) => prev + delta);
+                    },
+                    onReferences: (nextReferences) => {
+                        references = nextReferences;
+                        setStreamingReferences(nextReferences);
+                    },
+                    onStatus: setStreamingStatus,
+                });
 
                 if (accumulated) {
                     const finalMessage: ChatMessage = {
                         role: "assistant",
                         content: accumulated,
                         references,
+                        reasoning: reasoning || undefined,
                     };
                     setMessages((prev) => [...prev, finalMessage]);
                 }
@@ -773,6 +752,7 @@ export function PaperChatPanel({
                             role: "assistant",
                             content: accumulated,
                             references,
+                            reasoning: reasoning || undefined,
                         };
                         setMessages((prev) => [...prev, stoppedMessage]);
                     }
@@ -1098,6 +1078,14 @@ export function PaperChatPanel({
                         return (
                             <Message from="assistant">
                                 <MessageContent className="!text-foreground">
+                                    {streamingReasoning && (
+                                        <Reasoning isStreaming={isStreaming}>
+                                            <ReasoningTrigger />
+                                            <ReasoningContent>
+                                                {streamingReasoning}
+                                            </ReasoningContent>
+                                        </Reasoning>
+                                    )}
                                     {streamingText.length > 0 ? (
                                         <AnimatedMarkdown
                                             content={streamingText}
@@ -1636,6 +1624,14 @@ function PaperMessage({
                     </div>
                 )}
                 <MessageContent>
+                    {!isUser && message.reasoning && (
+                        <Reasoning isStreaming={false} defaultOpen={false}>
+                            <ReasoningTrigger />
+                            <ReasoningContent>
+                                {message.reasoning}
+                            </ReasoningContent>
+                        </Reasoning>
+                    )}
                     <div className="prose dark:prose-invert prose-sm !max-w-none">
                         <Markdown
                             remarkPlugins={[

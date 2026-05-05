@@ -39,12 +39,28 @@ message_router = APIRouter()
 END_DELIMITER = "END_OF_STREAM"
 
 
+def _ui_message_sse(chunk: dict) -> str:
+    return f"data: {json.dumps(chunk)}\n\n"
+
+
+def _ui_message_done() -> str:
+    return "data: [DONE]\n\n"
+
+
 async def _stream_chat_chunks(
     chunk_generator: AsyncGenerator[Union[dict, str], None],
     content_chunks: List[str],
     evidence_container: dict,
+    include_lifecycle: bool = True,
 ) -> AsyncGenerator[str, None]:
-    """Helper to stream chat chunks and handle common logic."""
+    """Stream chunks using the Vercel AI SDK UIMessage stream protocol."""
+    text_id = "text-1"
+    reasoning_id = "reasoning-1"
+    text_started = False
+    reasoning_started = False
+
+    if include_lifecycle:
+        yield _ui_message_sse({"type": "start"})
     async for chunk in chunk_generator:
         if not isinstance(chunk, dict):
             logger.warning(f"Received unexpected chunk format: {chunk}")
@@ -56,30 +72,70 @@ async def _stream_chat_chunks(
         if chunk_type == "content":
             content_chunks.append(chunk_content)
             try:
-                json_response = json.dumps(
-                    {"type": "content", "content": chunk_content}
+                if not text_started:
+                    text_started = True
+                    yield _ui_message_sse({"type": "text-start", "id": text_id})
+                yield _ui_message_sse(
+                    {
+                        "type": "text-delta",
+                        "id": text_id,
+                        "delta": chunk_content,
+                    }
                 )
-                yield f"{json_response}{END_DELIMITER}"
             except (TypeError, ValueError) as json_error:
                 logger.warning(f"Failed to serialize chunk content: {json_error}")
                 safe_content = (
                     str(chunk_content).encode("utf-8", errors="replace").decode("utf-8")
                 )
-                json_response = json.dumps({"type": "content", "content": safe_content})
-                yield f"{json_response}{END_DELIMITER}"
+                if not text_started:
+                    text_started = True
+                    yield _ui_message_sse({"type": "text-start", "id": text_id})
+                yield _ui_message_sse(
+                    {"type": "text-delta", "id": text_id, "delta": safe_content}
+                )
 
-        elif chunk_type == "references":
+        elif chunk_type in ("references", "references_reconciled"):
             evidence_container["evidence"] = chunk_content
             try:
-                json_response = json.dumps(
-                    {"type": "references", "content": chunk_content}
+                yield _ui_message_sse(
+                    {
+                        "type": f"data-{chunk_type}",
+                        "data": chunk_content,
+                    }
                 )
-                yield f"{json_response}{END_DELIMITER}"
             except (TypeError, ValueError) as json_error:
                 logger.warning(f"Failed to serialize references: {json_error}")
-                yield f"{json.dumps({'type': 'error', 'content': 'Failed to serialize references'})}{END_DELIMITER}"
+                yield _ui_message_sse(
+                    {
+                        "type": "error",
+                        "errorText": "Failed to serialize references",
+                    }
+                )
         elif chunk_type == "status":
-            yield f"{json.dumps({'type': 'status', 'content': chunk_content})}{END_DELIMITER}"
+            yield _ui_message_sse(
+                {"type": "data-status", "data": chunk_content, "transient": True}
+            )
+        elif chunk_type == "reasoning":
+            if not reasoning_started:
+                reasoning_started = True
+                yield _ui_message_sse(
+                    {"type": "reasoning-start", "id": reasoning_id}
+                )
+            yield _ui_message_sse(
+                {
+                    "type": "reasoning-delta",
+                    "id": reasoning_id,
+                    "delta": str(chunk_content),
+                }
+            )
+
+    if text_started:
+        yield _ui_message_sse({"type": "text-end", "id": text_id})
+    if reasoning_started:
+        yield _ui_message_sse({"type": "reasoning-end", "id": reasoning_id})
+    if include_lifecycle:
+        yield _ui_message_sse({"type": "finish", "finishReason": "stop"})
+        yield _ui_message_done()
 
 
 @message_router.get("/models")
@@ -131,6 +187,7 @@ async def chat_message_multipaper(
                 start_time = datetime.now(timezone.utc)
                 evidence_container = {"evidence": None}
                 evidence_collection: Optional[EvidenceCollection] = None
+                yield _ui_message_sse({"type": "start"})
 
                 # Ensure conversation is valid
                 if request.project_id:
@@ -192,7 +249,13 @@ async def chat_message_multipaper(
                             ), "Chunk content must be an EvidenceCollection"
                             evidence_collection = chunk_content
                         elif chunk_type == "status":
-                            yield f"{json.dumps({'type': 'status', 'content': chunk_content})}{END_DELIMITER}"
+                            yield _ui_message_sse(
+                                {
+                                    "type": "data-status",
+                                    "data": chunk_content,
+                                    "transient": True,
+                                }
+                            )
                         else:
                             logger.debug(f"received chunks: {chunk}")
 
@@ -200,16 +263,26 @@ async def chat_message_multipaper(
                     evidence_collection is None
                     or len(evidence_collection.evidence) == 0
                 ):
-                    json_response = json.dumps(
+                    yield _ui_message_sse({"type": "text-start", "id": "text-1"})
+                    yield _ui_message_sse(
                         {
-                            "type": "content",
-                            "content": "It looks like I couldn't find any relevant papers for your question. Please try rephrasing your question. If you think this is an error, please contact support.",
+                            "type": "text-delta",
+                            "id": "text-1",
+                            "delta": "It looks like I couldn't find any relevant papers for your question. Please try rephrasing your question. If you think this is an error, please contact support.",
                         }
                     )
-                    yield f"{json_response}{END_DELIMITER}"
+                    yield _ui_message_sse({"type": "text-end", "id": "text-1"})
+                    yield _ui_message_sse({"type": "finish", "finishReason": "stop"})
+                    yield _ui_message_done()
                     return
 
-                yield f"{json.dumps({'type': 'status', 'content': 'Generating response...'})}{END_DELIMITER}"
+                yield _ui_message_sse(
+                    {
+                        "type": "data-status",
+                        "data": "Generating response...",
+                        "transient": True,
+                    }
+                )
 
                 if request.project_id:
                     all_papers = project_paper_crud.get_all_papers_by_project_id(
@@ -237,8 +310,11 @@ async def chat_message_multipaper(
                     chunk_generator=chat_generator,
                     content_chunks=content_chunks,
                     evidence_container=evidence_container,
+                    include_lifecycle=False,
                 ):
                     yield stream_chunk
+                yield _ui_message_sse({"type": "finish", "finishReason": "stop"})
+                yield _ui_message_done()
 
                 evidence = evidence_container["evidence"]
 
@@ -318,9 +394,14 @@ async def chat_message_multipaper(
                 )
 
                 logger.error(f"Error in streaming response: {e}", exc_info=True)
-                yield f"{json.dumps({'type': 'error', 'content': str(e)})}{END_DELIMITER}"
+                yield _ui_message_sse({"type": "error", "errorText": str(e)})
+                yield _ui_message_done()
 
-        return StreamingResponse(response_generator(), media_type="text/event-stream")
+        return StreamingResponse(
+            response_generator(),
+            media_type="text/event-stream",
+            headers={"x-vercel-ai-ui-message-stream": "v1"},
+        )
 
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -486,9 +567,14 @@ async def chat_message_stream(
                 )
 
                 logger.error(f"Error in streaming response: {e}", exc_info=True)
-                yield f"{json.dumps({'type': 'error', 'content': str(e)})}{END_DELIMITER}"
+                yield _ui_message_sse({"type": "error", "errorText": str(e)})
+                yield _ui_message_done()
 
-        return StreamingResponse(response_generator(), media_type="text/event-stream")
+        return StreamingResponse(
+            response_generator(),
+            media_type="text/event-stream",
+            headers={"x-vercel-ai-ui-message-stream": "v1"},
+        )
 
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

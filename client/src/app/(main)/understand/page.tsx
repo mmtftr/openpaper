@@ -3,6 +3,7 @@
 
 import { useSubscription, isChatCreditAtLimit } from '@/hooks/useSubscription';
 import { fetchFromApi, fetchStreamFromApi } from '@/lib/api';
+import { readOpenPaperUIMessageStream } from '@/lib/uiMessageStream';
 import { useState, useEffect, FormEvent, useRef, useCallback, Suspense, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { usePapers } from '@/hooks/usePapers';
@@ -70,8 +71,6 @@ function UnderstandPageContent() {
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputMessageRef = useRef<HTMLTextAreaElement>(null);
-
-    const END_DELIMITER = "END_OF_STREAM";
 
     const { subscription, refetch: refetchSubscription } = useSubscription();
     const chatCreditLimitReached = isChatCreditAtLimit(subscription);
@@ -264,64 +263,20 @@ function UnderstandPageContent() {
                 body: JSON.stringify(requestBody),
             });
 
-            const reader = stream.getReader();
-            const decoder = new TextDecoder();
             let accumulatedContent = '';
             let references: Reference | undefined = undefined;
-            let buffer = '';
 
-            while (true) {
-                const { done, value } = await reader.read();
-
-                if (done) {
-                    if (buffer.trim()) {
-                        console.warn('Unprocessed buffer at end of stream:', buffer);
-                    }
-                    break;
-                }
-
-                const chunk = decoder.decode(value, { stream: true });
-                buffer += chunk;
-
-                const parts = buffer.split(END_DELIMITER);
-                buffer = parts.pop() || '';
-
-                for (const event of parts) {
-                    if (!event.trim()) continue;
-
-                    try {
-                        const parsedChunk = JSON.parse(event.trim());
-
-                        if (parsedChunk && typeof parsedChunk === 'object' && 'type' in parsedChunk) {
-                            const chunkType = parsedChunk.type;
-                            const chunkContent = parsedChunk.content;
-
-                            if (chunkType === 'content') {
-                                accumulatedContent += chunkContent;
-                                setStreamingChunks(prev => [...prev, chunkContent]);
-                            } else if (chunkType === 'references') {
-                                references = chunkContent;
-                                setStreamingReferences(chunkContent);
-                            } else if (chunkType === 'status') {
-                                setStatusMessage(chunkContent);
-                            } else if (chunkType === 'error') {
-                                console.error('Server error in stream:', chunkContent);
-                                throw new Error(`Server error: ${chunkContent}`);
-                            } else {
-                                console.warn(`Unknown chunk type: ${chunkType}`);
-                            }
-                        } else if (parsedChunk) {
-                            console.warn('Received unexpected chunk:', parsedChunk);
-                        }
-                    } catch (error) {
-                        if (error instanceof Error) {
-                            throw error;
-                        }
-                        console.error('Error processing event:', error, 'Raw event:', event);
-                        continue;
-                    }
-                }
-            }
+            await readOpenPaperUIMessageStream(stream, {
+                onText: (delta) => {
+                    accumulatedContent += delta;
+                    setStreamingChunks(prev => [...prev, delta]);
+                },
+                onReferences: (nextReferences) => {
+                    references = nextReferences;
+                    setStreamingReferences(nextReferences);
+                },
+                onStatus: (status) => setStatusMessage(status ?? ''),
+            });
 
             if (accumulatedContent) {
                 const finalMessage: ChatMessage = {

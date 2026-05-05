@@ -15,10 +15,8 @@ by mode:
 
 import asyncio
 import contextvars
-import json
 import logging
 import re
-import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, AsyncGenerator, Dict, List, Optional, Sequence, Tuple, Union
@@ -27,7 +25,6 @@ from app.database.crud.message_crud import message_crud
 from app.database.crud.paper_crud import paper_crud
 from app.database.database import get_db
 from app.database.models import Paper
-from app.database.telemetry import track_event
 from app.llm.base import BaseLLMClient, ModelType
 from app.llm.citation_handler import CitationHandler
 from app.llm.citation_normalizer import find_in_pdf_text
@@ -41,28 +38,14 @@ from app.llm.prompts import (
     PAPER_AGENT_BASE,
     RAW_MODE_PRELOAD,
 )
+from app.llm.paper_pydantic_agent import run_pydantic_paper_agent
 from app.llm.provider import LLMProvider, TextContent
-from app.llm.tools.doc_tools import (
-    read_main_doc,
-    read_main_doc_function,
-    write_main_doc,
-    write_main_doc_function,
-)
 from app.llm.tools.section_tools import (
     build_outline,
-    get_figure,
-    get_figure_function,
-    read_pages,
-    read_pages_function,
-    read_section,
-    read_section_function,
     render_outline_text,
-    search_paper,
-    search_paper_function,
 )
 from app.llm.utils import retry_llm_operation
 from app.schemas.message import ResponseStyle
-from app.schemas.responses import ToolCallResult
 from app.schemas.user import CurrentUser
 from fastapi import Depends
 from sqlalchemy.orm import Session
@@ -70,7 +53,6 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 
-HEARTBEAT_INTERVAL_SECONDS = 15
 MAX_AGENTIC_ITERATIONS = 6  # Tool-call loop cap. Way more than typical needs.
 
 _tool_executor = ThreadPoolExecutor(max_workers=4)
@@ -205,27 +187,6 @@ def _build_system_prompt(
     return base + "\n\n" + ADAPTIVE_MODE_PRELOAD.format(preloaded_content=preload)
 
 
-def _tool_specs(paper: Paper, mode: ContextMode) -> List[Dict[str, Any]]:
-    """Tool surface for this mode.
-
-    Paper-reading tools are gated by mode: Full mode pre-loads the whole
-    paper (no paper tools needed); Raw mode hides figure tools (pymupdf
-    fallback can't render). The user-doc tools (read/write_main_doc) are
-    available in every mode — they target the user's writeup, not the
-    paper, so context-mode reasoning doesn't apply.
-    """
-    parser = str(getattr(paper, "parser", "") or "")
-    tools: List[Dict[str, Any]] = []
-    if mode != "full":
-        tools.extend(
-            [read_section_function, read_pages_function, search_paper_function]
-        )
-        if parser == "mistral" and mode != "raw":
-            tools.append(get_figure_function)
-    tools.extend([read_main_doc_function, write_main_doc_function])
-    return tools
-
-
 class PaperAgenticOperations(BaseLLMClient):
     """Single-paper agentic chat with context modes."""
 
@@ -274,329 +235,25 @@ class PaperAgenticOperations(BaseLLMClient):
         user_message_text = (
             f"{question}\n\n{user_citations}" if user_citations else question
         )
-        user_content = [TextContent(text=user_message_text)]
 
-        tool_specs = _tool_specs(paper, context_mode)
-        tool_map = {
-            "read_section": read_section,
-            "read_pages": read_pages,
-            "search_paper": search_paper,
-            "get_figure": get_figure,
-            "read_main_doc": read_main_doc,
-            "write_main_doc": write_main_doc,
-        }
-
-        # No tools at all → stream a normal answer. (Doc tools are always in
-        # the surface, so this only fires if a future mode strips everything.)
-        if not tool_specs:
-            async for chunk in self._stream_final_answer(
-                paper=paper,
-                system_prompt=system_prompt,
-                user_content=user_content,
-                history=conversation_history,
-                provider=llm_provider,
-                model_type=model_type,
-                model=model,
-                reasoning_effort=reasoning_effort,
-            ):
-                yield chunk
-            return
-
-        tool_call_results: List[ToolCallResult] = []
-        seen_calls: set[str] = set()
-        iteration = 0
-
-        while iteration < MAX_AGENTIC_ITERATIONS:
-            iteration += 1
-
-            llm_response = self.generate_content(
-                system_prompt=system_prompt,
-                contents=user_content,
-                history=conversation_history,
-                function_declarations=tool_specs,
-                tool_call_results=tool_call_results or None,
-                provider=llm_provider,
-                model_type=model_type,
-                enable_thinking=True,
-            )
-
-            # Surface the model's thinking summary as a status (until either a
-            # tool-call status or the answer stream supersedes it). This is
-            # the model's own narration of what it's about to do — much more
-            # useful than an opaque step counter.
-            thinking = (getattr(llm_response, "thinking", None) or "").strip()
-            if thinking:
-                yield {"type": "status", "content": _summarize_thinking(thinking)}
-
-            if not llm_response.tool_calls:
-                # The model is ready to answer. Re-run as a streaming call so
-                # the user sees content as it's produced.
-                async for chunk in self._stream_final_answer(
-                    paper=paper,
-                    system_prompt=system_prompt,
-                    user_content=user_content,
-                    history=conversation_history,
-                    tool_call_results=tool_call_results or None,
-                    provider=llm_provider,
-                    model_type=model_type,
-                    model=model,
-                    reasoning_effort=reasoning_effort,
-                ):
-                    yield chunk
-                return
-
-            for call in llm_response.tool_calls:
-                fn_name = (call.name or "").lower()
-                fn_args = call.args or {}
-                key = f"{fn_name}:{json.dumps(fn_args, sort_keys=True, default=str)}"
-                if key in seen_calls:
-                    tool_call_results.append(
-                        ToolCallResult(
-                            id=call.id,
-                            name=fn_name,
-                            args=fn_args,
-                            result={"error": "duplicate call skipped"},
-                        )
-                    )
-                    continue
-                seen_calls.add(key)
-
-                if fn_name not in tool_map:
-                    tool_call_results.append(
-                        ToolCallResult(
-                            id=call.id,
-                            name=fn_name,
-                            args=fn_args,
-                            result={"error": f"unknown tool {fn_name}"},
-                        )
-                    )
-                    continue
-
-                yield {
-                    "type": "status",
-                    "content": _pretty_tool_status(fn_name, fn_args),
-                }
-
-                t0 = time.time()
-                try:
-                    result = await self._run_tool_with_heartbeats(
-                        fn_name=fn_name,
-                        fn=tool_map[fn_name],
-                        args=fn_args,
-                        paper_id=paper_id,
-                        current_user=current_user,
-                        db=db,
-                    )
-                    tool_call_results.append(
-                        ToolCallResult(
-                            id=call.id,
-                            name=fn_name,
-                            args=fn_args,
-                            result=result,
-                        )
-                    )
-                except Exception as e:
-                    logger.warning(f"Tool {fn_name} raised: {e}", exc_info=True)
-                    tool_call_results.append(
-                        ToolCallResult(
-                            id=call.id,
-                            name=fn_name,
-                            args=fn_args,
-                            result={"error": str(e)},
-                        )
-                    )
-
-                track_event(
-                    "paper_agentic_tool_call",
-                    {
-                        "tool": fn_name,
-                        "duration_ms": (time.time() - t0) * 1000,
-                        "context_mode": context_mode,
-                    },
-                    user_id=str(current_user.id),
-                    db=db,
-                )
-
-        # Hit the iteration cap without the model deciding it was done.
-        yield {
-            "type": "status",
-            "content": "Reached max agent steps; finalizing answer.",
-        }
-        async for chunk in self._stream_final_answer(
+        async for chunk in run_pydantic_paper_agent(
+            llm_client=self,
+            paper_id=paper_id,
             paper=paper,
+            current_user=current_user,
+            db=db,
+            context_mode=context_mode,
             system_prompt=system_prompt,
-            user_content=user_content,
-            history=conversation_history,
-            tool_call_results=tool_call_results or None,
-            provider=llm_provider,
+            user_message_text=user_message_text,
+            conversation_history=conversation_history,
+            citation_reconciler=_reconcile_citations,
+            llm_provider=llm_provider,
             model_type=model_type,
             model=model,
             reasoning_effort=reasoning_effort,
+            max_agentic_iterations=MAX_AGENTIC_ITERATIONS,
         ):
             yield chunk
-
-    async def _run_tool_with_heartbeats(
-        self,
-        fn_name: str,
-        fn,
-        args: Dict[str, Any],
-        paper_id: str,
-        current_user: CurrentUser,
-        db: Session,
-    ) -> Any:
-        """Run a synchronous tool in a thread, surfacing heartbeats so the
-        streaming connection doesn't time out for slow ones."""
-
-        def _call():
-            return fn(
-                paper_id=paper_id,
-                current_user=current_user,
-                db=db,
-                **args,
-            )
-
-        # Propagate the OTel/Logfire span context across the thread hop so
-        # any spans the tool emits (DB queries, S3 fetches) parent to the
-        # chat handler instead of becoming orphans.
-        ctx = contextvars.copy_context()
-        loop = asyncio.get_event_loop()
-        future = loop.run_in_executor(_tool_executor, lambda: ctx.run(_call))
-        while True:
-            try:
-                return await asyncio.wait_for(
-                    asyncio.shield(future), timeout=HEARTBEAT_INTERVAL_SECONDS
-                )
-            except asyncio.TimeoutError:
-                # The loop will be polled again; the user-facing status comes
-                # from the caller (one status per tool call is enough).
-                continue
-
-    async def _stream_final_answer(
-        self,
-        paper: Paper,
-        system_prompt: str,
-        user_content: List[TextContent],
-        history,
-        tool_call_results: Optional[List[ToolCallResult]] = None,
-        provider: Optional[LLMProvider] = None,
-        model_type: ModelType = ModelType.DEFAULT,
-        model: Optional[str] = None,
-        reasoning_effort: Optional[str] = None,
-    ) -> AsyncGenerator[Dict[str, Any], None]:
-        """Stream the final answer with the same evidence-block parsing the
-        non-agentic chat uses, so the existing client UI keeps working."""
-
-        evidence_buffer: List[str] = []
-        text_buffer: str = ""
-        in_evidence_section = False
-        START_DELIMITER = "---EVIDENCE---"
-        END_DELIMITER = "---END-EVIDENCE---"
-
-        kwargs: Dict[str, Any] = {}
-        if reasoning_effort:
-            kwargs["reasoning_effort"] = reasoning_effort
-        # Plumbed straight through to the provider — each provider's
-        # send_message_stream pops it and reconstructs proper
-        # assistant{tool_calls} / tool{result} messages, instead of the old
-        # user-content text injection.
-        if tool_call_results:
-            kwargs["tool_call_results"] = tool_call_results
-
-        for chunk in self.send_message_stream(
-            message=user_content,
-            file=None,
-            system_prompt=system_prompt,
-            history=history,
-            provider=provider,
-            model_type=model_type,
-            model=model,
-            **kwargs,
-        ):
-            text = chunk.text
-            if not text:
-                continue
-            text_buffer += text
-
-            if not in_evidence_section and START_DELIMITER in text_buffer:
-                in_evidence_section = True
-                pre_evidence = text_buffer.split(START_DELIMITER)[0]
-                if pre_evidence:
-                    yield {"type": "content", "content": pre_evidence}
-                evidence_buffer = [text_buffer.split(START_DELIMITER)[1]]
-                text_buffer = ""
-                continue
-
-            reconstructed = "".join(evidence_buffer + [text_buffer]).strip()
-            if in_evidence_section and END_DELIMITER in reconstructed:
-                delimiter_pos = reconstructed.find(END_DELIMITER)
-                evidence_part = reconstructed[:delimiter_pos]
-                remaining = reconstructed[delimiter_pos + len(END_DELIMITER) :]
-                structured = CitationHandler.parse_evidence_block(evidence_part)
-                # Stream the original (OCR-grounded) citations immediately so
-                # the chat UI can show evidence as soon as it lands.
-                yield {
-                    "type": "references",
-                    "content": {"citations": structured},
-                }
-                # Then reconcile in the background. Each citation gets a
-                # match against its page's pymupdf text — the highlighter
-                # search target is what makes a citation actually click
-                # through to the right spot on the PDF.
-                reconciled = await _reconcile_citations(
-                    structured, paper, llm_client=self
-                )
-                if reconciled:
-                    yield {
-                        "type": "references_reconciled",
-                        "content": {"citations": reconciled},
-                    }
-                in_evidence_section = False
-                evidence_buffer = []
-                text_buffer = remaining
-                if remaining:
-                    yield {"type": "content", "content": remaining}
-                continue
-
-            if in_evidence_section:
-                evidence_buffer.append(text)
-                text_buffer = ""
-            else:
-                if len(text_buffer) > len(START_DELIMITER) * 2:
-                    to_yield = text_buffer[: -len(START_DELIMITER)]
-                    yield {"type": "content", "content": to_yield}
-                    text_buffer = text_buffer[-len(START_DELIMITER) :]
-
-        if text_buffer:
-            yield {"type": "content", "content": text_buffer}
-
-
-def _pretty_tool_status(fn_name: str, args: Dict[str, Any]) -> str:
-    if fn_name == "read_section":
-        return f"Reading section '{args.get('name', '?')}'"
-    if fn_name == "read_pages":
-        return f"Reading pages {args.get('start')}–{args.get('end')}"
-    if fn_name == "search_paper":
-        return f"Searching for '{args.get('query', '?')}'"
-    if fn_name == "get_figure":
-        return f"Fetching {args.get('label', 'figure')}"
-    if fn_name == "read_main_doc":
-        return "Reading your notes"
-    if fn_name == "write_main_doc":
-        return "Updating your notes"
-    return f"Calling {fn_name}"
-
-
-def _summarize_thinking(thinking: str, max_chars: int = 160) -> str:
-    """Compact a thinking blob into a single status line.
-
-    The chat UI shows one status string at a time, so we collapse newlines
-    and use only the first sentence-ish chunk. The user sees a hint of what
-    the model is reasoning about, not the whole transcript.
-    """
-    flat = " ".join(thinking.split())
-    if len(flat) <= max_chars:
-        return flat
-    return flat[: max_chars - 1].rstrip() + "…"
 
 
 # ----------------------------------------------------------------------

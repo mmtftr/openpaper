@@ -46,6 +46,7 @@ export interface ChatMessage {
     role: 'user' | 'assistant';
     content: string;
     references?: Reference;
+    reasoning?: string;
 }
 
 // Position types for react-pdf-highlighter-extended

@@ -2,6 +2,7 @@
 
 import { useSubscription, isChatCreditAtLimit } from '@/hooks/useSubscription';
 import { fetchFromApi, fetchStreamFromApi } from '@/lib/api';
+import { readOpenPaperUIMessageStream } from '@/lib/uiMessageStream';
 import { useState, useEffect, FormEvent, useRef, useCallback, Suspense } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
@@ -67,8 +68,6 @@ function ProjectConversationPageContent() {
     const [conversationName, setConversationName] = useState<string>('');
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
-
-    const END_DELIMITER = "END_OF_STREAM";
 
     const { subscription, refetch: refetchSubscription } = useSubscription();
     const chatCreditLimitReached = isChatCreditAtLimit(subscription);
@@ -305,99 +304,20 @@ function ProjectConversationPageContent() {
                 throw new Error('No stream received from server');
             }
 
-            const reader = stream.getReader();
-            const decoder = new TextDecoder();
             let accumulatedContent = '';
             let references: Reference | undefined = undefined;
-            let buffer = '';
 
-            try {
-                while (true) {
-                    let result;
-                    try {
-                        result = await reader.read();
-                    } catch (readerError) {
-                        console.error('Stream reader error:', {
-                            name: readerError instanceof Error ? readerError.name : 'Unknown',
-                            message: readerError instanceof Error ? readerError.message : String(readerError),
-                            stack: readerError instanceof Error ? readerError.stack : 'No stack',
-                        });
-                        throw readerError;
-                    }
-
-                    const { done, value } = result;
-
-                    if (done) {
-                        if (buffer.trim()) {
-                            console.warn('Unprocessed buffer at end of stream:', buffer);
-                        }
-                        break;
-                    }
-
-                    if (!value) {
-                        console.warn('Received empty value from stream');
-                        continue;
-                    }
-
-                    let chunk;
-                    try {
-                        chunk = decoder.decode(value, { stream: true });
-                    } catch (decodeError) {
-                        console.error('Error decoding chunk:', decodeError);
-                        console.error('Raw chunk value:', value);
-                        continue;
-                    }
-
-                    buffer += chunk;
-
-                    const parts = buffer.split(END_DELIMITER);
-                    buffer = parts.pop() || '';
-
-                    for (const event of parts) {
-                        if (!event.trim()) continue;
-
-                        let parsedChunk;
-                        try {
-                            parsedChunk = JSON.parse(event.trim());
-                        } catch (parseError) {
-                            console.error('Error parsing JSON event:', parseError);
-                            console.error('Raw event that failed to parse:', JSON.stringify(event));
-                            console.error('Event length:', event.length);
-                            console.error('Event preview (first 200 chars):', event.substring(0, 200));
-                            continue;
-                        }
-
-                        if (parsedChunk && typeof parsedChunk === 'object' && 'type' in parsedChunk) {
-                            const chunkType = parsedChunk.type;
-                            const chunkContent = parsedChunk.content;
-
-                            if (chunkType === 'content') {
-                                accumulatedContent += chunkContent;
-                                setStreamingChunks(prev => [...prev, chunkContent]);
-                            } else if (chunkType === 'references') {
-                                references = chunkContent;
-                                setStreamingReferences(chunkContent);
-                            } else if (chunkType === 'status') {
-                                setStatusMessage(chunkContent);
-                            } else if (chunkType === 'error') {
-                                console.error('Server error in stream:', chunkContent);
-                                throw new Error(`Server error: ${chunkContent}`);
-                            } else {
-                                console.warn(`Unknown chunk type: ${chunkType}`, parsedChunk);
-                            }
-                        } else if (parsedChunk) {
-                            console.warn('Received unexpected chunk format:', parsedChunk);
-                        }
-                    }
-                }
-            } finally {
-                // Always release the reader
-                try {
-                    reader.releaseLock();
-                } catch (lockError) {
-                    console.warn('Error releasing reader lock:', lockError);
-                }
-            }
+            await readOpenPaperUIMessageStream(stream, {
+                onText: (delta) => {
+                    accumulatedContent += delta;
+                    setStreamingChunks(prev => [...prev, delta]);
+                },
+                onReferences: (nextReferences) => {
+                    references = nextReferences;
+                    setStreamingReferences(nextReferences);
+                },
+                onStatus: (status) => setStatusMessage(status ?? ''),
+            });
 
             if (accumulatedContent) {
                 const finalMessage: ChatMessage = {

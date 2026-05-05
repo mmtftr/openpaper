@@ -14,7 +14,7 @@ from dataclasses import replace
 from typing import AsyncIterator, Awaitable, Callable, Iterator, Optional, TypeVar
 
 import openai
-from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
 from pydantic_ai.profiles.openai import (
     OpenAIJsonSchemaTransformer,
     openai_model_profile,
@@ -95,6 +95,43 @@ def make_openai_chat_model(
     else:
         provider = PaiOpenAIProvider(api_key=api_key)
     return OpenAIChatModel(model_name, provider=provider)
+
+
+def make_openai_responses_model(
+    model_name: str,
+    *,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+) -> OpenAIResponsesModel:
+    """Build a Pydantic AI OpenAIResponsesModel with the same Azure/custom
+    endpoint handling as make_openai_chat_model.
+    """
+    if _is_azure_openai_enabled() and base_url is None:
+        endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        if not endpoint:
+            raise ValueError(
+                "AZURE_OPENAI=true requires AZURE_OPENAI_ENDPOINT to be set"
+            )
+        if _is_v1_azure_endpoint(endpoint):
+            client = openai.AsyncOpenAI(api_key=api_key, base_url=endpoint)
+            provider = PaiOpenAIProvider(openai_client=client)
+        else:
+            provider = AzureProvider(
+                azure_endpoint=endpoint,
+                api_key=api_key,
+                api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2025-04-01-preview"),
+            )
+        base = openai_model_profile(model_name)
+        profile = replace(base, json_schema_transformer=AzureStrictJsonSchemaTransformer)
+        return OpenAIResponsesModel(model_name, provider=provider, profile=profile)
+
+    resolved_base = base_url or os.getenv("OPENAI_BASE_URL")
+    if resolved_base:
+        client = openai.AsyncOpenAI(api_key=api_key, base_url=resolved_base)
+        provider = PaiOpenAIProvider(openai_client=client)
+    else:
+        provider = PaiOpenAIProvider(api_key=api_key)
+    return OpenAIResponsesModel(model_name, provider=provider)
 
 
 _T = TypeVar("_T")
