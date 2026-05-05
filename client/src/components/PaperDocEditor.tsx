@@ -5,7 +5,10 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { subscribePaperChatStreaming } from '@/lib/paperDocEvents';
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, FileText, Plus, Pencil, Trash2, Check, X, ChevronDown } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 const MilkdownImpl = dynamic(() => import('./PaperDocEditorImpl'), {
     ssr: false,
@@ -26,10 +29,20 @@ interface DocumentResponse {
     updated_at?: string | null;
 }
 
+interface DocumentSummary {
+    id: string;
+    paper_id: string | null;
+    title: string;
+    revision: number;
+    kind: string;
+    updated_at?: string | null;
+}
+
 const AUTOSAVE_DEBOUNCE_MS = 800;
 const MAX_DOC_BYTES = 1_000_000;
 // While a chat turn is in flight we poll for agent-driven `write_main_doc`
-// landings. 2s is wasteful but correct; SSE/websockets are slice-3 work.
+// landings. The agent only writes MAIN today, so we skip the poll when the
+// user is viewing a NOTE doc (no point hitting the network).
 const AGENT_POLL_INTERVAL_MS = 2_000;
 
 type Status =
@@ -90,11 +103,16 @@ interface PaperDocEditorProps {
 
 export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
     const isMobile = useIsMobile();
+    const [docs, setDocs] = useState<DocumentSummary[]>([]);
+    const [activeDocId, setActiveDocId] = useState<string | null>(null);
     const [doc, setDoc] = useState<DocumentResponse | null>(null);
     const [status, setStatus] = useState<Status>({ kind: 'loading' });
+    const [switcherOpen, setSwitcherOpen] = useState(false);
+    const [renamingId, setRenamingId] = useState<string | null>(null);
+    const [renameDraft, setRenameDraft] = useState('');
 
     // We bump overwriteToken whenever the parent decides the editor must be
-    // rehydrated from a server snapshot (initial load, 409 reload).
+    // rehydrated from a server snapshot (initial load, doc switch, 409 reload).
     const [overwriteToken, setOverwriteToken] = useState(0);
     const [overwriteContent, setOverwriteContent] = useState('');
 
@@ -104,19 +122,52 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
     const docRef = useRef<DocumentResponse | null>(null);
     docRef.current = doc;
 
-    // Initial fetch.
+    // Initial fetch: list docs, then load MAIN (auto-created server-side if
+    // missing). Subsequent switches are handled by the activeDocId effect.
     useEffect(() => {
         let cancelled = false;
         setStatus({ kind: 'loading' });
         (async () => {
             try {
+                const list: DocumentSummary[] = await fetchFromApi(
+                    `/api/document?paper_id=${encodeURIComponent(paperId)}`
+                );
+                if (cancelled) return;
+                setDocs(list);
+                const main = list.find((d) => d.kind === 'main');
+                const initial = main?.id || list[0]?.id || null;
+                setActiveDocId(initial);
+                if (!initial) {
+                    setStatus({ kind: 'error', message: 'No document available' });
+                }
+            } catch (e) {
+                if (cancelled) return;
+                setStatus({
+                    kind: 'error',
+                    message: e instanceof Error ? e.message : 'Could not load documents',
+                });
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [paperId]);
+
+    // Hydrate the editor whenever the active doc changes.
+    useEffect(() => {
+        if (!activeDocId) return;
+        let cancelled = false;
+        setStatus({ kind: 'loading' });
+        (async () => {
+            try {
                 const response: DocumentResponse = await fetchFromApi(
-                    `/api/document/main?paper_id=${encodeURIComponent(paperId)}`
+                    `/api/document/${encodeURIComponent(activeDocId)}`
                 );
                 if (cancelled) return;
                 setDoc(response);
                 setOverwriteContent(response.content);
                 setOverwriteToken((t) => t + 1);
+                pendingContentRef.current = null;
                 setStatus({ kind: 'idle' });
             } catch (e) {
                 if (cancelled) return;
@@ -129,7 +180,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
         return () => {
             cancelled = true;
         };
-    }, [paperId]);
+    }, [activeDocId]);
 
     const persist = useCallback(async () => {
         const current = docRef.current;
@@ -147,9 +198,10 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
         setStatus({ kind: 'saving' });
         const sentContent = pending;
         const sentRevision = current.revision;
+        const sentDocId = current.id;
         try {
             const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
-            const response = await fetch(`${apiBase}/api/document/${current.id}`, {
+            const response = await fetch(`${apiBase}/api/document/${sentDocId}`, {
                 method: 'PUT',
                 credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
@@ -168,14 +220,14 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                 if (body && typeof body.current_revision === 'number' &&
                     typeof body.current_content === 'string') {
                     // Update our notion of the latest server state. Don't
-                    // overwrite the editor in slice 1 — we surface a
-                    // Reload prompt instead (less destructive than a silent
-                    // overwrite of in-flight typing).
-                    setDoc({
-                        ...current,
-                        revision: body.current_revision,
-                        content: body.current_content,
-                    });
+                    // overwrite the editor — surface a Reload prompt instead.
+                    if (docRef.current?.id === sentDocId) {
+                        setDoc({
+                            ...current,
+                            revision: body.current_revision,
+                            content: body.current_content,
+                        });
+                    }
                 }
                 setStatus({ kind: 'conflict' });
                 return;
@@ -190,11 +242,21 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
             }
 
             const updated: DocumentResponse = await response.json();
-            setDoc(updated);
+            // Only adopt the response if the user didn't switch docs while we
+            // were saving — otherwise overwriting `doc` would clobber the
+            // freshly-loaded target doc with the old one's content.
+            if (docRef.current?.id === sentDocId) {
+                setDoc(updated);
+            }
+            // Keep doc list in sync for revision/timestamp display.
+            setDocs((prev) =>
+                prev.map((d) =>
+                    d.id === updated.id
+                        ? { ...d, revision: updated.revision, updated_at: updated.updated_at }
+                        : d
+                )
+            );
 
-            // If the user kept typing while the request was in flight, the
-            // pending ref now holds newer content — keep it so the next debounce
-            // fires another save. If it matches what we sent, clear it.
             if (pendingContentRef.current === sentContent) {
                 pendingContentRef.current = null;
             }
@@ -206,7 +268,6 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
             });
         } finally {
             inFlightRef.current = false;
-            // If more input arrived during the save, schedule another flush.
             if (pendingContentRef.current != null) {
                 if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
                 debounceTimerRef.current = setTimeout(persist, AUTOSAVE_DEBOUNCE_MS);
@@ -234,11 +295,25 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
         [persist, status.kind]
     );
 
+    // Flush any pending content synchronously and clear the debounce. Returns
+    // when the in-flight write resolves so callers can sequence a doc switch
+    // safely after.
+    const flushPending = useCallback(async () => {
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+            debounceTimerRef.current = null;
+        }
+        if (pendingContentRef.current != null) {
+            await persist();
+        }
+    }, [persist]);
+
     const handleReload = useCallback(async () => {
+        if (!activeDocId) return;
         try {
             setStatus({ kind: 'loading' });
             const response: DocumentResponse = await fetchFromApi(
-                `/api/document/main?paper_id=${encodeURIComponent(paperId)}`
+                `/api/document/${encodeURIComponent(activeDocId)}`
             );
             setDoc(response);
             setOverwriteContent(response.content);
@@ -251,11 +326,110 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                 message: e instanceof Error ? e.message : 'Reload failed',
             });
         }
-    }, [paperId]);
+    }, [activeDocId]);
+
+    const handleSwitch = useCallback(
+        async (id: string) => {
+            setSwitcherOpen(false);
+            if (id === activeDocId) return;
+            await flushPending();
+            setActiveDocId(id);
+        },
+        [activeDocId, flushPending]
+    );
+
+    const handleCreate = useCallback(async () => {
+        try {
+            setSwitcherOpen(false);
+            await flushPending();
+            const created: DocumentResponse = await fetchFromApi('/api/document', {
+                method: 'POST',
+                body: JSON.stringify({ paper_id: paperId, title: 'New doc' }),
+            });
+            const summary: DocumentSummary = {
+                id: created.id,
+                paper_id: created.paper_id,
+                title: created.title,
+                revision: created.revision,
+                kind: created.kind,
+                updated_at: created.updated_at,
+            };
+            setDocs((prev) => [...prev, summary]);
+            setActiveDocId(created.id);
+        } catch (e) {
+            setStatus({
+                kind: 'error',
+                message: e instanceof Error ? e.message : 'Could not create doc',
+            });
+        }
+    }, [paperId, flushPending]);
+
+    const handleRenameSubmit = useCallback(
+        async (id: string) => {
+            const title = renameDraft.trim();
+            if (!title) {
+                setRenamingId(null);
+                return;
+            }
+            try {
+                const updated: DocumentResponse = await fetchFromApi(
+                    `/api/document/${encodeURIComponent(id)}`,
+                    {
+                        method: 'PATCH',
+                        body: JSON.stringify({ title }),
+                    }
+                );
+                setDocs((prev) =>
+                    prev.map((d) =>
+                        d.id === id
+                            ? { ...d, title: updated.title, updated_at: updated.updated_at }
+                            : d
+                    )
+                );
+                if (docRef.current?.id === id) {
+                    setDoc((prev) => (prev ? { ...prev, title: updated.title } : prev));
+                }
+            } catch (e) {
+                setStatus({
+                    kind: 'error',
+                    message: e instanceof Error ? e.message : 'Rename failed',
+                });
+            } finally {
+                setRenamingId(null);
+            }
+        },
+        [renameDraft]
+    );
+
+    const handleDelete = useCallback(
+        async (id: string) => {
+            // window.confirm is fine for v1 — slice 3a doesn't introduce a
+            // confirm-dialog primitive just for this one action.
+            if (typeof window !== 'undefined' && !window.confirm('Delete this doc?')) {
+                return;
+            }
+            try {
+                await fetchFromApi(`/api/document/${encodeURIComponent(id)}`, {
+                    method: 'DELETE',
+                });
+                setDocs((prev) => prev.filter((d) => d.id !== id));
+                if (activeDocId === id) {
+                    const main = docs.find((d) => d.kind === 'main' && d.id !== id);
+                    setActiveDocId(main?.id || null);
+                }
+            } catch (e) {
+                setStatus({
+                    kind: 'error',
+                    message: e instanceof Error ? e.message : 'Delete failed',
+                });
+            }
+        },
+        [activeDocId, docs]
+    );
 
     // While the agentic chat is streaming, poll for `write_main_doc` results.
-    // Skip the overwrite when the user has unsaved typing — let the 409 path
-    // resolve the conflict instead of silently clobbering their keystrokes.
+    // Only meaningful when the user is viewing MAIN — the agent doesn't write
+    // NOTE docs today, so polling them would be pointless network noise.
     const agentStreamingRef = useRef(false);
     useEffect(() => {
         const unsub = subscribePaperChatStreaming(paperId, (streaming) => {
@@ -271,6 +445,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
             if (!agentStreamingRef.current) return;
             const current = docRef.current;
             if (!current) return;
+            if (current.kind !== 'main') return;
             // Skip while the user is actively saving — refetching mid-PUT
             // would race with the response body update.
             if (inFlightRef.current) return;
@@ -279,10 +454,8 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                     `/api/document/main?paper_id=${encodeURIComponent(paperId)}`
                 );
                 if (cancelled) return;
+                if (docRef.current?.id !== current.id) return;
                 if (response.revision <= current.revision) return;
-                // Agent (or another tab) wrote. If the user has unsaved
-                // typing, fall through to the existing 409 path on next
-                // autosave instead of overwriting them.
                 if (pendingContentRef.current != null) {
                     setDoc((prev) => prev ? {
                         ...prev,
@@ -298,13 +471,9 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                 // Polling errors are noisy — swallow and try again next tick.
             }
         };
-        const startInterval = () => {
-            if (timer) return;
-            timer = setInterval(() => {
-                if (agentStreamingRef.current) tick();
-            }, AGENT_POLL_INTERVAL_MS);
-        };
-        startInterval();
+        timer = setInterval(() => {
+            if (agentStreamingRef.current) tick();
+        }, AGENT_POLL_INTERVAL_MS);
         return () => {
             cancelled = true;
             if (timer) clearInterval(timer);
@@ -345,24 +514,146 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
         };
     }, []);
 
+    const activeDoc = doc;
+    const sortedDocs = [
+        ...docs.filter((d) => d.kind === 'main'),
+        ...docs.filter((d) => d.kind !== 'main'),
+    ];
+
     return (
         <div className="flex flex-col h-full">
-            <div className="flex items-center justify-between border-b border-border px-2">
-                <StatusRow status={status} />
-                {status.kind === 'conflict' && (
-                    <button
-                        type="button"
-                        onClick={handleReload}
-                        className="text-xs px-2 py-1 rounded bg-amber-100 dark:bg-amber-950 hover:bg-amber-200 dark:hover:bg-amber-900 text-amber-900 dark:text-amber-100"
-                    >
-                        Reload
-                    </button>
-                )}
+            <div className="flex items-center justify-between border-b border-border px-2 py-1 gap-2">
+                <Popover open={switcherOpen} onOpenChange={setSwitcherOpen}>
+                    <PopoverTrigger asChild>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 max-w-[60%] justify-start gap-1 font-medium"
+                            disabled={!activeDoc}
+                        >
+                            <FileText className="h-3.5 w-3.5 shrink-0" />
+                            <span className="truncate text-sm">
+                                {activeDoc?.title || 'Loading…'}
+                            </span>
+                            <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                        </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-72 p-1" align="start">
+                        <div className="max-h-72 overflow-y-auto">
+                            {sortedDocs.map((d) => {
+                                const isActive = d.id === activeDocId;
+                                const isMain = d.kind === 'main';
+                                if (renamingId === d.id) {
+                                    return (
+                                        <div
+                                            key={d.id}
+                                            className="flex items-center gap-1 px-1 py-1"
+                                        >
+                                            <Input
+                                                autoFocus
+                                                value={renameDraft}
+                                                onChange={(e) => setRenameDraft(e.target.value)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') handleRenameSubmit(d.id);
+                                                    else if (e.key === 'Escape') setRenamingId(null);
+                                                }}
+                                                className="h-7 text-sm"
+                                                maxLength={200}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => handleRenameSubmit(d.id)}
+                                                className="p-1 rounded hover:bg-accent"
+                                                aria-label="Save"
+                                            >
+                                                <Check className="h-3.5 w-3.5" />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setRenamingId(null)}
+                                                className="p-1 rounded hover:bg-accent"
+                                                aria-label="Cancel"
+                                            >
+                                                <X className="h-3.5 w-3.5" />
+                                            </button>
+                                        </div>
+                                    );
+                                }
+                                return (
+                                    <div
+                                        key={d.id}
+                                        className={`group flex items-center gap-1 px-2 py-1.5 rounded-sm text-sm hover:bg-accent ${isActive ? 'bg-accent/60' : ''
+                                            }`}
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSwitch(d.id)}
+                                            className="flex-1 text-left truncate flex items-center gap-1.5 cursor-pointer"
+                                        >
+                                            <FileText className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                                            <span className="truncate">{d.title}</span>
+                                        </button>
+                                        {!isMain && (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setRenameDraft(d.title);
+                                                    setRenamingId(d.id);
+                                                }}
+                                                className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-background"
+                                                aria-label="Rename"
+                                            >
+                                                <Pencil className="h-3.5 w-3.5" />
+                                            </button>
+                                        )}
+                                        {!isMain && (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDelete(d.id);
+                                                }}
+                                                className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-background text-red-600 dark:text-red-400"
+                                                aria-label="Delete"
+                                            >
+                                                <Trash2 className="h-3.5 w-3.5" />
+                                            </button>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        <div className="border-t border-border mt-1 pt-1">
+                            <button
+                                type="button"
+                                onClick={handleCreate}
+                                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm hover:bg-accent"
+                            >
+                                <Plus className="h-3.5 w-3.5" />
+                                <span>New doc</span>
+                            </button>
+                        </div>
+                    </PopoverContent>
+                </Popover>
+
+                <div className="flex items-center gap-2">
+                    <StatusRow status={status} />
+                    {status.kind === 'conflict' && (
+                        <button
+                            type="button"
+                            onClick={handleReload}
+                            className="text-xs px-2 py-1 rounded bg-amber-100 dark:bg-amber-950 hover:bg-amber-200 dark:hover:bg-amber-900 text-amber-900 dark:text-amber-100"
+                        >
+                            Reload
+                        </button>
+                    )}
+                </div>
             </div>
             <div className={`flex-1 overflow-y-auto ${isMobile ? 'pb-24' : ''}`}>
-                {doc ? (
+                {activeDoc ? (
                     <MilkdownImpl
-                        initialContent={doc.content}
+                        initialContent={activeDoc.content}
                         onChange={handleChange}
                         overwriteToken={overwriteToken}
                         overwriteContent={overwriteContent}

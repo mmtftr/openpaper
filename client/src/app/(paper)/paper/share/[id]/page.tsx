@@ -14,7 +14,7 @@ import {
 } from '@/lib/schema';
 import PaperMetadata from '@/components/PaperMetadata';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { Book, Box, User } from 'lucide-react';
+import { Book, Box, ScrollText, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
@@ -30,6 +30,7 @@ import { ChatMessageActions } from '@/components/ChatMessageActions';
 import { BasicUser } from '@/lib/auth';
 import { Avatar } from '@/components/ui/avatar';
 import EmptyConversationState from './EmptyConversationState';
+import { PaperMarkdownReader } from '@/components/PaperMarkdownReader';
 
 
 export default function SharedPaperView() {
@@ -45,7 +46,7 @@ export default function SharedPaperView() {
     const [error, setError] = useState<string | null>(null);
     const [activeHighlight, setActiveHighlight] = useState<PaperHighlight | null>(null);
     const isMobile = useIsMobile();
-    const [mobileView, setMobileView] = useState<'reader' | 'panel'>('reader');
+    const [mobileView, setMobileView] = useState<'reader' | 'markdown' | 'panel'>('reader');
     const [rightSideFunction, setRightSideFunction] = useState('Overview');
     const [activeCitationKey, setActiveCitationKey] = useState<string | null>(null);
     const [activeCitationMessageIndex, setActiveCitationMessageIndex] = useState<number | null>(null);
@@ -387,8 +388,13 @@ export default function SharedPaperView() {
                                 <div className="flex justify-center items-center h-full">PDF could not be loaded.</div>
                             )}
                         </div>
+                    ) : mobileView === 'markdown' ? (
+                        <PaperMarkdownReader
+                            endpoint={`/api/paper/share/markdown?id=${encodeURIComponent(shareId)}`}
+                            title={paperData.title}
+                        />
                     ) : (
-                        <div className="w-full h-full flex flex-row relative pr-[60px]">
+                        <div className="w-full h-full flex flex-row relative">
                             <div className="flex-grow overflow-y-auto">
                                 {rightSideFunction === 'Annotations' && owner && (
                                     <>
@@ -463,6 +469,10 @@ export default function SharedPaperView() {
                         <Button variant="ghost" onClick={() => setMobileView('reader')} className={`flex flex-col items-center gap-1 ${mobileView === 'reader' ? 'text-blue-500' : ''}`}>
                             <Book size={24} />
                             <span className="text-xs">Reader</span>
+                        </Button>
+                        <Button variant="ghost" onClick={() => setMobileView('markdown')} className={`flex flex-col items-center gap-1 ${mobileView === 'markdown' ? 'text-blue-500' : ''}`}>
+                            <ScrollText size={24} />
+                            <span className="text-xs">Markdown</span>
                         </Button>
                         <Button variant="ghost" onClick={() => setMobileView('panel')} className={`flex flex-col items-center gap-1 ${mobileView === 'panel' ? 'text-blue-500' : ''}`}>
                             <Box size={24} />

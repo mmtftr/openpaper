@@ -32,7 +32,10 @@ import {
 
 import { ChatMessage, CreditUsage, Reference } from "@/lib/schema";
 import { fetchFromApi, fetchStreamFromApi } from "@/lib/api";
-import { readOpenPaperUIMessageStream } from "@/lib/uiMessageStream";
+import {
+    readOpenPaperUIMessageStream,
+    stripEvidenceBlock,
+} from "@/lib/uiMessageStream";
 import { setPaperChatStreaming } from "@/lib/paperDocEvents";
 import { useAuth } from "@/lib/auth";
 import {
@@ -184,6 +187,9 @@ const CONTEXT_MODE_OPTIONS: ContextModeOption[] = [
 ];
 
 const CONTEXT_MODE_LS_KEY = "openpaper:paper-context-mode";
+const SELECTED_MODEL_LS_KEY = "openpaper:paper-chat-model";
+const REASONING_EFFORT_LS_KEY = "openpaper:paper-reasoning-effort";
+const REASONING_EFFORT_VALUES: ReasoningEffort[] = ["low", "medium", "high", "xhigh"];
 
 interface ChatRequestBody {
     user_query: string;
@@ -285,10 +291,30 @@ export function PaperChatPanel({
     >(null);
 
     const [creditUsage, setCreditUsage] = useState<CreditUsage | null>(null);
-    const [selectedModel, setSelectedModel] = useState("");
+    const [selectedModel, setSelectedModel] = useState<string>(() => {
+        if (typeof window === "undefined") return "";
+        return window.localStorage.getItem(SELECTED_MODEL_LS_KEY) ?? "";
+    });
+    useEffect(() => {
+        if (typeof window === "undefined" || !selectedModel) return;
+        window.localStorage.setItem(SELECTED_MODEL_LS_KEY, selectedModel);
+    }, [selectedModel]);
     const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
-    const [reasoningEffort, setReasoningEffort] =
-        useState<ReasoningEffort>("medium");
+    const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(
+        () => {
+            if (typeof window === "undefined") return "medium";
+            const stored = window.localStorage.getItem(
+                REASONING_EFFORT_LS_KEY
+            );
+            return REASONING_EFFORT_VALUES.includes(stored as ReasoningEffort)
+                ? (stored as ReasoningEffort)
+                : "medium";
+        }
+    );
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        window.localStorage.setItem(REASONING_EFFORT_LS_KEY, reasoningEffort);
+    }, [reasoningEffort]);
     const [nextMonday, setNextMonday] = useState(new Date());
 
     // Context mode for the agentic chat surface. Defaults to Adaptive on
@@ -328,7 +354,12 @@ export function PaperChatPanel({
             "Adaptive"
         );
     }, [contextMode]);
-    const showContextWarning = contextMode === "full" || contextMode === "raw";
+    const contextWarningMessage =
+        contextMode === "full"
+            ? "This mode sends the entire paper to the model on every turn. Adaptive is faster and cheaper for most questions."
+            : contextMode === "raw"
+              ? "OCR parsing failed for this paper, so chat is using fallback PDF text without structured sections or figures."
+              : null;
 
     const starterQuestions = useMemo(() => {
         if (
@@ -577,14 +608,19 @@ export function PaperChatPanel({
                 if (models.length === 0) return;
                 setAvailableModels(models);
                 const defaultId: string | undefined = response.default;
-                if (
+                const fallback =
                     defaultId &&
                     models.some((m: ModelOption) => m.id === defaultId)
-                ) {
-                    setSelectedModel((current) => current || defaultId);
-                } else {
-                    setSelectedModel((current) => current || models[0].id);
-                }
+                        ? defaultId
+                        : models[0].id;
+                // Honor the persisted choice if it's still offered; otherwise
+                // fall back. This keeps the picker stable across reloads
+                // instead of snapping back to the server default each time.
+                setSelectedModel((current) =>
+                    current && models.some((m) => m.id === current)
+                        ? current
+                        : fallback
+                );
             } catch (err) {
                 console.error("Error fetching available models:", err);
             }
@@ -723,7 +759,7 @@ export function PaperChatPanel({
                 if (accumulated) {
                     const finalMessage: ChatMessage = {
                         role: "assistant",
-                        content: accumulated,
+                        content: stripEvidenceBlock(accumulated),
                         references,
                         reasoning: reasoning || undefined,
                     };
@@ -750,7 +786,7 @@ export function PaperChatPanel({
                     if (accumulated) {
                         const stoppedMessage: ChatMessage = {
                             role: "assistant",
-                            content: accumulated,
+                            content: stripEvidenceBlock(accumulated),
                             references,
                             reasoning: reasoning || undefined,
                         };
@@ -1088,7 +1124,7 @@ export function PaperChatPanel({
                                     )}
                                     {streamingText.length > 0 ? (
                                         <AnimatedMarkdown
-                                            content={streamingText}
+                                            content={stripEvidenceBlock(streamingText)}
                                             className="prose-sm"
                                             components={citationComponents(
                                                 onStreamingCitationClick,
@@ -1185,14 +1221,10 @@ export function PaperChatPanel({
                     </div>
                 )}
 
-                {showContextWarning && (
+                {contextWarningMessage && (
                     <div className="mb-2 flex items-start gap-2 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
                         <AlertTriangleIcon className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                        <span>
-                            This mode sends the entire paper to the model on
-                            every turn. Adaptive is faster and cheaper for most
-                            questions.
-                        </span>
+                        <span>{contextWarningMessage}</span>
                     </div>
                 )}
 

@@ -33,8 +33,9 @@ import PaperViewSkeleton from '@/components/PaperViewSkeleton';
 import ReportSkeleton from '@/components/ReportSkeleton';
 
 import { SidePanelContent } from '@/components/SidePanelContent';
+import { PaperMarkdownReader } from '@/components/PaperMarkdownReader';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { Book, Box } from 'lucide-react';
+import { Book, Box, ScrollText } from 'lucide-react';
 
 const OverviewTool = {
     name: "Overview",
@@ -205,7 +206,7 @@ export default function PaperView() {
     const [leftPanelWidth, setLeftPanelWidth] = useState(60); // percentage
     const [isDragging, setIsDragging] = useState(false);
     const isMobile = useIsMobile();
-    const [mobileView, setMobileView] = useState<'reader' | 'panel'>('reader');
+    const [mobileView, setMobileView] = useState<'reader' | 'markdown' | 'panel'>('reader');
 
     const showAnnotationCards = annotationCardsVisible;
     const isReadMode = rightSideFunction === 'Read';
@@ -262,7 +263,7 @@ export default function PaperView() {
         }
     }, [isReadMode, toolset.nav]);
 
-    const prevMobileViewRef = useRef<'reader' | 'panel'>(mobileView);
+    const prevMobileViewRef = useRef<'reader' | 'markdown' | 'panel'>(mobileView);
     const mobileReaderInitialHideRef = useRef(false);
     useEffect(() => {
         if (!isMobile) {
@@ -683,6 +684,12 @@ export default function PaperView() {
                                 />
                             )}
                         </div>
+                    ) : mobileView === 'markdown' ? (
+                        <PaperMarkdownReader
+                            endpoint={`/api/paper/markdown?id=${encodeURIComponent(id)}`}
+                            paperId={id}
+                            title={paperData.title}
+                        />
                     ) : (
                         <div className="w-full h-full">
                             <div
@@ -720,6 +727,10 @@ export default function PaperView() {
                         <Button variant="ghost" onClick={() => setMobileView('reader')} className={`flex flex-col items-center gap-1 ${mobileView === 'reader' ? 'text-blue-500' : ''}`}>
                             <Book size={24} />
                             <span className="text-xs">Reader</span>
+                        </Button>
+                        <Button variant="ghost" onClick={() => setMobileView('markdown')} className={`flex flex-col items-center gap-1 ${mobileView === 'markdown' ? 'text-blue-500' : ''}`}>
+                            <ScrollText size={24} />
+                            <span className="text-xs">Markdown</span>
                         </Button>
                         <Button variant="ghost" onClick={() => setMobileView('panel')} className={`flex flex-col items-center gap-1 ${mobileView === 'panel' ? 'text-blue-500' : ''}`}>
                             <Box size={24} />

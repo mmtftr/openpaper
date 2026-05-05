@@ -125,7 +125,7 @@ export function SidePanelContent({
     }
 
     return (
-        <div className="flex-grow h-full overflow-hidden pr-[60px]">
+        <div className={`flex-grow h-full overflow-hidden ${isMobile ? '' : 'pr-[60px]'}`}>
             {rightSideFunction === 'Annotations' && user && (
                 <div className={`flex flex-col ${heightClass} overflow-y-auto`}>
                     <AnnotationsView

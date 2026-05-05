@@ -1,5 +1,24 @@
 import { Reference } from "@/lib/schema";
 
+const EVIDENCE_START = "---EVIDENCE---";
+const EVIDENCE_END = "---END-EVIDENCE---";
+
+/**
+ * Strip the trailing `---EVIDENCE---...---END-EVIDENCE---` block from a
+ * streamed assistant message. The agent emits citations inline so they can
+ * be parsed once the run completes; the user shouldn't see the raw block
+ * in the chat UI. Tolerates an unterminated block by trimming everything
+ * from the start delimiter onward.
+ */
+export function stripEvidenceBlock(text: string): string {
+    const start = text.indexOf(EVIDENCE_START);
+    if (start === -1) return text;
+    const after = text.slice(start + EVIDENCE_START.length);
+    const endRel = after.indexOf(EVIDENCE_END);
+    const tail = endRel === -1 ? "" : after.slice(endRel + EVIDENCE_END.length);
+    return (text.slice(0, start) + tail).trimEnd();
+}
+
 type UIMessageChunk =
     | { type: "text-delta"; delta: string }
     | { type: "reasoning-delta"; delta: string }
