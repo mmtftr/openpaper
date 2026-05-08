@@ -1,6 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { PaperHighlight, ScaledPosition, HighlightColor } from "@/lib/schema";
 import { fetchFromApi } from "@/lib/api";
+import {
+	cacheHighlights,
+	getCachedHighlights,
+	queueHighlightCreate,
+	queueHighlightDelete,
+	replayOutbox,
+} from "@/lib/offline";
+import { nanoid } from "nanoid";
 
 export function useHighlighterHighlights(
 	paperId: string,
@@ -32,14 +40,17 @@ export function useHighlighterHighlights(
 				}
 			);
 
-			// Filter valid highlights - require either position or offsets
-			const validHighlights = data.filter(
-				(h) =>
-					h.raw_text &&
-					(h.position ||
+			// Filter valid highlights. Assistant rows can be text-only because
+			// the viewer attempts to anchor them at render time from raw_text.
+			const validHighlights = data.filter((h) => {
+				if (!h.raw_text?.trim()) return false;
+				if (h.role === "assistant") return true;
+				return Boolean(
+					h.position ||
 						(typeof h.start_offset === "number" &&
-							typeof h.end_offset === "number"))
-			);
+							typeof h.end_offset === "number")
+				);
+			});
 
 			// Deduplicate
 			const deduplicatedHighlights = validHighlights.filter(
@@ -54,66 +65,15 @@ export function useHighlighterHighlights(
 			);
 
 			setHighlights(deduplicatedHighlights);
+			await cacheHighlights(paperId, deduplicatedHighlights);
 		} catch (error) {
 			console.error("Error loading highlights from server:", error);
+			const cached = await getCachedHighlights(paperId).catch(() => null);
+			if (cached) {
+				setHighlights(cached.highlights);
+			}
 		}
 	}, [paperId]);
-
-	// Send highlight to server
-	const sendHighlightToServer = async (
-		highlight: Omit<PaperHighlight, "id">
-	): Promise<PaperHighlight | undefined> => {
-		// Check for duplicates
-		const isDuplicate = highlights.some(
-			(h) =>
-				h.raw_text === highlight.raw_text &&
-				h.page_number === highlight.page_number
-		);
-
-		if (isDuplicate) {
-			return;
-		}
-
-		const payload = {
-			paper_id: paperId,
-			raw_text: highlight.raw_text,
-			page_number: highlight.page_number,
-			position: highlight.position,
-			role: highlight.role || "user",
-			color: highlight.color,
-		};
-
-		try {
-			const data = await fetchFromApi(`/api/highlight`, {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Accept: "application/json",
-				},
-				body: JSON.stringify(payload),
-			});
-			return data;
-		} catch (error) {
-			console.error("Error sending highlight to server:", error);
-		}
-	};
-
-	// Remove highlight from server
-	const removeHighlightFromServer = async (highlight: PaperHighlight) => {
-		try {
-			await fetchFromApi(`/api/highlight/${highlight.id}`, {
-				method: "DELETE",
-				headers: {
-					"Content-Type": "application/json",
-					Accept: "application/json",
-				},
-			});
-
-			setHighlights((prev) => prev.filter((h) => h.id !== highlight.id));
-		} catch (error) {
-			console.error("Error removing highlight from server:", error);
-		}
-	};
 
 	// Add a new highlight with position data
 	const addHighlight = useCallback(
@@ -129,7 +89,16 @@ export function useHighlighterHighlights(
 				return;
 			}
 
-			const newHighlight: Omit<PaperHighlight, "id"> = {
+			const isDuplicate = highlights.some(
+				(h) =>
+					h.raw_text === selectedText &&
+					h.page_number === (pageNumber || position.boundingRect.pageNumber)
+			);
+			if (isDuplicate) return;
+
+			const localId = `local:${nanoid()}`;
+			const savedHighlight: PaperHighlight = {
+				id: localId,
 				raw_text: selectedText,
 				role: "user",
 				page_number: pageNumber || position.boundingRect.pageNumber,
@@ -138,16 +107,23 @@ export function useHighlighterHighlights(
 			};
 
 			try {
-				const savedHighlight = await sendHighlightToServer(newHighlight);
+				const nextHighlights = [...highlights, savedHighlight];
+				setHighlights(nextHighlights);
+				await cacheHighlights(paperId, nextHighlights);
+				await queueHighlightCreate({
+					localId,
+					paperId,
+					highlight: savedHighlight,
+				});
 
-				if (savedHighlight) {
-					if (doAnnotate) {
-						blockScrollOnNextHighlight.current = true;
-						setActiveHighlight(savedHighlight);
-						setIsAnnotating(true);
-					}
+				if (doAnnotate) {
+					blockScrollOnNextHighlight.current = true;
+					setActiveHighlight(savedHighlight);
+					setIsAnnotating(true);
+				}
 
-					setHighlights((prev) => [...prev, savedHighlight]);
+				if (typeof navigator === "undefined" || navigator.onLine) {
+					void replayOutbox();
 				}
 			} catch (error) {
 				console.error("Error adding highlight:", error);
@@ -160,13 +136,21 @@ export function useHighlighterHighlights(
 				setIsAnnotating(false);
 			}
 		},
-		[highlights]
+		[highlights, paperId]
 	);
 
 	// Remove a highlight
 	const removeHighlight = useCallback((highlight: PaperHighlight) => {
-		removeHighlightFromServer(highlight);
-	}, []);
+		if (!highlight.id) return;
+		const nextHighlights = highlights.filter((h) => h.id !== highlight.id);
+		setHighlights(nextHighlights);
+		void cacheHighlights(paperId, nextHighlights);
+		void queueHighlightDelete({ highlightId: highlight.id }, paperId).then(() => {
+			if (typeof navigator === "undefined" || navigator.onLine) {
+				void replayOutbox();
+			}
+		});
+	}, [highlights, paperId]);
 
 	// Handle text selection (for compatibility, though not used with new viewer)
 	const handleTextSelection = useCallback(

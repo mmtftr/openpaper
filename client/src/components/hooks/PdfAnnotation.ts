@@ -3,27 +3,43 @@ import {
 } from '@/lib/schema';
 import { fetchFromApi } from '@/lib/api';
 import { useEffect, useState } from 'react';
+import {
+    cacheAnnotations,
+    getCachedAnnotations,
+    queueAnnotationCreate,
+    queueAnnotationDelete,
+    queueAnnotationUpdate,
+    replayOutbox,
+} from '@/lib/offline';
+import { nanoid } from 'nanoid';
 
 export function useAnnotations(paperId: string) {
     const [annotations, setAnnotations] = useState<PaperHighlightAnnotation[]>([]);
 
     const addAnnotation = async (highlightId: string, content: string) => {
-        const newAnnotation: Partial<PaperHighlightAnnotation> = {
+        const localAnnotation: PaperHighlightAnnotation = {
+            id: `local:${nanoid()}`,
             highlight_id: highlightId,
             paper_id: paperId,
             content,
+            role: 'user',
+            created_at: new Date().toISOString(),
         };
 
         try {
-            const savedAnnotation: PaperHighlightAnnotation = await fetchFromApi('/api/annotation/', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(newAnnotation),
+            const nextAnnotations = [...annotations, localAnnotation];
+            setAnnotations(nextAnnotations);
+            await cacheAnnotations(paperId, nextAnnotations);
+            await queueAnnotationCreate({
+                localId: localAnnotation.id,
+                paperId,
+                highlightId,
+                content,
             });
-            setAnnotations(prev => [...prev, savedAnnotation]);
-            return savedAnnotation;
+            if (typeof navigator === 'undefined' || navigator.onLine) {
+                void replayOutbox();
+            }
+            return localAnnotation;
         } catch (error) {
             console.error('Error saving annotation:', error);
             throw error;
@@ -32,11 +48,13 @@ export function useAnnotations(paperId: string) {
 
     const removeAnnotation = async (annotationId: string) => {
         try {
-            await fetchFromApi(`/api/annotation/${annotationId}`, {
-                method: 'DELETE',
-            });
-
-            setAnnotations(prev => prev.filter(a => a.id !== annotationId));
+            const nextAnnotations = annotations.filter(a => a.id !== annotationId);
+            setAnnotations(nextAnnotations);
+            await cacheAnnotations(paperId, nextAnnotations);
+            await queueAnnotationDelete({ annotationId }, paperId);
+            if (typeof navigator === 'undefined' || navigator.onLine) {
+                void replayOutbox();
+            }
         } catch (error) {
             console.error('Error removing annotation:', error);
             throw error;
@@ -45,20 +63,16 @@ export function useAnnotations(paperId: string) {
 
     const updateAnnotation = async (annotationId: string, content: string) => {
         try {
-            const updatedAnnotation: PaperHighlightAnnotation = await fetchFromApi(`/api/annotation/${annotationId}`, {
-                method: 'PATCH',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    content,
-                }),
-            });
-
-            setAnnotations(prev =>
-                prev.map(a => (a.id === annotationId ? updatedAnnotation : a))
+            const nextAnnotations = annotations.map(a =>
+                a.id === annotationId ? { ...a, content } : a
             );
-            return updatedAnnotation;
+            setAnnotations(nextAnnotations);
+            await cacheAnnotations(paperId, nextAnnotations);
+            await queueAnnotationUpdate({ annotationId, content }, paperId);
+            if (typeof navigator === 'undefined' || navigator.onLine) {
+                void replayOutbox();
+            }
+            return nextAnnotations.find(a => a.id === annotationId);
         } catch (error) {
             console.error('Error updating annotation:', error);
             throw error;
@@ -72,9 +86,15 @@ export function useAnnotations(paperId: string) {
             });
 
             setAnnotations(loadedAnnotations);
+            await cacheAnnotations(paperId, loadedAnnotations);
             return loadedAnnotations;
         } catch (error) {
             console.error('Error loading annotations:', error);
+            const cached = await getCachedAnnotations(paperId).catch(() => null);
+            if (cached) {
+                setAnnotations(cached.annotations);
+                return cached.annotations;
+            }
             throw error;
         }
     };

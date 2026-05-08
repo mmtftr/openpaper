@@ -9,9 +9,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
     AudioLines,
+    Check,
+    Download,
     FileText,
     Highlighter,
     Lightbulb,
+    Loader2,
     MessageCircle,
 } from 'lucide-react';
 import { toast } from "sonner";
@@ -36,6 +39,14 @@ import { SidePanelContent } from '@/components/SidePanelContent';
 import { PaperMarkdownReader } from '@/components/PaperMarkdownReader';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Book, Box, ScrollText } from 'lucide-react';
+import {
+    cachePaperMetadata,
+    cachePdfBlob,
+    getCachedPaperMetadata,
+    getCachedPdfObjectUrl,
+    pinPaperForOffline,
+    useOnlineStatus,
+} from '@/lib/offline';
 
 const OverviewTool = {
     name: "Overview",
@@ -85,6 +96,10 @@ export default function PaperView() {
     const { user, loading: authLoading } = useAuth();
     const [paperData, setPaperData] = useState<PaperData | null>(null);
     const [loading, setLoading] = useState(true);
+    const [offlinePdfUrl, setOfflinePdfUrl] = useState<string | null>(null);
+    const [preparingOffline, setPreparingOffline] = useState(false);
+    const [offlineReady, setOfflineReady] = useState(false);
+    const online = useOnlineStatus();
 
     const {
         highlights,
@@ -126,16 +141,9 @@ export default function PaperView() {
     const [userMessageReferences, setUserMessageReferences] = useState<string[]>([]);
     const [renderedHighlightPositions, setRenderedHighlightPositions] = useState<Map<string, RenderedHighlightPosition>>(new Map());
 
-    // Callback for when PDF highlight overlays are created (for assistant highlights)
-    // Merges new positions with existing ones so positions persist even when pages are unloaded
+    // Callback for DOM overlay highlights. This reflects the current rendered overlay set.
     const handleOverlaysCreated = useCallback((positions: Map<string, RenderedHighlightPosition>) => {
-        setRenderedHighlightPositions(prev => {
-            const merged = new Map(prev);
-            positions.forEach((pos, id) => {
-                merged.set(id, pos);
-            });
-            return merged;
-        });
+        setRenderedHighlightPositions(new Map(positions));
     }, []);
 
     const [jobId, setJobId] = useState<string | null>(null);
@@ -485,10 +493,27 @@ export default function PaperView() {
 
         async function fetchPaper() {
             try {
+                const cached = await getCachedPaperMetadata(id);
+                if (cached) {
+                    setPaperData(cached.data);
+                    setOfflineReady(true);
+                    const cachedPdf = await getCachedPdfObjectUrl(id);
+                    if (cachedPdf) setOfflinePdfUrl(cachedPdf);
+                    setLoading(false);
+                }
+
                 const response: PaperData = await fetchFromApi(`/api/paper?id=${id}`);
                 setPaperData(response);
+                await cachePaperMetadata(id, response);
             } catch (error) {
                 console.error('Error fetching paper:', error);
+                const cached = await getCachedPaperMetadata(id);
+                if (cached) {
+                    setPaperData(cached.data);
+                    setOfflineReady(true);
+                    const cachedPdf = await getCachedPdfObjectUrl(id);
+                    if (cachedPdf) setOfflinePdfUrl(cachedPdf);
+                }
             } finally {
                 setLoading(false);
             }
@@ -500,6 +525,18 @@ export default function PaperView() {
         refreshAnnotations();
         fetchHighlights();
     }, [id, jobId]);
+
+    useEffect(() => {
+        if (!id) return;
+        getCachedPdfObjectUrl(id)
+            .then((url) => {
+                if (url) {
+                    setOfflinePdfUrl(url);
+                    setOfflineReady(true);
+                }
+            })
+            .catch((error) => console.error('Error loading cached PDF:', error));
+    }, [id]);
 
     useEffect(() => {
         if (userMessageReferences.length > 0) {
@@ -530,6 +567,29 @@ export default function PaperView() {
             return null;
         }
     }, [id]);
+
+    const handleMakeAvailableOffline = useCallback(async () => {
+        if (!id || !paperData || preparingOffline) return;
+        setPreparingOffline(true);
+        try {
+            await cachePaperMetadata(id, paperData, { pinned: true });
+            await pinPaperForOffline(id);
+            if (paperData.file_url) {
+                await cachePdfBlob(id, paperData.file_url, { pinned: true });
+                const cachedUrl = await getCachedPdfObjectUrl(id);
+                setOfflinePdfUrl(cachedUrl);
+            }
+            setOfflineReady(true);
+            toast.success("Paper is available offline.");
+        } catch (error) {
+            console.error('Error preparing paper offline:', error);
+            toast.error("Could not prepare this paper for offline use.", {
+                description: error instanceof Error ? error.message : undefined,
+            });
+        } finally {
+            setPreparingOffline(false);
+        }
+    }, [id, paperData, preparingOffline]);
 
     const handleShare = useCallback(async () => {
         if (!id || !paperData || isSharing) return;
@@ -611,7 +671,40 @@ export default function PaperView() {
 
     if (loading) return <PaperViewSkeleton />;
 
-    if (!paperData) return <div>Paper not found</div>;
+    if (!paperData) {
+        return (
+            <div className="flex h-[calc(100vh-64px)] items-center justify-center p-6 text-center">
+                <div>
+                    <h1 className="text-base font-semibold">This paper is not available offline yet.</h1>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                        Reconnect and open paper {id} once to prepare it for offline reading.
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
+    const pdfUrlForViewer = !online && offlinePdfUrl ? offlinePdfUrl : paperData.file_url;
+    const OfflineControl = (
+        <Button
+            size="sm"
+            variant={offlineReady ? "secondary" : "outline"}
+            className="absolute right-3 top-3 z-20 gap-2 bg-background/90 backdrop-blur"
+            onClick={handleMakeAvailableOffline}
+            disabled={preparingOffline || !paperData.file_url}
+        >
+            {preparingOffline ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+            ) : offlineReady ? (
+                <Check className="h-4 w-4" />
+            ) : (
+                <Download className="h-4 w-4" />
+            )}
+            <span className="hidden sm:inline">
+                {offlineReady ? "Available offline" : "Make available offline"}
+            </span>
+        </Button>
+    );
 
     const sidePanelProps = {
         rightSideFunction,
@@ -645,10 +738,11 @@ export default function PaperView() {
             <div className="flex flex-col w-full h-[calc(100vh-64px)]">
                 <div className="flex-grow overflow-auto min-h-0">
                     {mobileView === 'reader' ? (
-                        <div className="w-full h-full">
-                            {paperData.file_url && (
+                        <div className="relative w-full h-full">
+                            {OfflineControl}
+                            {pdfUrlForViewer && (
                                 <PdfHighlighterViewer
-                                    pdfUrl={paperData.file_url}
+                                    pdfUrl={pdfUrlForViewer}
                                     explicitSearchTerm={explicitSearchTerm}
                                     setUserMessageReferences={setUserMessageReferences}
                                     setSelectedText={setSelectedText}
@@ -753,10 +847,11 @@ export default function PaperView() {
                         transition: isDragging ? 'none' : 'width 300ms ease',
                     }}
                 >
-                    {paperData.file_url && (
-                        <div className="w-full h-full">
+                    {pdfUrlForViewer && (
+                        <div className="relative w-full h-full">
+                            {OfflineControl}
                             <PdfHighlighterViewer
-                                pdfUrl={paperData.file_url}
+                                pdfUrl={pdfUrlForViewer}
                                 explicitSearchTerm={explicitSearchTerm}
                                 setUserMessageReferences={setUserMessageReferences}
                                 setSelectedText={setSelectedText}

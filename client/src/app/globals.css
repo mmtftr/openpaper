@@ -347,9 +347,21 @@
  * editor sits in the paper sidebar where the panel border already provides
  * the affordance — the inner outline is just visual noise.
  */
+.paper-doc-editor,
+.paper-doc-editor .milkdown {
+	min-height: 100%;
+}
+
 .paper-doc-editor .ProseMirror,
 .paper-doc-editor .ProseMirror:focus,
 .paper-doc-editor .ProseMirror-focused {
+	min-height: 100%;
 	outline: none !important;
 	box-shadow: none !important;
+}
+
+@media (max-width: 639px) {
+	.paper-markdown-reader .milkdown .ProseMirror {
+		padding: 0.75rem !important;
+	}
 }
