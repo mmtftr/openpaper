@@ -16,6 +16,7 @@ import {
     getCachedDocument,
     getCachedDocumentList,
     getQueuedDocPut,
+    OFFLINE_DOC_CONFLICT_EVENT,
     queueDocPut,
     useOnlineStatus,
 } from '@/lib/offline';
@@ -29,6 +30,12 @@ const MilkdownImpl = dynamic(() => import('./PaperDocEditorImpl'), {
     ),
 });
 
+interface OfflineConflictMarker {
+    serverRevision?: number;
+    serverContent?: string;
+    localContent?: string;
+}
+
 interface DocumentResponse {
     id: string;
     paper_id: string | null;
@@ -37,7 +44,7 @@ interface DocumentResponse {
     revision: number;
     kind: string;
     updated_at?: string | null;
-    offlineConflict?: unknown;
+    offlineConflict?: OfflineConflictMarker;
 }
 
 interface DocumentSummary {
@@ -143,6 +150,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
     // missing). Subsequent switches are handled by the activeDocId effect.
     useEffect(() => {
         let cancelled = false;
+        let servedFromCache = false;
         setStatus({ kind: 'loading' });
         (async () => {
             try {
@@ -153,6 +161,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                     const main = docs.find((d) => d.kind === 'main');
                     setActiveDocId(main?.id || docs[0]?.id || null);
                     setStatus({ kind: 'idle' });
+                    servedFromCache = true;
                 }
 
                 const list: DocumentSummary[] = await fetchFromApi(
@@ -169,6 +178,10 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                 }
             } catch (e) {
                 if (cancelled) return;
+                // If we already rendered from cache, the network failure is
+                // expected (offline). Don't replace the user's view with a
+                // misleading "Save failed" status.
+                if (servedFromCache) return;
                 setStatus({
                     kind: 'error',
                     message: e instanceof Error ? e.message : 'Could not load documents',
@@ -184,6 +197,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
     useEffect(() => {
         if (!activeDocId) return;
         let cancelled = false;
+        let servedFromCache = false;
         setStatus({ kind: 'loading' });
         (async () => {
             try {
@@ -195,6 +209,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                     setOverwriteToken((t) => t + 1);
                     pendingContentRef.current = null;
                     setStatus(cachedDoc.offlineConflict ? { kind: 'conflict' } : { kind: 'idle' });
+                    servedFromCache = true;
                 }
 
                 const response: DocumentResponse = await fetchFromApi(
@@ -203,14 +218,17 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                 if (cancelled) return;
                 const queued = await getQueuedDocPut(response.id);
                 const cachedAfterFetch = await getCachedDocument(response.id);
-                const hasOfflineConflict = Boolean(
-                    cachedAfterFetch?.data &&
-                    typeof cachedAfterFetch.data === 'object' &&
-                    'offlineConflict' in cachedAfterFetch.data
-                );
+                const conflictMarker =
+                    cachedAfterFetch?.data && typeof cachedAfterFetch.data === 'object'
+                        ? (cachedAfterFetch.data as DocumentResponse).offlineConflict
+                        : undefined;
+                const hasOfflineConflict = Boolean(conflictMarker);
                 const hydrated = queued
                     ? { ...response, content: queued.payload.content }
                     : response;
+                if (conflictMarker) {
+                    hydrated.offlineConflict = conflictMarker;
+                }
                 setDoc(hydrated);
                 await cacheDocument(response.id, hydrated);
                 setOverwriteContent(hydrated.content);
@@ -225,6 +243,10 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                 );
             } catch (e) {
                 if (cancelled) return;
+                // Same offline-tolerant behavior as the doc list effect: a
+                // network throw after a cache hit is expected, not an error
+                // the user needs to see.
+                if (servedFromCache) return;
                 setStatus({
                     kind: 'error',
                     message: e instanceof Error ? e.message : 'Could not load document',
@@ -343,6 +365,12 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                 return;
             }
             pendingContentRef.current = markdown;
+            // Always write to IDB and queue an outbox put. The queue acts as a
+            // crash-durability checkpoint: if the tab is closed before the
+            // 800ms debounced PUT fires, replay still picks up the latest
+            // content on next mount. The outbox key is collapsed to one item
+            // per document (`doc-put:<id>`), so this stays O(1) regardless of
+            // typing rate.
             void cacheDocument(current.id, { ...current, content: markdown });
             void queueDocPut({
                 documentId: current.id,
@@ -384,6 +412,10 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
             const response: DocumentResponse = await fetchFromApi(
                 `/api/document/${encodeURIComponent(activeDocId)}`
             );
+            // Drop any pending local writes for this doc — the user chose to
+            // throw them away — and strip the conflict marker from IDB.
+            await clearQueuedDocPut(response.id);
+            await cacheDocument(response.id, response);
             setDoc(response);
             setOverwriteContent(response.content);
             setOverwriteToken((t) => t + 1);
@@ -401,13 +433,36 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
         const current = docRef.current;
         const localContent = pendingContentRef.current ?? current?.content;
         if (!current || localContent == null) return;
+        // Read the conflict marker the replay loop wrote into IDB. The server
+        // revision and content live there — without using them, we'd queue a
+        // PUT with the stale revision and 409 again forever.
+        const cached = await getCachedDocument(current.id);
+        const conflict =
+            cached?.data && typeof cached.data === 'object'
+                ? (cached.data as DocumentResponse).offlineConflict
+                : undefined;
+        const targetRevision =
+            typeof conflict?.serverRevision === 'number'
+                ? conflict.serverRevision
+                : current.revision;
+
         pendingContentRef.current = localContent;
-        await cacheDocument(current.id, { ...current, content: localContent, offlineConflict: undefined });
+        // Strip offlineConflict by destructuring it out — leaving it as
+        // `undefined` would still satisfy a truthy check after a structured
+        // clone round-trip, keeping the editor stuck in conflict mode.
+        const { offlineConflict: _stripped, ...cleanCurrent } = current;
+        const nextDoc: DocumentResponse = {
+            ...cleanCurrent,
+            revision: targetRevision,
+            content: localContent,
+        };
+        setDoc(nextDoc);
+        await cacheDocument(current.id, nextDoc);
         await queueDocPut({
             documentId: current.id,
             paperId: current.paper_id,
             content: localContent,
-            expectedRevision: current.revision,
+            expectedRevision: targetRevision,
         });
         setStatus({ kind: 'queued-offline' });
         if (online) {
@@ -522,6 +577,30 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
         },
         [activeDocId, docs, online]
     );
+
+    // The replay loop writes an `offlineConflict` marker into the cached doc
+    // when a queued PUT 409s. Pick that up live so the editor flips into
+    // conflict mode without waiting for a doc switch / reload.
+    useEffect(() => {
+        const handler = (event: Event) => {
+            const detail = (event as CustomEvent<{ documentId?: string }>).detail;
+            const current = docRef.current;
+            if (!current || !detail?.documentId) return;
+            if (current.id !== detail.documentId) return;
+            (async () => {
+                const cached = await getCachedDocument(current.id);
+                const conflict =
+                    cached?.data && typeof cached.data === 'object'
+                        ? (cached.data as DocumentResponse).offlineConflict
+                        : undefined;
+                if (!conflict) return;
+                setDoc((prev) => (prev ? { ...prev, offlineConflict: conflict } : prev));
+                setStatus({ kind: 'conflict' });
+            })();
+        };
+        window.addEventListener(OFFLINE_DOC_CONFLICT_EVENT, handler);
+        return () => window.removeEventListener(OFFLINE_DOC_CONFLICT_EVENT, handler);
+    }, []);
 
     // While the agentic chat is streaming, poll for `write_main_doc` results.
     // Only meaningful when the user is viewing MAIN — the agent doesn't write

@@ -312,6 +312,7 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
         paper_id: str,
         extract_metadata: PaperMetadataExtraction,
         current_user: CurrentUser,
+        ai_highlight_anchors: Optional[List[Optional[Dict[str, Any]]]] = None,
     ):
         raw_file = self.read_raw_document_content(
             db, paper_id=paper_id, current_user=current_user
@@ -320,8 +321,13 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
         if not raw_file.raw_content:
             raise ValueError(f"Raw content for paper {paper_id} is not set.")
 
-        for ai_highlight in extract_metadata.highlights:
+        for index, ai_highlight in enumerate(extract_metadata.highlights):
             offsets = find_offsets(ai_highlight.text, raw_file.raw_content)
+            anchor = (
+                ai_highlight_anchors[index]
+                if ai_highlight_anchors and index < len(ai_highlight_anchors)
+                else None
+            )
 
             page_number = None
             if offsets and raw_file.page_offsets:
@@ -329,6 +335,8 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
                 page_number = get_start_page_from_offset(
                     raw_file.page_offsets, offsets[0]
                 )
+            if anchor and anchor.get("page_number"):
+                page_number = anchor["page_number"]
 
             new_ai_highlight_obj = HighlightCreate(
                 paper_id=uuid.UUID(paper_id),
@@ -337,6 +345,7 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
                 start_offset=offsets[0],
                 end_offset=offsets[1],
                 page_number=page_number,
+                position=anchor.get("position") if anchor else None,
                 role=RoleType.ASSISTANT,
             )
 

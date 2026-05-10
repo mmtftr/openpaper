@@ -82,9 +82,8 @@ ENV NEXT_PUBLIC_POSTHOG_KEY=$NEXT_PUBLIC_POSTHOG_KEY
 ENV NEXT_PUBLIC_POSTHOG_HOST=$NEXT_PUBLIC_POSTHOG_HOST
 
 
-# Copy the built application from the base image
-COPY --from=base /app/.next ./.next
-COPY --from=base /app/public ./public
+# Copy package metadata first so the production dependency install can be cached
+# independently of the Next.js build output.
 COPY --from=base /app/package.json ./
 COPY --from=base /app/yarn.lock ./
 
@@ -92,6 +91,11 @@ COPY --from=base /app/yarn.lock ./
 # Install only the production dependencies
 # This ensures a smaller final image by not including devDependencies
 RUN yarn install --production --frozen-lockfile
+
+
+# Copy the built application from the base image after dependencies are installed.
+COPY --from=base /app/.next ./.next
+COPY --from=base /app/public ./public
 
 
 # Expose port 3000 to the outside world

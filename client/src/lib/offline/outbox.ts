@@ -15,14 +15,27 @@ function nowIso() {
     return new Date().toISOString();
 }
 
+// Statuses that the replay loop owns — a queue write should never clobber them.
+const PRESERVED_STATUSES = new Set([
+    "syncing",
+    "paused",
+    "needs-attention",
+    "error",
+]);
+
 async function refreshPendingCount() {
     const db = await getOfflineDb();
     const state = await getDefaultSyncState();
     const pendingCount = await db.count("outbox");
+    const status = PRESERVED_STATUSES.has(state.status)
+        ? state.status
+        : pendingCount > 0
+            ? "pending"
+            : "idle";
     await db.put("syncState", {
         ...state,
         pendingCount,
-        status: pendingCount > 0 ? "pending" : "idle",
+        status,
         updatedAt: nowIso(),
     });
     notifyOfflineSyncStateChanged();

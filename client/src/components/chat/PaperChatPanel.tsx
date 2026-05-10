@@ -424,6 +424,11 @@ export function PaperChatPanel({
 
     useEffect(() => {
         if (!paperData) return;
+        // Chat is online-only — there's no offline cache for the conversation
+        // list, and POSTing to create a new conversation while offline only
+        // produces noisy console errors. Skip the whole init when offline and
+        // wait for an `online` event.
+        if (typeof navigator !== "undefined" && !navigator.onLine) return;
         let cancelled = false;
 
         async function init() {
@@ -436,6 +441,11 @@ export function PaperChatPanel({
                 if (Array.isArray(response)) list = response;
             } catch (err) {
                 console.error("Error fetching conversations:", err);
+                // Network failure on the conversation list isn't recoverable
+                // from offline data — bail before we try to POST a brand-new
+                // conversation, since that would also fail and add a second
+                // misleading error.
+                return;
             }
 
             if (cancelled) return;
@@ -479,8 +489,15 @@ export function PaperChatPanel({
         }
 
         init();
+        // Re-run when we come back online so an offline-on-mount user can chat
+        // once they reconnect, without a manual refresh.
+        const handleOnline = () => {
+            if (!cancelled) init();
+        };
+        window.addEventListener("online", handleOnline);
         return () => {
             cancelled = true;
+            window.removeEventListener("online", handleOnline);
         };
     }, [paperData, id]);
 

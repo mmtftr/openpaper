@@ -9,6 +9,7 @@ from src.schemas import PDFProcessingResult, PaperMetadataExtraction
 from src.s3_service import s3_service
 from src.parser import extract_text, generate_pdf_preview, map_pages_to_text_offsets
 from src.figure_renderer import render_and_upload_figures
+from src.highlight_anchor import anchor_ai_highlights
 from src.llm_client import llm_client
 from src.utils import time_it
 
@@ -139,6 +140,25 @@ async def process_pdf_file(
         metadata: PaperMetadataExtraction = metadata_result # type: ignore
         logger.info(f"Successfully extracted metadata for {safe_filename}")
 
+        ai_highlight_anchors = None
+        if metadata.highlights:
+            try:
+                async with time_it("Anchoring AI highlights in PDF", job_id=job_id):
+                    ai_highlight_anchors = await asyncio.to_thread(
+                        anchor_ai_highlights,
+                        temp_file_path,
+                        metadata.highlights,
+                    )
+                anchored_count = sum(1 for anchor in ai_highlight_anchors if anchor)
+                logger.info(
+                    f"Anchored {anchored_count}/{len(metadata.highlights)} AI highlights"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"AI highlight anchoring failed for {safe_filename}: {e}",
+                    exc_info=True,
+                )
+
         # Process publication date
         if metadata and metadata.publish_date:
             try:
@@ -161,6 +181,7 @@ async def process_pdf_file(
         return PDFProcessingResult(
             success=True,
             metadata=metadata,
+            ai_highlight_anchors=ai_highlight_anchors,
             s3_object_key=s3_object_key,
             file_url=file_url,
             preview_url=preview_url,

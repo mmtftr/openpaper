@@ -24,6 +24,9 @@ export interface SyncState {
     status: SyncStatus;
     lastError?: string;
     updatedAt: string;
+    /** Set during an active "Sync now" pre-warm so the indicator can show
+     *  per-paper progress. Cleared once the run finishes. */
+    prewarmProgress?: { completed: number; total: number };
 }
 
 export interface CachedPaper {

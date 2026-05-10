@@ -1,13 +1,18 @@
-"""Document endpoints — slice 1.
+"""Document endpoints.
 
-Surfaces the per-paper MAIN doc that the Milkdown editor edits. Conflict
+Slice 1 surfaced the per-paper MAIN doc the Milkdown editor edits. Conflict
 semantics live here (413 over-cap, 409 on stale revision) so the agent's
-`write_main_doc` tool in slice 2 can reuse the same CRUD helpers and inherit
+`write_doc` tool from slice 2 reuses the same CRUD helpers and inherits
 identical behavior.
+
+Slice 3 adds list/create/rename/delete for additional NOTE docs scoped to a
+paper. MAIN docs remain non-deletable and non-renameable (their title `main`
+is the agent's address for them); content-edit goes through the existing
+optimistic-locking path on PUT.
 """
 
 import logging
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 
 from app.auth.dependencies import get_required_user
@@ -17,6 +22,7 @@ from app.database.crud.document_crud import (
 )
 from app.database.crud.paper_crud import paper_crud
 from app.database.database import get_db
+from app.database.models import DocumentKind
 from app.schemas.user import CurrentUser
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
@@ -27,8 +33,8 @@ logger = logging.getLogger(__name__)
 
 document_router = APIRouter()
 
-# 1 MB hard cap on document content. Surfaced to the agent in slice 2's
-# write_main_doc description so the model doesn't try multi-MB writes.
+# 1 MB hard cap on document content. Surfaced to the agent in the write_doc
+# tool description so the model doesn't try multi-MB writes.
 MAX_DOCUMENT_CONTENT_BYTES = 1_000_000
 
 
@@ -42,9 +48,39 @@ class DocumentResponse(BaseModel):
     updated_at: Optional[str] = None
 
 
+class DocumentSummary(BaseModel):
+    """List-view shape — drops `content` so the doc-switcher doesn't pull
+    every doc's body just to render a dropdown."""
+
+    id: str
+    paper_id: Optional[str]
+    title: str
+    revision: int
+    kind: str
+    updated_at: Optional[str] = None
+
+
 class UpdateDocumentRequest(BaseModel):
     content: str
     expected_revision: int
+
+
+class CreateDocumentRequest(BaseModel):
+    paper_id: str
+    title: Optional[str] = None
+
+
+class RenameDocumentRequest(BaseModel):
+    title: str
+
+
+# Hard cap on doc-title length; same value used by the client picker's input.
+MAX_TITLE_LENGTH = 200
+
+# Reserved title for the MAIN doc. The agent addresses MAIN as `main` via
+# read_doc/write_doc — letting a NOTE share that name would silently shadow
+# the agent's view of the user's primary writeup.
+RESERVED_MAIN_NAME = "main"
 
 
 def _serialize(doc) -> DocumentResponse:
@@ -57,6 +93,87 @@ def _serialize(doc) -> DocumentResponse:
         kind=str(doc.kind),
         updated_at=doc.updated_at.isoformat() if doc.updated_at else None,
     )
+
+
+def _serialize_summary(doc) -> DocumentSummary:
+    return DocumentSummary(
+        id=str(doc.id),
+        paper_id=str(doc.paper_id) if doc.paper_id else None,
+        title=str(doc.title or ""),
+        revision=int(doc.revision),
+        kind=str(doc.kind),
+        updated_at=doc.updated_at.isoformat() if doc.updated_at else None,
+    )
+
+
+@document_router.get("")
+async def list_documents(
+    paper_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_required_user),
+) -> List[DocumentSummary]:
+    """List all docs (MAIN + NOTE) for a paper owned by the current user.
+
+    Returns summaries — no content — so the doc-switcher renders cheaply.
+    Auto-creates MAIN if missing so the list is never empty for a paper the
+    user can access; matches the GET /main contract.
+    """
+    paper = paper_crud.get(db, id=paper_id, user=current_user)
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    try:
+        paper_uuid = UUID(paper_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid paper_id")
+
+    paper_title = str(getattr(paper, "title", "") or "").strip()
+    default_content = f"# {paper_title}\n\n" if paper_title else ""
+    document_crud.get_or_create_main_for_paper(
+        db,
+        paper_id=paper_uuid,
+        user=current_user,
+        default_content=default_content,
+        default_title=RESERVED_MAIN_NAME,
+    )
+
+    docs = document_crud.list_for_paper(
+        db, paper_id=paper_uuid, user=current_user
+    )
+    return [_serialize_summary(d) for d in docs]
+
+
+@document_router.post("")
+async def create_document(
+    body: CreateDocumentRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_required_user),
+) -> DocumentResponse:
+    """Create a NOTE doc attached to a paper. Body content always starts empty;
+    the user types into the editor right after switching to it."""
+    paper = paper_crud.get(db, id=body.paper_id, user=current_user)
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    try:
+        paper_uuid = UUID(body.paper_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid paper_id")
+
+    title = (body.title or "").strip() or "Untitled"
+    if len(title) > MAX_TITLE_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Title exceeds {MAX_TITLE_LENGTH} characters",
+        )
+    if title.lower() == RESERVED_MAIN_NAME:
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{RESERVED_MAIN_NAME}' is reserved for the main doc",
+        )
+
+    doc = document_crud.create_note_for_paper(
+        db, paper_id=paper_uuid, user=current_user, title=title
+    )
+    return _serialize(doc)
 
 
 @document_router.get("/main")
@@ -81,14 +198,13 @@ async def get_main_document(
 
     paper_title = str(getattr(paper, "title", "") or "").strip()
     default_content = f"# {paper_title}\n\n" if paper_title else ""
-    default_title = paper_title or "Untitled"
 
     doc = document_crud.get_or_create_main_for_paper(
         db,
         paper_id=paper_uuid,
         user=current_user,
         default_content=default_content,
-        default_title=default_title,
+        default_title=RESERVED_MAIN_NAME,
     )
     return _serialize(doc)
 
@@ -139,3 +255,77 @@ async def update_document(
         raise HTTPException(status_code=404, detail="Document not found")
 
     return _serialize(updated)
+
+
+@document_router.get("/{document_id}")
+async def get_document(
+    document_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_required_user),
+) -> DocumentResponse:
+    """Return a single doc by id (any kind). Used by the editor when it
+    switches to a NOTE doc — content is what the Milkdown editor hydrates from."""
+    doc = document_crud.get(db, id=document_id, user=current_user)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return _serialize(doc)
+
+
+@document_router.patch("/{document_id}")
+async def rename_document(
+    document_id: str,
+    body: RenameDocumentRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_required_user),
+) -> DocumentResponse:
+    """Rename a doc. Title-only here — content updates go through PUT so they
+    keep the optimistic-locking semantics that the agent relies on."""
+    title = (body.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Title cannot be empty")
+    if len(title) > MAX_TITLE_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Title exceeds {MAX_TITLE_LENGTH} characters",
+        )
+    doc = document_crud.get(db, id=document_id, user=current_user)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if str(doc.kind) == DocumentKind.MAIN.value:
+        # The MAIN doc's title is the agent's address for it; clients can't
+        # rename it without breaking read_doc('main') / write_doc('main').
+        raise HTTPException(status_code=400, detail="Cannot rename the main doc")
+    if title.lower() == RESERVED_MAIN_NAME:
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{RESERVED_MAIN_NAME}' is reserved for the main doc",
+        )
+    try:
+        updated = document_crud.update_title(
+            db, doc=doc, title=title, user=current_user
+        )
+    except PermissionError:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return _serialize(updated)
+
+
+@document_router.delete("/{document_id}")
+async def delete_document(
+    document_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_required_user),
+):
+    """Delete a NOTE doc. MAIN docs are protected — returns 400 to keep the
+    paper's primary writeup from disappearing accidentally."""
+    doc = document_crud.get(db, id=document_id, user=current_user)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if str(doc.kind) == DocumentKind.MAIN.value:
+        raise HTTPException(status_code=400, detail="Cannot delete the main doc")
+    try:
+        document_crud.delete_doc(db, doc=doc, user=current_user)
+    except PermissionError:
+        raise HTTPException(status_code=404, detail="Document not found")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return JSONResponse(status_code=204, content=None)

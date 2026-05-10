@@ -56,11 +56,29 @@ export interface RenderedHighlightPosition {
 	width: number;
 	height: number;
 	page: number;
+	matchStrategy?: string;
 }
 
 /** Matches `w-[280px]` on margin annotation cards */
 const ANNOTATION_CARD_WIDTH_PX = 280;
 const ANNOTATION_CARD_MARGIN_GAP_PX = 8;
+const PDF_MIN_SCALE = 0.5;
+const PDF_MAX_SCALE = 3;
+const TRACKPAD_PINCH_ZOOM_SENSITIVITY = 0.0025;
+
+function clampPdfScale(value: number) {
+	return Math.min(PDF_MAX_SCALE, Math.max(PDF_MIN_SCALE, value));
+}
+
+function getWheelDeltaYInPixels(event: WheelEvent, container: HTMLElement) {
+	if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
+		return event.deltaY * 16;
+	}
+	if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+		return event.deltaY * container.clientHeight;
+	}
+	return event.deltaY;
+}
 
 /**
  * Anchor for margin annotation cards: right gutter by default, left gutter if the
@@ -300,6 +318,16 @@ export function PdfHighlighterViewer(props: PdfHighlighterViewerProps) {
 	const blockScrollOnNextHighlight = useRef(false);
 	// Track previous scale to detect scale changes (for overlay recreation timing)
 	const prevScaleRef = useRef<number | null>(null);
+	const zoomAnchorRef = useRef<{
+		container: HTMLElement;
+		clientX: number;
+		clientY: number;
+		scrollLeft: number;
+		scrollTop: number;
+		fromScale: number;
+		toScale: number;
+	} | null>(null);
+	const gestureStartScaleRef = useRef(1.0);
 
 	// State
 	const [currentSelection, setCurrentSelection] = useState<PdfSelection | null>(null);
@@ -399,28 +427,47 @@ export function PdfHighlighterViewer(props: PdfHighlighterViewerProps) {
 		tick();
 	}, []);
 
-	// Zoom controls
-	const zoomIn = useCallback(() => {
+	const startZoomLayoutSuppression = useCallback(() => {
 		if (zoomHighlightDebounceRef.current) {
 			clearTimeout(zoomHighlightDebounceRef.current);
 			zoomHighlightDebounceRef.current = null;
 		}
 		zoomHighlightSessionRef.current += 1;
-		setScale((prev) => Math.min(prev + 0.25, 3));
 		pendingZoomHighlightRef.current = true;
 		setPdfHighlightsSuppressedForZoom(true);
 	}, []);
 
-	const zoomOut = useCallback(() => {
-		if (zoomHighlightDebounceRef.current) {
-			clearTimeout(zoomHighlightDebounceRef.current);
-			zoomHighlightDebounceRef.current = null;
+	const updatePdfScale = useCallback((
+		nextScale: number,
+		anchor?: { container: HTMLElement; clientX: number; clientY: number }
+	) => {
+		const fromScale = scaleRef.current;
+		const toScale = clampPdfScale(nextScale);
+		if (Math.abs(toScale - fromScale) < 0.001) return;
+
+		if (anchor) {
+			zoomAnchorRef.current = {
+				...anchor,
+				scrollLeft: anchor.container.scrollLeft,
+				scrollTop: anchor.container.scrollTop,
+				fromScale,
+				toScale,
+			};
 		}
-		zoomHighlightSessionRef.current += 1;
-		setScale((prev) => Math.max(prev - 0.25, 0.5));
-		pendingZoomHighlightRef.current = true;
-		setPdfHighlightsSuppressedForZoom(true);
-	}, []);
+
+		scaleRef.current = toScale;
+		startZoomLayoutSuppression();
+		setScale(toScale);
+	}, [startZoomLayoutSuppression]);
+
+	// Zoom controls
+	const zoomIn = useCallback(() => {
+		updatePdfScale(scaleRef.current + 0.25);
+	}, [updatePdfScale]);
+
+	const zoomOut = useCallback(() => {
+		updatePdfScale(scaleRef.current - 0.25);
+	}, [updatePdfScale]);
 
 	// Apply scale changes directly to the viewer
 	// (workaround for react-pdf-highlighter-extended not responding to pdfScaleValue prop changes)
@@ -429,6 +476,25 @@ export function PdfHighlighterViewer(props: PdfHighlighterViewerProps) {
 		const viewer = highlighterUtilsRef.current?.getViewer();
 		if (!viewer) return;
 		viewer.currentScaleValue = String(scale);
+
+		const zoomAnchor = zoomAnchorRef.current;
+		if (
+			zoomAnchor &&
+			zoomAnchor.container.isConnected &&
+			Math.abs(zoomAnchor.toScale - scale) < 0.001
+		) {
+			zoomAnchorRef.current = null;
+			requestAnimationFrame(() => {
+				const ratio = scale / zoomAnchor.fromScale;
+				const rect = zoomAnchor.container.getBoundingClientRect();
+				const offsetX = zoomAnchor.clientX - rect.left;
+				const offsetY = zoomAnchor.clientY - rect.top;
+				zoomAnchor.container.scrollLeft =
+					(zoomAnchor.scrollLeft + offsetX) * ratio - offsetX;
+				zoomAnchor.container.scrollTop =
+					(zoomAnchor.scrollTop + offsetY) * ratio - offsetY;
+			});
+		}
 
 		// Guard the currentScaleValue setter against the library's stale ResizeObserver.
 		// The library's useLayoutEffect captures pdfScaleValue at the time [highlights, selectionTip,
@@ -473,6 +539,85 @@ export function PdfHighlighterViewer(props: PdfHighlighterViewerProps) {
 			}
 		};
 	}, [scale]);
+
+	useEffect(() => {
+		if (!pdfReady) return;
+
+		const viewer = highlighterUtilsRef.current?.getViewer();
+		const scrollContainer = viewer?.container as HTMLElement | undefined;
+		if (!scrollContainer) return;
+
+		const updateScaleFromClientGesture = (
+			nextScale: number,
+			clientX: number,
+			clientY: number
+		) => {
+			updatePdfScale(nextScale, {
+				container: scrollContainer,
+				clientX,
+				clientY,
+			});
+		};
+
+		const onWheel = (event: WheelEvent) => {
+			if (!event.ctrlKey) return;
+			event.preventDefault();
+			event.stopPropagation();
+
+			const deltaY = getWheelDeltaYInPixels(event, scrollContainer);
+			if (deltaY === 0) return;
+
+			const clampedDeltaY = Math.max(-80, Math.min(80, deltaY));
+			const zoomFactor = Math.exp(-clampedDeltaY * TRACKPAD_PINCH_ZOOM_SENSITIVITY);
+			updateScaleFromClientGesture(
+				scaleRef.current * zoomFactor,
+				event.clientX,
+				event.clientY
+			);
+		};
+
+		const onGestureStart = (event: Event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			gestureStartScaleRef.current = scaleRef.current;
+		};
+
+		const onGestureChange = (event: Event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			const gestureEvent = event as Event & {
+				scale?: number;
+				clientX?: number;
+				clientY?: number;
+			};
+			if (typeof gestureEvent.scale !== "number") return;
+
+			const rect = scrollContainer.getBoundingClientRect();
+			updateScaleFromClientGesture(
+				gestureStartScaleRef.current * gestureEvent.scale,
+				gestureEvent.clientX ?? rect.left + rect.width / 2,
+				gestureEvent.clientY ?? rect.top + rect.height / 2
+			);
+		};
+
+		const onGestureEnd = (event: Event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			gestureStartScaleRef.current = scaleRef.current;
+		};
+
+		scrollContainer.addEventListener("wheel", onWheel, { passive: false });
+		scrollContainer.addEventListener("gesturestart", onGestureStart, { passive: false });
+		scrollContainer.addEventListener("gesturechange", onGestureChange, { passive: false });
+		scrollContainer.addEventListener("gestureend", onGestureEnd, { passive: false });
+
+		return () => {
+			scrollContainer.removeEventListener("wheel", onWheel);
+			scrollContainer.removeEventListener("gesturestart", onGestureStart);
+			scrollContainer.removeEventListener("gesturechange", onGestureChange);
+			scrollContainer.removeEventListener("gestureend", onGestureEnd);
+		};
+	}, [pdfReady, viewerReadyTick, updatePdfScale]);
 
 	// Safety: never leave highlight overlays suppressed if pagerendered never settles.
 	useEffect(() => {
@@ -1337,6 +1482,7 @@ export function PdfHighlighterViewer(props: PdfHighlighterViewerProps) {
 
 		// Clear existing overlays (needed when scale changes so they can be recreated at new positions)
 		document.querySelectorAll(".text-match-highlight-overlay").forEach((el) => el.remove());
+		onOverlaysCreated?.(new Map());
 
 		// Get all highlights without positions (assistant or legacy user highlights)
 		const highlightsWithoutPosition = highlights.filter(
@@ -1345,6 +1491,7 @@ export function PdfHighlighterViewer(props: PdfHighlighterViewerProps) {
 
 		if (highlightsWithoutPosition.length === 0) {
 			highlightPageMapRef.current.clear();
+			onOverlaysCreated?.(new Map());
 			return;
 		}
 
@@ -1393,6 +1540,7 @@ export function PdfHighlighterViewer(props: PdfHighlighterViewerProps) {
 						width: parseFloat(width),
 						height: parseFloat(height),
 						page: pageNumber,
+						matchStrategy: el.getAttribute("data-match-strategy") || undefined,
 					}));
 					el.style.pointerEvents = "auto";
 					el.style.cursor = "pointer";

@@ -1,12 +1,18 @@
 """CRUD for the `documents` table.
 
-Slice 1 only deals with the per-paper MAIN doc; the read/write helpers
-encapsulate the optimistic-locking semantics so the route handler and the
-agent's `write_main_doc` tool (slice 2) share the same atomic check.
+Slice 1 dealt with the per-paper MAIN doc; the read/write helpers encapsulate
+the optimistic-locking semantics so the route handler and the agent's doc
+tools (slice 2) share the same atomic check.
+
+Slice 3 adds NOTE-doc CRUD (multiple paper-scoped docs alongside MAIN) plus a
+title-keyed lookup so the agent's `read_doc(name)` / `write_doc(name, ...)`
+tools resolve names through the same path the API does. The folder
+hierarchy column (`parent_document_id`) is left in the schema but not
+exposed through these helpers yet — flat per-paper lists ship first.
 """
 
 import logging
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 
 from app.database.crud.base_crud import CRUDBase
@@ -73,7 +79,7 @@ class DocumentCRUD(CRUDBase[Document, DocumentCreate, DocumentUpdate]):
 
         `default_content` and `default_title` only apply on first create —
         they're never written over an existing doc. Used by the GET endpoint
-        and the agent's `read_main_doc` tool to seed an empty doc with the
+        and the agent's `read_doc('main')` to seed an empty doc with the
         paper title as an H1 instead of leaving it blank.
 
         The partial unique index makes the create-side race-safe; a duplicate
@@ -111,6 +117,109 @@ class DocumentCRUD(CRUDBase[Document, DocumentCreate, DocumentUpdate]):
                 exc_info=True,
             )
             raise
+
+    def get_by_name_for_paper(
+        self,
+        db: Session,
+        *,
+        paper_id: UUID | str,
+        user: CurrentUser,
+        name: str,
+    ) -> Optional[Document]:
+        """Title-keyed lookup. The agent's doc tools address docs by name
+        (e.g. `read_doc('main')`); this is the single resolver they share with
+        the route layer so name semantics can't drift."""
+        return (
+            db.query(Document)
+            .filter(
+                Document.paper_id == paper_id,
+                Document.user_id == user.id,
+                Document.title == name,
+            )
+            .first()
+        )
+
+    def list_for_paper(
+        self, db: Session, *, paper_id: UUID | str, user: CurrentUser
+    ) -> List[Document]:
+        """Return all docs for a paper owned by `user`.
+
+        Order: MAIN first, then NOTE docs newest-updated first. The editor uses
+        this for its doc-switcher; MAIN is pinned to the top so the user's
+        primary writeup stays one click away no matter how many NOTE docs they
+        accumulate.
+        """
+        return (
+            db.query(Document)
+            .filter(
+                Document.paper_id == paper_id,
+                Document.user_id == user.id,
+            )
+            .order_by(
+                # MAIN ('main') sorts before NOTE ('note') alphabetically; rely
+                # on that rather than a CASE expression to keep the query
+                # portable across the SQLite test path and Postgres.
+                Document.kind.asc(),
+                Document.updated_at.desc(),
+            )
+            .all()
+        )
+
+    def create_note_for_paper(
+        self,
+        db: Session,
+        *,
+        paper_id: UUID | str,
+        user: CurrentUser,
+        title: str = "Untitled",
+    ) -> Document:
+        """Create a fresh NOTE doc attached to a paper.
+
+        Empty content by default; the caller (route handler) is responsible
+        for any title trimming/length checks before this is called.
+        """
+        doc = Document(
+            user_id=user.id,
+            paper_id=paper_id,
+            kind=DocumentKind.NOTE.value,
+            title=title or "Untitled",
+            content="",
+            revision=1,
+        )
+        db.add(doc)
+        db.commit()
+        db.refresh(doc)
+        return doc
+
+    def update_title(
+        self,
+        db: Session,
+        *,
+        doc: Document,
+        title: str,
+        user: CurrentUser,
+    ) -> Document:
+        """Rename a doc. Title-only — content goes through the revision-checked
+        update so concurrent agent writes are safe."""
+        if doc.user_id != user.id:
+            raise PermissionError("not your document")
+        new_title = (title or "").strip() or "Untitled"
+        doc.title = new_title  # type: ignore[assignment]
+        db.commit()
+        db.refresh(doc)
+        return doc
+
+    def delete_doc(
+        self, db: Session, *, doc: Document, user: CurrentUser
+    ) -> None:
+        """Delete a NOTE doc. MAIN docs are not deletable — the route layer
+        relies on this to return 400 instead of orphaning the paper's writeup."""
+        if doc.user_id != user.id:
+            raise PermissionError("not your document")
+        if str(doc.kind) == DocumentKind.MAIN.value:
+            raise ValueError("cannot delete the main doc")
+        db.delete(doc)
+        db.commit()
 
     def update_with_revision_check(
         self,

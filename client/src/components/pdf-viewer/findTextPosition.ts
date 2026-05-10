@@ -2,11 +2,70 @@
 
 import { ScaledPosition, ScaledRect } from "@/lib/schema";
 import {
-	normalizeForSearch,
-	ligatureMap,
-	greekLetterMap,
-	quoteChars,
+	findServerAlignedMatchInNormalizedPdfText,
+	findServerAlignedPdfTextMatch,
+	foldPdfMatchChar,
 } from "./textNormalization";
+
+interface CharMapping {
+	span: HTMLSpanElement;
+	originalCharIndex: number;
+	textNode: Text | null;
+	isVirtual?: boolean;
+}
+
+function buildNormalizedTextLayerStream(textLayer: Element): {
+	normalizedText: string;
+	charMappings: CharMapping[];
+} {
+	const spans = Array.from(textLayer.querySelectorAll("span"));
+	let normalizedText = "";
+	const charMappings: CharMapping[] = [];
+
+	spans.forEach((span) => {
+		const originalText = span.textContent || "";
+		const textNode = span.firstChild as Text | null;
+
+		if (originalText.length === 0) return;
+
+		if (normalizedText.length > 0 && !normalizedText.endsWith(" ")) {
+			normalizedText += " ";
+			charMappings.push({ span, originalCharIndex: -1, textNode, isVirtual: true });
+		}
+
+		let prevWasSpace = normalizedText.endsWith(" ");
+
+		for (let i = 0; i < originalText.length; i++) {
+			const folded = foldPdfMatchChar(originalText[i]);
+			if (!folded || folded === "*") continue;
+
+			for (const char of folded) {
+				if (/\s/.test(char)) {
+					if (!prevWasSpace) {
+						normalizedText += " ";
+						charMappings.push({ span, originalCharIndex: i, textNode });
+						prevWasSpace = true;
+					}
+				} else {
+					normalizedText += char;
+					charMappings.push({ span, originalCharIndex: i, textNode });
+					prevWasSpace = false;
+				}
+			}
+		}
+	});
+
+	while (normalizedText.startsWith(" ")) {
+		normalizedText = normalizedText.slice(1);
+		charMappings.shift();
+	}
+	while (normalizedText.endsWith(" ")) {
+		normalizedText = normalizedText.slice(0, -1);
+		charMappings.pop();
+	}
+
+	return { normalizedText, charMappings };
+}
 
 /**
  * Find which page(s) contain the given text.
@@ -19,11 +78,6 @@ export async function findTextPages(
 	targetPageNumber?: number
 ): Promise<number[]> {
 	if (!searchText || !pdfDocument) return [];
-
-	const normalizedSearch = normalizeForSearch(searchText).toLowerCase();
-	const spaceStrippedSearch = normalizedSearch.replace(/\s+/g, "");
-
-	if (!spaceStrippedSearch || spaceStrippedSearch.length < 3) return [];
 
 	const matchingPages: number[] = [];
 
@@ -46,13 +100,7 @@ export async function findTextPages(
 				.map((item: { str?: string }) => item.str || "")
 				.join(" ");
 
-			const normalizedPageText = normalizeForSearch(pageText).toLowerCase();
-			const spaceStrippedPageText = normalizedPageText.replace(/\s+/g, "");
-
-			if (
-				normalizedPageText.includes(normalizedSearch) ||
-				spaceStrippedPageText.includes(spaceStrippedSearch)
-			) {
+			if (findServerAlignedPdfTextMatch(searchText, pageText)) {
 				matchingPages.push(pageNum);
 			}
 		} catch (err) {
@@ -74,113 +122,14 @@ export function createTextHighlightOverlays(
 	highlightClass: string = "assistant-highlight-overlay",
 	backgroundColor: string = "rgba(168, 85, 247, 0.3)"
 ): HTMLElement[] {
-	const spans = Array.from(textLayer.querySelectorAll("span"));
 	const matchElements: HTMLElement[] = [];
+	const { normalizedText, charMappings } = buildNormalizedTextLayerStream(textLayer);
+	const match = findServerAlignedMatchInNormalizedPdfText(searchText, normalizedText);
 
-	interface CharMapping {
-		span: HTMLSpanElement;
-		originalCharIndex: number;
-		textNode: Text | null;
-		isVirtual?: boolean;
-	}
+	if (!match || charMappings.length === 0) return matchElements;
 
-	let normalizedCombined = "";
-	const charMappings: CharMapping[] = [];
-
-	spans.forEach((span) => {
-		const originalText = span.textContent || "";
-		const textNode = span.firstChild as Text | null;
-
-		if (originalText.length === 0) return;
-
-		if (normalizedCombined.length > 0 && !normalizedCombined.endsWith(" ")) {
-			normalizedCombined += " ";
-			charMappings.push({ span, originalCharIndex: -1, textNode, isVirtual: true });
-		}
-
-		let prevWasSpace = normalizedCombined.endsWith(" ");
-
-		for (let i = 0; i < originalText.length; i++) {
-			const char = originalText[i];
-
-			if (ligatureMap[char]) {
-				for (const expandedChar of ligatureMap[char]) {
-					normalizedCombined += expandedChar;
-					charMappings.push({ span, originalCharIndex: i, textNode });
-				}
-				prevWasSpace = false;
-			} else if (greekLetterMap[char]) {
-				for (const expandedChar of greekLetterMap[char]) {
-					normalizedCombined += expandedChar;
-					charMappings.push({ span, originalCharIndex: i, textNode });
-				}
-				prevWasSpace = false;
-			} else if (quoteChars.has(char)) {
-				continue;
-			} else if (/[\p{L}\p{N}]/u.test(char)) {
-				normalizedCombined += char;
-				charMappings.push({ span, originalCharIndex: i, textNode });
-				prevWasSpace = false;
-			} else {
-				if (!prevWasSpace) {
-					normalizedCombined += " ";
-					charMappings.push({ span, originalCharIndex: i, textNode });
-					prevWasSpace = true;
-				}
-			}
-		}
-	});
-
-	while (normalizedCombined.startsWith(" ")) {
-		normalizedCombined = normalizedCombined.slice(1);
-		charMappings.shift();
-	}
-	while (normalizedCombined.endsWith(" ")) {
-		normalizedCombined = normalizedCombined.slice(0, -1);
-		charMappings.pop();
-	}
-
-	const normalizedLower = normalizedCombined.toLowerCase();
-	const normalizedTerm = normalizeForSearch(searchText).trim().toLowerCase();
-
-	if (!normalizedTerm || charMappings.length === 0) return matchElements;
-
-	let spaceStrippedText = "";
-	const spaceStrippedToNormalizedIndex: number[] = [];
-
-	for (let i = 0; i < normalizedLower.length; i++) {
-		if (normalizedLower[i] !== " ") {
-			spaceStrippedToNormalizedIndex.push(i);
-			spaceStrippedText += normalizedLower[i];
-		}
-	}
-
-	const spaceStrippedTerm = normalizedTerm.replace(/\s+/g, "");
-
-	if (!spaceStrippedTerm) return matchElements;
-
-	let searchIndex = normalizedLower.indexOf(normalizedTerm);
-	let useSpaceStripped = false;
-
-	if (searchIndex === -1) {
-		searchIndex = spaceStrippedText.indexOf(spaceStrippedTerm);
-		useSpaceStripped = true;
-	}
-
-	// Only process the first match
-	if (searchIndex === -1) return matchElements;
-
-	let normalizedStartIndex: number;
-	let normalizedEndIndex: number;
-
-	if (useSpaceStripped) {
-		normalizedStartIndex = spaceStrippedToNormalizedIndex[searchIndex];
-		const endInStripped = searchIndex + spaceStrippedTerm.length - 1;
-		normalizedEndIndex = spaceStrippedToNormalizedIndex[endInStripped] + 1;
-	} else {
-		normalizedStartIndex = searchIndex;
-		normalizedEndIndex = searchIndex + normalizedTerm.length;
-	}
+	const normalizedStartIndex = match.start;
+	const normalizedEndIndex = match.end;
 
 	const textLayerRect = textLayer.getBoundingClientRect();
 
@@ -256,6 +205,7 @@ export function createTextHighlightOverlays(
 					highlight.style.backgroundColor = backgroundColor;
 					highlight.style.borderRadius = "2px";
 					highlight.style.pointerEvents = "none";
+					highlight.setAttribute("data-match-strategy", match.strategy);
 					// No mix-blend-multiply: it darkens vs react-pdf-highlighter TextHighlight (solid rgba),
 					// so position-backed and overlay-backed highlights look inconsistent.
 
@@ -288,111 +238,13 @@ export function computeScaledPositionFromTextLayer(
 	pageNumber: number,
 	scale: number
 ): ScaledPosition | null {
-	const spans = Array.from(textLayer.querySelectorAll("span"));
+	const { normalizedText, charMappings } = buildNormalizedTextLayerStream(textLayer);
+	const match = findServerAlignedMatchInNormalizedPdfText(searchText, normalizedText);
 
-	interface CharMapping {
-		span: HTMLSpanElement;
-		originalCharIndex: number;
-		textNode: Text | null;
-		isVirtual?: boolean;
-	}
+	if (!match || charMappings.length === 0) return null;
 
-	let normalizedCombined = "";
-	const charMappings: CharMapping[] = [];
-
-	spans.forEach((span) => {
-		const originalText = span.textContent || "";
-		const textNode = span.firstChild as Text | null;
-
-		if (originalText.length === 0) return;
-
-		if (normalizedCombined.length > 0 && !normalizedCombined.endsWith(" ")) {
-			normalizedCombined += " ";
-			charMappings.push({ span, originalCharIndex: -1, textNode, isVirtual: true });
-		}
-
-		let prevWasSpace = normalizedCombined.endsWith(" ");
-
-		for (let i = 0; i < originalText.length; i++) {
-			const char = originalText[i];
-
-			if (ligatureMap[char]) {
-				for (const expandedChar of ligatureMap[char]) {
-					normalizedCombined += expandedChar;
-					charMappings.push({ span, originalCharIndex: i, textNode });
-				}
-				prevWasSpace = false;
-			} else if (greekLetterMap[char]) {
-				for (const expandedChar of greekLetterMap[char]) {
-					normalizedCombined += expandedChar;
-					charMappings.push({ span, originalCharIndex: i, textNode });
-				}
-				prevWasSpace = false;
-			} else if (quoteChars.has(char)) {
-				continue;
-			} else if (/[\p{L}\p{N}]/u.test(char)) {
-				normalizedCombined += char;
-				charMappings.push({ span, originalCharIndex: i, textNode });
-				prevWasSpace = false;
-			} else {
-				if (!prevWasSpace) {
-					normalizedCombined += " ";
-					charMappings.push({ span, originalCharIndex: i, textNode });
-					prevWasSpace = true;
-				}
-			}
-		}
-	});
-
-	while (normalizedCombined.startsWith(" ")) {
-		normalizedCombined = normalizedCombined.slice(1);
-		charMappings.shift();
-	}
-	while (normalizedCombined.endsWith(" ")) {
-		normalizedCombined = normalizedCombined.slice(0, -1);
-		charMappings.pop();
-	}
-
-	const normalizedLower = normalizedCombined.toLowerCase();
-	const normalizedTerm = normalizeForSearch(searchText).trim().toLowerCase();
-
-	if (!normalizedTerm || charMappings.length === 0) return null;
-
-	let spaceStrippedText = "";
-	const spaceStrippedToNormalizedIndex: number[] = [];
-
-	for (let i = 0; i < normalizedLower.length; i++) {
-		if (normalizedLower[i] !== " ") {
-			spaceStrippedToNormalizedIndex.push(i);
-			spaceStrippedText += normalizedLower[i];
-		}
-	}
-
-	const spaceStrippedTerm = normalizedTerm.replace(/\s+/g, "");
-
-	if (!spaceStrippedTerm) return null;
-
-	let searchIndex = normalizedLower.indexOf(normalizedTerm);
-	let useSpaceStripped = false;
-
-	if (searchIndex === -1) {
-		searchIndex = spaceStrippedText.indexOf(spaceStrippedTerm);
-		useSpaceStripped = true;
-	}
-
-	if (searchIndex === -1) return null;
-
-	let normalizedStartIndex: number;
-	let normalizedEndIndex: number;
-
-	if (useSpaceStripped) {
-		normalizedStartIndex = spaceStrippedToNormalizedIndex[searchIndex];
-		const endInStripped = searchIndex + spaceStrippedTerm.length - 1;
-		normalizedEndIndex = spaceStrippedToNormalizedIndex[endInStripped] + 1;
-	} else {
-		normalizedStartIndex = searchIndex;
-		normalizedEndIndex = searchIndex + normalizedTerm.length;
-	}
+	const normalizedStartIndex = match.start;
+	const normalizedEndIndex = match.end;
 
 	// Get the page element to compute relative positions
 	const pageEl = textLayer.closest(".page");

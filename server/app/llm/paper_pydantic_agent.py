@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import copy
+import json
 import logging
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
@@ -22,20 +24,27 @@ from app.llm.provider import (
     LLMProvider,
     OpenAIProvider,
 )
-from app.llm.tools.doc_tools import read_main_doc, write_main_doc
-from app.llm.tools.section_tools import get_figure, read_pages, read_section, search_paper
+from app.database.crud.paper_crud import paper_crud
+from app.helpers.s3 import s3_service
+from app.llm.tools.doc_tools import list_docs, read_doc, write_doc
+from app.llm.tools.section_tools import read_pages, read_section, search_paper
 from app.schemas.user import CurrentUser
 from pydantic_ai import Agent, AgentRunResultEvent, RunContext, UsageLimits
 from pydantic_ai.messages import (
+    BinaryImage,
     FunctionToolCallEvent,
     FunctionToolResultEvent,
     ModelMessage,
+    ModelMessagesTypeAdapter,
     ModelRequest,
     ModelResponse,
     PartDeltaEvent,
+    PartStartEvent,
     TextPart,
     TextPartDelta,
+    ThinkingPart,
     ThinkingPartDelta,
+    ToolReturn,
     ToolReturnPart,
     UserPromptPart,
 )
@@ -58,7 +67,7 @@ CitationReconciler = Callable[
 ]
 
 
-@dataclass(frozen=True)
+@dataclass
 class PaperAgentDeps:
     paper_id: str
     paper: Paper
@@ -67,95 +76,50 @@ class PaperAgentDeps:
     context_mode: ContextMode
     llm_client: BaseLLMClient
     citation_reconciler: CitationReconciler
+    max_tool_calls: int = 25
+    tool_calls_used: int = 0
 
 
-class EvidenceStreamParser:
-    """Convert streamed model text into the existing chat chunk contract."""
+EVIDENCE_START = "---EVIDENCE---"
+EVIDENCE_END = "---END-EVIDENCE---"
+TOOL_BUDGET_EXHAUSTED = {
+    "error": "ran_out_of_tool_calls",
+    "message": (
+        "The paper agent has run out of tool calls for this turn. "
+        "Do not call another tool. Finish the answer using the evidence and "
+        "context already gathered, and mention any remaining uncertainty."
+    ),
+}
 
-    START_DELIMITER = "---EVIDENCE---"
-    END_DELIMITER = "---END-EVIDENCE---"
+# Marker prefix on `BinaryImage.identifier` for figures we can rehydrate
+# from S3. Bytes are dropped on persistence and re-fetched by S3 key on
+# replay — keeps the assistant row's bucket small while keeping the
+# replayed binary content byte-identical to the original tool return.
+_FIGURE_ID_PREFIX = "openpaper-figure:"
 
-    def __init__(
-        self,
-        *,
-        paper: Paper,
-        llm_client: BaseLLMClient,
-        citation_reconciler: CitationReconciler,
-    ) -> None:
-        self.paper = paper
-        self.llm_client = llm_client
-        self.citation_reconciler = citation_reconciler
-        self.evidence_buffer: List[str] = []
-        self.text_buffer = ""
-        self.in_evidence_section = False
 
-    async def feed(self, text: str) -> List[Dict[str, Any]]:
-        if not text:
-            return []
-        out: List[Dict[str, Any]] = []
-        self.text_buffer += text
-        entered_evidence = False
+def split_evidence_block(text: str) -> tuple[str, str]:
+    """Return (content_before_evidence, raw_evidence_inner).
 
-        if (
-            not self.in_evidence_section
-            and self.START_DELIMITER in self.text_buffer
-        ):
-            entered_evidence = True
-            self.in_evidence_section = True
-            pre_evidence, post_start = self.text_buffer.split(
-                self.START_DELIMITER, 1
-            )
-            if pre_evidence:
-                out.append({"type": "content", "content": pre_evidence})
-            self.evidence_buffer = [post_start]
-            self.text_buffer = ""
+    If `---END-EVIDENCE---` is missing (truncation), everything after the
+    start delimiter is treated as evidence. Returns (text, "") when the
+    block is absent.
+    """
+    start = text.find(EVIDENCE_START)
+    if start == -1:
+        return text, ""
+    inner = text[start + len(EVIDENCE_START) :]
+    end = inner.find(EVIDENCE_END)
+    if end != -1:
+        inner = inner[:end]
+    return text[:start].rstrip(), inner
 
-        reconstructed = "".join(
-            self.evidence_buffer + [self.text_buffer]
-        ).strip()
-        if self.in_evidence_section and self.END_DELIMITER in reconstructed:
-            delimiter_pos = reconstructed.find(self.END_DELIMITER)
-            evidence_part = reconstructed[:delimiter_pos]
-            remaining = reconstructed[delimiter_pos + len(self.END_DELIMITER) :]
-            structured = CitationHandler.parse_evidence_block(evidence_part)
-            out.append(
-                {
-                    "type": "references",
-                    "content": {"citations": structured},
-                }
-            )
-            reconciled = await self.citation_reconciler(
-                structured, self.paper, self.llm_client
-            )
-            if reconciled:
-                out.append(
-                    {
-                        "type": "references_reconciled",
-                        "content": {"citations": reconciled},
-                    }
-                )
-            self.in_evidence_section = False
-            self.evidence_buffer = []
-            self.text_buffer = remaining
-            if remaining:
-                out.append({"type": "content", "content": remaining})
-            return out
 
-        if self.in_evidence_section:
-            if not entered_evidence:
-                self.evidence_buffer.append(text)
-            self.text_buffer = ""
-        elif len(self.text_buffer) > len(self.START_DELIMITER) * 2:
-            to_yield = self.text_buffer[: -len(self.START_DELIMITER)]
-            out.append({"type": "content", "content": to_yield})
-            self.text_buffer = self.text_buffer[-len(self.START_DELIMITER) :]
-
-        return out
-
-    def flush(self) -> Optional[Dict[str, Any]]:
-        if self.text_buffer:
-            return {"type": "content", "content": self.text_buffer}
-        return None
+def _reasoning_part_delta(content: str, previous_reasoning: str) -> str:
+    """Preserve a markdown paragraph break between separate thinking parts."""
+    if previous_reasoning and content and not previous_reasoning.endswith("\n"):
+        return "\n\n" + content
+    return content
 
 
 def build_pydantic_paper_agent(
@@ -188,6 +152,8 @@ def build_pydantic_paper_agent(
             name: str,
             text_only: bool = False,
         ) -> Dict[str, Any]:
+            if exhausted := _consume_tool_budget(ctx.deps):
+                return exhausted
             return await _run_sync_tool(
                 read_section,
                 ctx.deps,
@@ -204,6 +170,8 @@ def build_pydantic_paper_agent(
             start: int,
             end: int,
         ) -> Dict[str, Any]:
+            if exhausted := _consume_tool_budget(ctx.deps):
+                return exhausted
             return await _run_sync_tool(read_pages, ctx.deps, start=start, end=end)
 
         @agent.tool(
@@ -218,6 +186,8 @@ def build_pydantic_paper_agent(
             query: str,
             context_lines: int = 3,
         ) -> Dict[str, Any]:
+            if exhausted := _consume_tool_budget(ctx.deps):
+                return exhausted
             return await _run_sync_tool(
                 search_paper,
                 ctx.deps,
@@ -230,48 +200,105 @@ def build_pydantic_paper_agent(
             @agent.tool(
                 name="get_figure",
                 description=(
-                    "Fetch figure or table metadata by label, such as Figure 2 "
-                    "or Table 4."
+                    "Fetch a figure or table by label, such as Figure 2 or "
+                    "Table 4. Returns metadata (label, page, caption) plus "
+                    "the rendered image so you can read the figure directly."
                 ),
             )
             async def get_figure_tool(
                 ctx: RunContext[PaperAgentDeps],
                 label: str,
-            ) -> Dict[str, Any]:
-                return await _run_sync_tool(get_figure, ctx.deps, label=label)
+            ) -> Any:
+                if exhausted := _consume_tool_budget(ctx.deps):
+                    return exhausted
+                payload = await _run_sync_tool(
+                    _resolve_figure_with_image,
+                    ctx.deps,
+                    label=label,
+                )
+                if "error" in payload:
+                    return payload
+                return ToolReturn(
+                    return_value=payload["metadata"],
+                    content=[
+                        BinaryImage(
+                            data=payload["image_bytes"],
+                            media_type=payload["media_type"],
+                            # Identifier doubles as the S3 key so we can drop
+                            # the bytes from the persisted message dump and
+                            # rehydrate them on the next turn — keeps the
+                            # bucket row small without losing cache prefix
+                            # stability (the bytes from S3 are stable).
+                            identifier=f"{_FIGURE_ID_PREFIX}{payload['s3_key']}",
+                        )
+                    ],
+                )
 
     @agent.tool(
-        name="read_main_doc",
+        name="list_docs",
         description=(
-            "Read the user's main writing doc for this paper. Returns content "
-            "and revision. Call before write_main_doc."
+            "List every writing doc on this paper. Returns name, kind, "
+            "revision, updated_at for each. The MAIN doc is always present "
+            "as name='main'."
         ),
     )
-    async def read_main_doc_tool(
+    async def list_docs_tool(
         ctx: RunContext[PaperAgentDeps],
     ) -> Dict[str, Any]:
-        return await _run_sync_tool(read_main_doc, ctx.deps)
+        if exhausted := _consume_tool_budget(ctx.deps):
+            return exhausted
+        return await _run_sync_tool(list_docs, ctx.deps)
 
     @agent.tool(
-        name="write_main_doc",
+        name="read_doc",
         description=(
-            "Replace the user's main writing doc. expected_revision must come "
-            "from the most recent read_main_doc result."
+            "Read a doc by name (use 'main' for the user's primary writeup). "
+            "Returns {name, content, revision} or {error: 'not_found', name}. "
+            "Pair with write_doc — the revision is required for the "
+            "optimistic lock when updating."
         ),
     )
-    async def write_main_doc_tool(
+    async def read_doc_tool(
         ctx: RunContext[PaperAgentDeps],
+        name: str,
+    ) -> Dict[str, Any]:
+        if exhausted := _consume_tool_budget(ctx.deps):
+            return exhausted
+        return await _run_sync_tool(read_doc, ctx.deps, name=name)
+
+    @agent.tool(
+        name="write_doc",
+        description=(
+            "Write content to a doc by name. Creates the doc if it doesn't "
+            "exist (NOTE kind, except name='main' which targets the MAIN "
+            "doc). When updating an existing doc, expected_revision must "
+            "come from the most recent read_doc."
+        ),
+    )
+    async def write_doc_tool(
+        ctx: RunContext[PaperAgentDeps],
+        name: str,
         content: str,
-        expected_revision: int,
+        expected_revision: Optional[int] = None,
     ) -> Dict[str, Any]:
+        if exhausted := _consume_tool_budget(ctx.deps):
+            return exhausted
         return await _run_sync_tool(
-            write_main_doc,
+            write_doc,
             ctx.deps,
+            name=name,
             content=content,
             expected_revision=expected_revision,
         )
 
     return agent
+
+
+def _consume_tool_budget(deps: PaperAgentDeps) -> Optional[Dict[str, Any]]:
+    if deps.tool_calls_used >= deps.max_tool_calls:
+        return dict(TOOL_BUDGET_EXHAUSTED)
+    deps.tool_calls_used += 1
+    return None
 
 
 async def run_pydantic_paper_agent(
@@ -312,13 +339,12 @@ async def run_pydantic_paper_agent(
         context_mode=context_mode,
         llm_client=llm_client,
         citation_reconciler=citation_reconciler,
+        max_tool_calls=max_agentic_iterations,
     )
-    parser = EvidenceStreamParser(
-        paper=paper,
-        llm_client=llm_client,
-        citation_reconciler=citation_reconciler,
-    )
+    accumulated_text = ""
+    accumulated_reasoning = ""
     start_times: Dict[str, float] = {}
+    agent_result: Any = None
 
     model_settings = _model_settings_for_provider(resolved_provider, reasoning_effort)
     message_history = _convert_message_history(conversation_history)
@@ -329,8 +355,10 @@ async def run_pydantic_paper_agent(
         deps=deps,
         model_settings=model_settings,
         usage_limits=UsageLimits(
-            request_limit=max_agentic_iterations + 1,
-            tool_calls_limit=max_agentic_iterations * 4,
+            # Leave one request after our manual tool budget is exhausted so
+            # the model can see the tool error and produce a final answer.
+            request_limit=max_agentic_iterations + 2,
+            tool_calls_limit=None,
         ),
         metadata={
             "paper_id": paper_id,
@@ -339,21 +367,33 @@ async def run_pydantic_paper_agent(
             "model": resolved_model,
         },
     ):
-        if isinstance(event, PartDeltaEvent) and isinstance(
-            event.delta, TextPartDelta
-        ):
-            for chunk in await parser.feed(event.delta.content_delta):
-                yield chunk
+        # PartStartEvent carries the initial chunk of a new TextPart /
+        # ThinkingPart inline on `part.content` — pydantic-ai only emits a
+        # PartDeltaEvent for *subsequent* updates to the same part, so
+        # treating PartStart as a delta is required to avoid dropping the
+        # first token of every part.
+        if isinstance(event, PartStartEvent):
+            if isinstance(event.part, TextPart) and event.part.content:
+                accumulated_text += event.part.content
+                yield {"type": "content", "content": event.part.content}
+            elif isinstance(event.part, ThinkingPart) and event.part.content:
+                reasoning_delta = _reasoning_part_delta(
+                    event.part.content, accumulated_reasoning
+                )
+                accumulated_reasoning += reasoning_delta
+                yield {"type": "reasoning", "content": reasoning_delta}
             continue
 
-        if isinstance(event, PartDeltaEvent) and isinstance(
-            event.delta, ThinkingPartDelta
-        ):
-            if event.delta.content_delta:
-                yield {
-                    "type": "reasoning",
-                    "content": event.delta.content_delta,
-                }
+        if isinstance(event, PartDeltaEvent):
+            if isinstance(event.delta, TextPartDelta) and event.delta.content_delta:
+                accumulated_text += event.delta.content_delta
+                yield {"type": "content", "content": event.delta.content_delta}
+            elif (
+                isinstance(event.delta, ThinkingPartDelta)
+                and event.delta.content_delta
+            ):
+                accumulated_reasoning += event.delta.content_delta
+                yield {"type": "reasoning", "content": event.delta.content_delta}
             continue
 
         if isinstance(event, FunctionToolCallEvent):
@@ -385,6 +425,7 @@ async def run_pydantic_paper_agent(
             continue
 
         if isinstance(event, AgentRunResultEvent):
+            agent_result = event.result
             logger.debug(
                 "Pydantic paper agent completed for paper=%s model=%s usage=%s",
                 paper_id,
@@ -392,9 +433,36 @@ async def run_pydantic_paper_agent(
                 getattr(event.result, "usage", None),
             )
 
-    flushed = parser.flush()
-    if flushed:
-        yield flushed
+    # Evidence is streamed inline as `---EVIDENCE---...---END-EVIDENCE---`
+    # at the end of the response — the client strips it from the live view,
+    # and we surface it as structured citations once the run is complete.
+    _, evidence_inner = split_evidence_block(accumulated_text)
+    if evidence_inner.strip():
+        citations = CitationHandler.parse_evidence_block(evidence_inner)
+        if citations:
+            yield {"type": "references", "content": {"citations": citations}}
+            reconciled = await citation_reconciler(citations, paper, llm_client)
+            if reconciled:
+                yield {
+                    "type": "references_reconciled",
+                    "content": {"citations": reconciled},
+                }
+
+    # Persist this turn's pydantic-ai messages (tool calls + tool returns +
+    # final response) on the assistant row so the next turn can replay them
+    # verbatim. Replaying the same prefix is what keeps prompt caching warm
+    # and gives the model the prior tool transcript instead of a text-only
+    # summary.
+    if agent_result is not None:
+        try:
+            new_messages = agent_result.new_messages()
+            dump = ModelMessagesTypeAdapter.dump_python(new_messages, mode="json")
+            yield {
+                "type": "messages_dump",
+                "content": _strip_figure_bytes(dump),
+            }
+        except Exception as exc:
+            logger.warning("Failed to serialize pydantic-ai messages: %s", exc)
 
 
 def pretty_tool_status(fn_name: str, args: Dict[str, Any]) -> str:
@@ -406,10 +474,14 @@ def pretty_tool_status(fn_name: str, args: Dict[str, Any]) -> str:
         return f"Searching for '{args.get('query', '?')}'"
     if fn_name == "get_figure":
         return f"Fetching {args.get('label', 'figure')}"
-    if fn_name == "read_main_doc":
-        return "Reading your notes"
-    if fn_name == "write_main_doc":
-        return "Updating your notes"
+    if fn_name == "list_docs":
+        return "Listing your docs"
+    if fn_name == "read_doc":
+        name = args.get("name") or ""
+        return f"Reading doc '{name}'" if name else "Reading a doc"
+    if fn_name == "write_doc":
+        name = args.get("name") or ""
+        return f"Updating doc '{name}'" if name else "Updating a doc"
     return f"Calling {fn_name}"
 
 
@@ -429,6 +501,101 @@ async def _run_sync_tool(
     ctx = contextvars.copy_context()
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(_tool_executor, lambda: ctx.run(_call))
+
+
+def _resolve_figure_with_image(
+    *,
+    paper_id: str,
+    current_user: CurrentUser,
+    db: Session,
+    label: str,
+) -> Dict[str, Any]:
+    """Resolve a figure label to metadata + PNG bytes for multimodal return.
+
+    Returns either `{error: ...}` or `{metadata, image_bytes, media_type}`.
+    Bypasses `section_tools.get_figure` because that one only emits a URL —
+    we need the raw bytes to attach as `BinaryImage` so the model can
+    actually look at the figure rather than just read the caption.
+    """
+    from app.api.paper_figure_api import resolve_figure
+
+    paper = paper_crud.get(db, id=paper_id, user=current_user)
+    if not paper:
+        return {"error": "Paper not found"}
+    if str(getattr(paper, "parser", "") or "") != "mistral":
+        return {
+            "error": "Figures are unavailable for this paper (parsed in fallback mode)"
+        }
+    figure = resolve_figure(getattr(paper, "ocr", None), label)
+    if not figure:
+        return {"error": f"No figure matching '{label}'"}
+    s3_key = figure.get("s3_key")
+    if not s3_key:
+        return {
+            "error": f"Figure '{figure.get('label') or label}' is not yet rendered"
+        }
+    try:
+        image_bytes = s3_service.get_object_bytes(str(s3_key))
+    except Exception as exc:
+        logger.warning("Failed to fetch figure %s from S3: %s", s3_key, exc)
+        return {"error": "Failed to fetch figure image"}
+    return {
+        "metadata": {
+            "label": figure.get("label"),
+            "page": figure.get("page"),
+            "caption": figure.get("caption"),
+            "id": figure.get("id"),
+        },
+        "image_bytes": image_bytes,
+        "media_type": "image/png",
+        "s3_key": str(s3_key),
+    }
+
+
+def _walk_binary_image_dicts(node: Any):
+    """Yield every dict in `node` that looks like a serialized BinaryImage
+    pointing at an `openpaper-figure:` S3 key."""
+    if isinstance(node, dict):
+        identifier = node.get("identifier")
+        if (
+            node.get("kind") == "binary"
+            and isinstance(identifier, str)
+            and identifier.startswith(_FIGURE_ID_PREFIX)
+        ):
+            yield node
+        for value in node.values():
+            yield from _walk_binary_image_dicts(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _walk_binary_image_dicts(item)
+
+
+def _strip_figure_bytes(dump: Any) -> Any:
+    """Replace figure image bytes with empty placeholders before save."""
+    for entry in _walk_binary_image_dicts(dump):
+        entry["data"] = ""
+    return dump
+
+
+def _rehydrate_figure_bytes(dump: Any) -> Any:
+    """Re-fetch figure bytes from S3 in place after load."""
+    import base64
+
+    for entry in _walk_binary_image_dicts(dump):
+        if entry.get("data"):
+            continue
+        s3_key = entry["identifier"][len(_FIGURE_ID_PREFIX) :]
+        try:
+            image_bytes = s3_service.get_object_bytes(s3_key)
+        except Exception as exc:
+            logger.warning(
+                "Failed to rehydrate figure %s for replay: %s", s3_key, exc
+            )
+            continue
+        # `mode='json'` dumps bytes as base64 strings; match that format so
+        # `validate_json` round-trips back to the original bytes object.
+        entry["data"] = base64.b64encode(image_bytes).decode("ascii")
+    return dump
 
 
 def _build_pai_model(
@@ -505,13 +672,63 @@ def _model_settings_for_provider(
 
 
 def _convert_message_history(messages: Sequence[Message]) -> List[ModelMessage]:
+    """Reconstruct the pydantic-ai ModelMessage list for the next agent turn.
+
+    We persist `result.new_messages()` on each assistant message's `bucket`
+    field under `pai_messages`. Replaying that verbatim keeps the prompt
+    prefix byte-identical across turns (prompt cache stays warm) and lets
+    the model see the prior tool calls + tool returns rather than a
+    text-only summary. Older messages without a dump fall back to plain
+    user/assistant text so legacy conversations still work.
+    """
     history: List[ModelMessage] = []
+    pending_user_text: Optional[str] = None
+
     for message in messages:
+        bucket = getattr(message, "bucket", None) or {}
+        dump = bucket.get("pai_messages") if isinstance(bucket, dict) else None
+
+        if message.role == "assistant" and dump:
+            # Saved dump already contains the matching ModelRequest for
+            # this turn's user prompt, so drop any pending text-only
+            # fallback we were holding for it.
+            pending_user_text = None
+            try:
+                hydrated = _rehydrate_figure_bytes(copy.deepcopy(dump))
+                # Round-trip through JSON so base64-encoded `data` fields on
+                # `BinaryImage` parts decode back to bytes — `validate_python`
+                # would reject the base64 string in strict mode.
+                history.extend(
+                    ModelMessagesTypeAdapter.validate_json(json.dumps(hydrated))
+                )
+                continue
+            except Exception as exc:
+                logger.warning(
+                    "Failed to deserialize pai_messages on message %s: %s",
+                    getattr(message, "id", "?"),
+                    exc,
+                )
+                # Fall through to text fallback for this turn.
+
         content = str(getattr(message, "content", "") or "")
         if not content:
             continue
         if message.role == "user":
-            history.append(ModelRequest(parts=[UserPromptPart(content=content)]))
+            if pending_user_text is not None:
+                history.append(
+                    ModelRequest(parts=[UserPromptPart(content=pending_user_text)])
+                )
+            pending_user_text = content
         elif message.role == "assistant":
+            if pending_user_text is not None:
+                history.append(
+                    ModelRequest(parts=[UserPromptPart(content=pending_user_text)])
+                )
+                pending_user_text = None
             history.append(ModelResponse(parts=[TextPart(content=content)]))
+
+    if pending_user_text is not None:
+        history.append(
+            ModelRequest(parts=[UserPromptPart(content=pending_user_text)])
+        )
     return history

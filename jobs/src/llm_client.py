@@ -35,7 +35,7 @@ from src.utils import retry_llm_operation, time_it
 logger = logging.getLogger(__name__)
 
 DEFAULT_CHAT_MODEL = "gpt-4.1"
-FAST_CHAT_MODEL = "gpt-4.1-mini"
+FAST_CHAT_MODEL = "gpt-5.4-mini"
 
 T = TypeVar("T", bound=BaseModel)
 

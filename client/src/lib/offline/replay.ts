@@ -12,7 +12,12 @@ import type {
 } from "./types";
 import type { PaperHighlight, PaperHighlightAnnotation } from "@/lib/schema";
 import { getDefaultSyncState, getOfflineDb } from "./db";
-import { notifyOfflineSyncStateChanged } from "./events";
+import {
+    notifyOfflineAnnotationsChanged,
+    notifyOfflineDocConflict,
+    notifyOfflineHighlightsChanged,
+    notifyOfflineSyncStateChanged,
+} from "./events";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -22,7 +27,8 @@ function nowIso() {
 
 async function setSyncStatus(
     status: "idle" | "syncing" | "pending" | "paused" | "needs-attention" | "error",
-    lastError?: string
+    lastError?: string,
+    options: { bumpLastSuccessful?: boolean } = {}
 ) {
     const db = await getOfflineDb();
     const state = await getDefaultSyncState();
@@ -33,10 +39,9 @@ async function setSyncStatus(
         pendingCount,
         lastError,
         updatedAt: nowIso(),
-        lastSuccessfulSyncAt:
-            status === "idle" || status === "pending"
-                ? nowIso()
-                : state.lastSuccessfulSyncAt,
+        lastSuccessfulSyncAt: options.bumpLastSuccessful
+            ? nowIso()
+            : state.lastSuccessfulSyncAt,
     });
     notifyOfflineSyncStateChanged();
 }
@@ -78,6 +83,7 @@ async function replaceLocalHighlightId(
     serverHighlight: PaperHighlight
 ) {
     const db = await getOfflineDb();
+    const newId = serverHighlight.id || localId;
     const snapshot = itemSnapshot(await db.get("highlights", paperId));
     if (snapshot) {
         await db.put("highlights", {
@@ -89,6 +95,26 @@ async function replaceLocalHighlightId(
         });
     }
 
+    // Local annotations created against the still-pending highlight need their
+    // foreign key updated in the cache too — otherwise the React state for
+    // annotations would still point at `local:abc` after the page refreshes.
+    const annotationSnapshot = await db.get("annotations", paperId);
+    if (annotationSnapshot) {
+        let touched = false;
+        const updated = annotationSnapshot.annotations.map((annotation) => {
+            if (annotation.highlight_id !== localId) return annotation;
+            touched = true;
+            return { ...annotation, highlight_id: newId };
+        });
+        if (touched) {
+            await db.put("annotations", {
+                ...annotationSnapshot,
+                annotations: updated,
+                cachedAt: nowIso(),
+            } satisfies AnnotationSnapshot);
+        }
+    }
+
     const items = await db.getAll("outbox");
     await Promise.all(items.map(async (item) => {
         if (item.type !== "annotation-create") return;
@@ -96,10 +122,13 @@ async function replaceLocalHighlightId(
         if (payload.highlightId !== localId) return;
         await db.put("outbox", {
             ...item,
-            payload: { ...payload, highlightId: serverHighlight.id || payload.highlightId },
+            payload: { ...payload, highlightId: newId },
             updatedAt: nowIso(),
         });
     }));
+
+    notifyOfflineHighlightsChanged(paperId);
+    notifyOfflineAnnotationsChanged(paperId);
 }
 
 function itemSnapshot<T>(value: T | undefined): T | null {
@@ -121,6 +150,7 @@ async function replaceLocalAnnotationId(
         ),
         cachedAt: nowIso(),
     } satisfies AnnotationSnapshot);
+    notifyOfflineAnnotationsChanged(paperId);
 }
 
 async function replayDocPut(item: OutboxItem) {
@@ -151,7 +181,14 @@ async function replayDocPut(item: OutboxItem) {
             },
             cachedAt: nowIso(),
         } satisfies DocumentSnapshot);
+        notifyOfflineDocConflict(payload.documentId);
         throw new ReplayStopError("Server changed this note", "needs-attention");
+    }
+
+    if (response.status === 413) {
+        // Don't keep retrying an oversized payload — it'll never succeed until
+        // the user trims it. Surface as needs-attention so the indicator says so.
+        throw new ReplayStopError("Document too large to sync", "needs-attention");
     }
 
     if (!response.ok) throw new ReplayStopError(itemError(response), replayStopStatus(response));
@@ -210,7 +247,7 @@ async function replayHighlightDelete(item: OutboxItem) {
 
 async function replayAnnotationCreate(item: OutboxItem) {
     const payload = item.payload as AnnotationCreatePayload;
-    const response = await apiFetch("/api/annotation/", {
+    const response = await apiFetch("/api/annotation", {
         method: "POST",
         body: JSON.stringify({
             paper_id: payload.paperId,
@@ -266,7 +303,14 @@ async function replayItem(item: OutboxItem) {
     }
 }
 
-export async function replayOutbox() {
+// Single-flight guard: if a replay is already running, callers set the latch
+// and the active loop runs once more after it finishes. This is what keeps
+// rapid-fire highlight/annotation creates from racing the loop and producing
+// duplicate POSTs against the server.
+let replayInFlight = false;
+let replayQueued = false;
+
+async function runReplayOnce() {
     if (typeof navigator !== "undefined" && !navigator.onLine) {
         await setSyncStatus("paused", "Offline");
         return;
@@ -274,6 +318,9 @@ export async function replayOutbox() {
 
     const db = await getOfflineDb();
     if ((await db.count("outbox")) === 0) {
+        // Nothing to do — clear status, but don't bump lastSuccessfulSyncAt.
+        // A timestamp here would mean "we just synced" when in fact we found
+        // nothing to sync.
         await setSyncStatus("idle");
         return;
     }
@@ -285,7 +332,15 @@ export async function replayOutbox() {
         if (!item) break;
         try {
             await replayItem(item);
-            await db.delete("outbox", item.id);
+            // Don't delete blindly — if the user typed (or otherwise mutated
+            // the queue) during the network round-trip, the outbox record
+            // now has a newer payload than what we just sent. Deleting it
+            // would silently drop those keystrokes. Compare updatedAt and
+            // leave any newer write for the next drain iteration.
+            const current = await db.get("outbox", item.id);
+            if (current && current.updatedAt === item.updatedAt) {
+                await db.delete("outbox", item.id);
+            }
         } catch (error) {
             const message = error instanceof Error ? error.message : "Replay failed";
             await markItemFailed(item, message);
@@ -299,5 +354,23 @@ export async function replayOutbox() {
     }
 
     const remaining = await db.count("outbox");
-    await setSyncStatus(remaining > 0 ? "pending" : "idle");
+    await setSyncStatus(remaining > 0 ? "pending" : "idle", undefined, {
+        bumpLastSuccessful: true,
+    });
+}
+
+export async function replayOutbox() {
+    if (replayInFlight) {
+        replayQueued = true;
+        return;
+    }
+    replayInFlight = true;
+    try {
+        do {
+            replayQueued = false;
+            await runReplayOnce();
+        } while (replayQueued);
+    } finally {
+        replayInFlight = false;
+    }
 }

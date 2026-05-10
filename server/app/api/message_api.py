@@ -19,12 +19,14 @@ from app.database.telemetry import track_event
 from app.llm.base import LLMProvider
 from app.llm.citation_handler import CitationHandler
 from app.llm.operations import operations
+from app.llm.paper_pydantic_agent import split_evidence_block
 from app.schemas.message import EvidenceCollection, ResponseStyle
 from app.schemas.user import CurrentUser
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from pydantic_ai.exceptions import UsageLimitExceeded
 from sqlalchemy.orm import Session
 
 load_dotenv()
@@ -52,6 +54,7 @@ async def _stream_chat_chunks(
     content_chunks: List[str],
     evidence_container: dict,
     include_lifecycle: bool = True,
+    pai_messages_container: Optional[dict] = None,
 ) -> AsyncGenerator[str, None]:
     """Stream chunks using the Vercel AI SDK UIMessage stream protocol."""
     text_id = "text-1"
@@ -115,6 +118,12 @@ async def _stream_chat_chunks(
             yield _ui_message_sse(
                 {"type": "data-status", "data": chunk_content, "transient": True}
             )
+        elif chunk_type == "messages_dump":
+            # Internal sentinel: the agent runtime hands us its serialized
+            # ModelMessage list so we can stash it on the assistant row's
+            # bucket. Not surfaced over the wire.
+            if pai_messages_container is not None:
+                pai_messages_container["dump"] = chunk_content
         elif chunk_type == "reasoning":
             if not reasoning_started:
                 reasoning_started = True
@@ -394,7 +403,13 @@ async def chat_message_multipaper(
                 )
 
                 logger.error(f"Error in streaming response: {e}", exc_info=True)
-                yield _ui_message_sse({"type": "error", "errorText": str(e)})
+                error_text = (
+                    "The paper agent needed too many retrieval steps for this turn. "
+                    "Try a narrower question or switch to Full context mode."
+                    if isinstance(e, UsageLimitExceeded)
+                    else str(e)
+                )
+                yield _ui_message_sse({"type": "error", "errorText": error_text})
                 yield _ui_message_done()
 
         return StreamingResponse(
@@ -449,6 +464,7 @@ async def chat_message_stream(
                 content_chunks = []
                 start_time = datetime.now(timezone.utc)
                 evidence_container = {"evidence": None}
+                pai_messages_container: dict = {}
 
                 if request.context_mode:
                     chat_generator = operations.chat_with_paper_agentic(
@@ -482,13 +498,18 @@ async def chat_message_stream(
                     chunk_generator=chat_generator,
                     content_chunks=content_chunks,
                     evidence_container=evidence_container,
+                    pai_messages_container=pai_messages_container,
                 ):
                     yield chunk
 
                 evidence = evidence_container["evidence"]
+                pai_dump = pai_messages_container.get("dump")
 
-                # Save the complete message to the database
-                full_content = "".join(content_chunks)
+                # Save the complete message to the database. The pydantic-ai
+                # agentic flow streams the trailing `---EVIDENCE---` block
+                # inline; strip it from the persisted content since the
+                # citations are already saved structurally on `references`.
+                full_content, _ = split_evidence_block("".join(content_chunks))
 
                 formatted_references = (
                     CitationHandler.convert_references_to_dict(
@@ -510,7 +531,9 @@ async def chat_message_stream(
                     user=current_user,
                 )
 
-                # Save assistant message with both content and evidence
+                # Save assistant message with content, evidence, and the
+                # pydantic-ai message dump (so the next turn can replay the
+                # same prefix and keep prompt cache warm).
                 message_crud.create(
                     db,
                     obj_in=MessageCreate(
@@ -518,6 +541,7 @@ async def chat_message_stream(
                         role="assistant",
                         content=full_content,
                         references=evidence if evidence else None,
+                        bucket={"pai_messages": pai_dump} if pai_dump else None,
                     ),
                     user=current_user,
                 )

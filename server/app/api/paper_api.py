@@ -65,6 +65,18 @@ class UpdatePaperFieldsSchema(BaseModel):
     publisher: Optional[str] = None
 
 
+def _paper_markdown_payload(paper: Paper) -> dict:
+    parser = str(getattr(paper, "parser", "") or "")
+    if parser == "mistral":
+        pages = (getattr(paper, "ocr", None) or {}).get("pages") or []
+        markdown = "\n\n".join(
+            str(page.get("markdown") or "").strip() for page in pages
+        ).strip()
+        return {"markdown": markdown, "source": "mistral"}
+
+    return {"markdown": str(getattr(paper, "raw_content", "") or ""), "source": "pymupdf"}
+
+
 @paper_router.get("/all")
 async def get_paper_ids(
     db: Session = Depends(get_db),
@@ -575,6 +587,19 @@ async def get_pdf(
     return JSONResponse(status_code=200, content=paper_data)
 
 
+@paper_router.get("/markdown")
+async def get_paper_markdown(
+    id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_required_user),
+):
+    paper = paper_crud.get(db, id=id, user=current_user, update_last_accessed=True)
+    if not paper:
+        return JSONResponse(status_code=404, content={"message": "Document not found"})
+
+    return JSONResponse(status_code=200, content=_paper_markdown_payload(paper))
+
+
 @paper_router.post("/share")
 async def share_pdf(
     request: Request,
@@ -712,6 +737,18 @@ async def get_shared_pdf(
 
     # Return the file URL
     return JSONResponse(status_code=200, content=response)
+
+
+@paper_router.get("/share/markdown")
+async def get_shared_paper_markdown(
+    id: str,
+    db: Session = Depends(get_db),
+):
+    paper = paper_crud.get_public_paper(db, share_id=id)
+    if not paper:
+        return JSONResponse(status_code=404, content={"message": "Document not found"})
+
+    return JSONResponse(status_code=200, content=_paper_markdown_payload(paper))
 
 
 @paper_router.delete("")

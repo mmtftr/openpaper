@@ -45,7 +45,6 @@ import {
     getCachedPaperMetadata,
     getCachedPdfObjectUrl,
     pinPaperForOffline,
-    useOnlineStatus,
 } from '@/lib/offline';
 
 const OverviewTool = {
@@ -99,7 +98,6 @@ export default function PaperView() {
     const [offlinePdfUrl, setOfflinePdfUrl] = useState<string | null>(null);
     const [preparingOffline, setPreparingOffline] = useState(false);
     const [offlineReady, setOfflineReady] = useState(false);
-    const online = useOnlineStatus();
 
     const {
         highlights,
@@ -209,8 +207,21 @@ export default function PaperView() {
 
         const params = new URLSearchParams(window.location.search);
         params.set('rsf', rightSideFunction.toLowerCase());
-        router.replace(`${window.location.pathname}?${params.toString()}`);
-    }, [rightSideFunction, router]);
+        // Use history.replaceState directly instead of router.replace. Next.js
+        // App Router's `router.replace` issues an RSC payload fetch (`?_rsc=`)
+        // for the new URL; if that fetch fails (extension blocking, transient
+        // network error, etc.) Next falls back to a full browser navigation,
+        // which reloads the page. That reload re-runs the paperData effect
+        // that sets `rightSideFunction`, which triggers this effect again,
+        // which triggers another router.replace, which fails again — an
+        // infinite reload loop. This URL update is purely cosmetic (the rsf
+        // param is read on next mount to restore the panel), so doing it
+        // through the History API avoids the navigation entirely.
+        const nextUrl = `${window.location.pathname}?${params.toString()}`;
+        if (nextUrl !== `${window.location.pathname}${window.location.search}`) {
+            window.history.replaceState(null, '', nextUrl);
+        }
+    }, [rightSideFunction]);
     const [leftPanelWidth, setLeftPanelWidth] = useState(60); // percentage
     const [isDragging, setIsDragging] = useState(false);
     const isMobile = useIsMobile();
@@ -441,10 +452,16 @@ export default function PaperView() {
 
 
     useEffect(() => {
-        if (!authLoading && !user) {
-            // Redirect to login if user is not authenticated
-            window.location.href = `/login`;
-        }
+        if (authLoading || user) return;
+        // Don't redirect to /login while offline — that page itself isn't
+        // reachable without the network and would just dead-end the user.
+        if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+        // Don't redirect if we have a cached identity from a prior session.
+        // The auth provider may have failed to verify (server unreachable,
+        // VPN down, etc.) but the user was authenticated previously — better
+        // to show cached IDB content than bounce them off the page.
+        if (typeof window !== 'undefined' && window.localStorage.getItem('auth_user')) return;
+        window.location.href = `/login`;
     }, [authLoading, user]);
 
     useEffect(() => {
@@ -505,6 +522,30 @@ export default function PaperView() {
                 const response: PaperData = await fetchFromApi(`/api/paper?id=${id}`);
                 setPaperData(response);
                 await cachePaperMetadata(id, response);
+
+                // Auto-cache the PDF on first online open. The plane scenario
+                // is "I read this online and now I want it offline" — if we
+                // only cache on an explicit pin click, users who forget to
+                // hit the button get a blank PDF mid-flight. Best-effort:
+                // skip if no file_url, or if a blob is already cached.
+                if (response.file_url) {
+                    const existing = await getCachedPdfObjectUrl(id);
+                    if (!existing) {
+                        cachePdfBlob(id, response.file_url)
+                            .then(async () => {
+                                const cachedUrl = await getCachedPdfObjectUrl(id);
+                                if (cachedUrl) {
+                                    setOfflinePdfUrl(cachedUrl);
+                                    setOfflineReady(true);
+                                }
+                            })
+                            .catch((err) => {
+                                // Don't surface to the user — this is a
+                                // background warm-up, not an explicit ask.
+                                console.warn('Background PDF cache failed:', err);
+                            });
+                    }
+                }
             } catch (error) {
                 console.error('Error fetching paper:', error);
                 const cached = await getCachedPaperMetadata(id);
@@ -684,7 +725,13 @@ export default function PaperView() {
         );
     }
 
-    const pdfUrlForViewer = !online && offlinePdfUrl ? offlinePdfUrl : paperData.file_url;
+    // Always prefer the IDB-cached blob when we have one. PDFs don't change
+    // server-side after upload, so there's no freshness reason to re-download.
+    // And `navigator.onLine` lies on flaky networks (Wi-Fi associated but no
+    // route, captive portal, VPN partially up) — preferring the cached blob
+    // means the viewer doesn't dead-end into ERR_INTERNET_DISCONNECTED whenever
+    // the network heuristic is wrong.
+    const pdfUrlForViewer = offlinePdfUrl || paperData.file_url;
     const OfflineControl = (
         <Button
             size="sm"

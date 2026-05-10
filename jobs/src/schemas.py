@@ -45,7 +45,6 @@ class AIHighlight(BaseModel):
         description="The type of highlight. This can be one of the following: topic, motivation, method, evidence, result, impact. This helps categorize the highlight based on its content and significance."
     )
 
-
 class TitleAuthorsAbstract(BaseModel):
     """Schema for title, authors, and abstract extraction."""
     title: str = Field(description="Title of the paper **in normal case**")
@@ -192,6 +191,7 @@ class PDFProcessingResult(BaseModel):
     raw_content: Optional[str] = None
     page_offset_map: Optional[dict[int, list[int]]] = None
     metadata: Optional[PaperMetadataExtraction] = None
+    ai_highlight_anchors: Optional[List[Optional[Dict[str, Any]]]] = None
     s3_object_key: Optional[str] = None
     file_url: Optional[str] = None
     preview_url: Optional[str] = None

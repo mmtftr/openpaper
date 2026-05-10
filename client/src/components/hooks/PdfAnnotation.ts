@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import {
     cacheAnnotations,
     getCachedAnnotations,
+    OFFLINE_ANNOTATIONS_CHANGED_EVENT,
     queueAnnotationCreate,
     queueAnnotationDelete,
     queueAnnotationUpdate,
@@ -85,9 +86,18 @@ export function useAnnotations(paperId: string) {
                 method: 'GET',
             });
 
-            setAnnotations(loadedAnnotations);
-            await cacheAnnotations(paperId, loadedAnnotations);
-            return loadedAnnotations;
+            // Preserve local annotations still waiting in the outbox so they
+            // don't disappear from the UI while replay is mid-flight.
+            const cached = await getCachedAnnotations(paperId).catch(() => null);
+            const serverIds = new Set(loadedAnnotations.map((a) => a.id));
+            const stillPending = (cached?.annotations || []).filter(
+                (a) => a.id?.startsWith('local:') && !serverIds.has(a.id)
+            );
+            const merged = [...loadedAnnotations, ...stillPending];
+
+            setAnnotations(merged);
+            await cacheAnnotations(paperId, merged);
+            return merged;
         } catch (error) {
             console.error('Error loading annotations:', error);
             const cached = await getCachedAnnotations(paperId).catch(() => null);
@@ -133,6 +143,23 @@ export function useAnnotations(paperId: string) {
     useEffect(() => {
         fetchAnnotations();
     }, []);
+
+    // Re-read annotations from IDB when replay promotes local ids — both
+    // annotation ids (after `replayAnnotationCreate`) and `highlight_id`
+    // foreign keys (after `replaceLocalHighlightId`).
+    useEffect(() => {
+        const handler = (event: Event) => {
+            const detail = (event as CustomEvent<{ paperId?: string }>).detail;
+            if (detail?.paperId && detail.paperId !== paperId) return;
+            getCachedAnnotations(paperId)
+                .then((cached) => {
+                    if (cached) setAnnotations(cached.annotations);
+                })
+                .catch(() => undefined);
+        };
+        window.addEventListener(OFFLINE_ANNOTATIONS_CHANGED_EVENT, handler);
+        return () => window.removeEventListener(OFFLINE_ANNOTATIONS_CHANGED_EVENT, handler);
+    }, [paperId]);
 
     return {
         annotations,

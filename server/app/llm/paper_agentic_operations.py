@@ -53,7 +53,7 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 
-MAX_AGENTIC_ITERATIONS = 6  # Tool-call loop cap. Way more than typical needs.
+MAX_AGENTIC_ITERATIONS = 25  # Tool-call budget for retrieval-heavy paper turns.
 
 _tool_executor = ThreadPoolExecutor(max_workers=4)
 

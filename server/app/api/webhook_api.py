@@ -106,6 +106,7 @@ class PDFProcessingResult(BaseModel):
     raw_content: Optional[str] = None
     page_offset_map: Optional[dict[int, list[int]]] = None
     metadata: Optional[PaperMetadataExtraction] = None
+    ai_highlight_anchors: Optional[list[Optional[Dict[str, Any]]]] = None
     s3_object_key: Optional[str] = None
     file_url: Optional[str] = None
     preview_url: Optional[str] = None
@@ -270,6 +271,7 @@ async def handle_paper_processing_webhook(
                         db=db,
                         paper_id=str(paper.id),
                         extract_metadata=metadata,
+                        ai_highlight_anchors=result.ai_highlight_anchors,
                         current_user=job_user,
                     )
                 except Exception as e:

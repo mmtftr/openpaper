@@ -35,12 +35,17 @@ export function SyncIndicator() {
     if (!state) return null;
 
     const hasPending = state.pendingCount > 0;
+    const prewarmLabel = state.prewarmProgress
+        ? state.prewarmProgress.total > 0
+            ? `Syncing ${state.prewarmProgress.completed}/${state.prewarmProgress.total}`
+            : "Syncing..."
+        : null;
     const label = !online
         ? hasPending
             ? `${state.pendingCount} pending`
             : "Offline"
         : state.status === "syncing"
-            ? "Syncing..."
+            ? prewarmLabel || "Syncing..."
             : state.status === "paused"
                 ? "Paused - sign in"
                 : state.status === "needs-attention" || state.status === "error"

@@ -1,5 +1,15 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
+// Longer than we'd like, but some legit endpoints (auth check during a
+// cold-start server, large paper-list fetches with many papers, slow
+// Tailscale paths) genuinely take 10+ seconds on a healthy connection.
+// 30s is past any reasonable healthy latency so an abort here is good
+// signal that we're hung. On hard offline, `fetch` throws immediately
+// and never trips this timer — the timeout is only a safety net for
+// half-up networks (captive portals, half-routed VPNs, etc.) where
+// `fetch` would otherwise stall for the OS-level minute timeout.
+const API_TIMEOUT_MS = 30000;
+
 export async function fetchFromApi(endpoint: string, options: RequestInit = {}) {
     const headers: HeadersInit = {};
 
@@ -8,14 +18,29 @@ export async function fetchFromApi(endpoint: string, options: RequestInit = {}) 
         headers['Content-Type'] = 'application/json';
     }
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-        ...options,
-        headers: {
-            ...headers,
-            ...options.headers,
-        },
-        credentials: 'include', // Include cookies for auth
-    });
+    const controller = new AbortController();
+    // Honor an externally-supplied signal too — if the caller aborts, we
+    // abort, and vice versa.
+    if (options.signal) {
+        if (options.signal.aborted) controller.abort();
+        else options.signal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
+    let response: Response;
+    try {
+        response = await fetch(`${API_BASE_URL}${endpoint}`, {
+            ...options,
+            headers: {
+                ...headers,
+                ...options.headers,
+            },
+            credentials: 'include', // Include cookies for auth
+            signal: controller.signal,
+        });
+    } finally {
+        clearTimeout(timeoutId);
+    }
 
     if (!response.ok) {
         let errorMessage: unknown = `API error: ${response.status}`;

@@ -21,7 +21,6 @@ class AIHighlight(BaseModel):
         description="The type of highlight. This can be one of the following: topic, motivation, method, evidence, result, impact. This helps categorize the highlight based on its content and significance."
     )
 
-
 class ResponseCitation(BaseModel):
     """
     Schema for a citation in the paper.

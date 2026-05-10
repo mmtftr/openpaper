@@ -7,14 +7,26 @@ this module is concerned only with calling Mistral and shaping the response.
 """
 
 import logging
+import os
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import pymupdf  # type: ignore
 
 from src.mistral_client import MistralOCRClient, MistralOCRUnavailable
+from src.openai_ocr_client import OpenAIOCRClient, OpenAIOCRUnavailable, openai_ocr_client
 
 logger = logging.getLogger(__name__)
+
+_COMPARE_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{2,}")
+_MIN_COMPARE_TOKENS = 20
+_MIN_COMPARE_CHARS = 120
+_SUSPECT_RECALL_THRESHOLD = 0.35
+_SUSPECT_PRECISION_THRESHOLD = 0.50
+_SUSPECT_COMMON_TOKEN_THRESHOLD = 12
+_OPENAI_REPAIRED_RECALL_THRESHOLD = 0.20
+_OPENAI_REPAIRED_COMMON_TOKEN_THRESHOLD = 8
+_OPENAI_OCR_REPAIR_DPI = int(os.environ.get("OPENAI_OCR_REPAIR_DPI", "220"))
 
 
 def _strip_image_base64(pages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -70,6 +82,72 @@ def _join_pages_markdown(pages: List[Dict[str, Any]]) -> Tuple[str, Dict[int, Li
             cursor += len(sep)
 
     return "".join(chunks), offsets
+
+
+def _tokens_for_ocr_quality(text: str) -> Set[str]:
+    """Normalize text into stable tokens for rough OCR-vs-PDF comparison."""
+    return {token.lower() for token in _COMPARE_TOKEN_RE.findall(text)}
+
+
+def _page_ocr_quality(markdown: str, pymupdf_text: str) -> Dict[str, Any]:
+    """Estimate whether OCR markdown describes the same page as PyMuPDF text.
+
+    PyMuPDF gives us a cheap independent read for born-digital PDFs. When
+    Mistral hallucinates an entire page, the shared-token recall against that
+    page is very low even after markdown/table formatting differences.
+    """
+    pdf_tokens = _tokens_for_ocr_quality(pymupdf_text)
+    ocr_tokens = _tokens_for_ocr_quality(markdown)
+
+    if len(pymupdf_text.strip()) < _MIN_COMPARE_CHARS or len(pdf_tokens) < _MIN_COMPARE_TOKENS:
+        return {
+            "status": "unchecked",
+            "reason": "insufficient_pymupdf_text",
+            "pymupdf_token_count": len(pdf_tokens),
+            "ocr_token_count": len(ocr_tokens),
+        }
+
+    common = pdf_tokens & ocr_tokens
+    recall = len(common) / len(pdf_tokens)
+    precision = len(common) / len(ocr_tokens) if ocr_tokens else 0.0
+    status = "ok"
+    reason = None
+    if (
+        recall < _SUSPECT_RECALL_THRESHOLD
+        and precision < _SUSPECT_PRECISION_THRESHOLD
+        and len(common) < _SUSPECT_COMMON_TOKEN_THRESHOLD
+    ):
+        status = "suspect"
+        reason = "low_pymupdf_token_recall"
+
+    return {
+        "status": status,
+        "reason": reason,
+        "pymupdf_token_count": len(pdf_tokens),
+        "ocr_token_count": len(ocr_tokens),
+        "common_token_count": len(common),
+        "pymupdf_token_recall": round(recall, 4),
+        "ocr_token_precision": round(precision, 4),
+    }
+
+
+def _annotate_low_quality_pages(
+    pages: List[Dict[str, Any]], pymupdf_pages: Dict[int, str]
+) -> List[Dict[str, Any]]:
+    """Mark likely bad Mistral pages before the repair pass."""
+    annotated: List[Dict[str, Any]] = []
+    for i, page in enumerate(pages):
+        new_page = dict(page)
+        idx_raw = new_page.get("index")
+        page_num = (int(idx_raw) + 1) if idx_raw is not None else (i + 1)
+        markdown = str(new_page.get("markdown") or "")
+        pymupdf_text = pymupdf_pages.get(page_num, "")
+        quality = _page_ocr_quality(markdown, pymupdf_text)
+        new_page["ocr_quality"] = quality
+        new_page["markdown_source"] = "mistral"
+
+        annotated.append(new_page)
+    return annotated
 
 
 _FIG_LABEL_RE = re.compile(
@@ -208,6 +286,101 @@ def _extract_pymupdf_pages(pdf_path: str) -> Dict[int, str]:
     return out
 
 
+def _render_page_png(pdf_path: str, page_num: int, dpi: int = _OPENAI_OCR_REPAIR_DPI) -> bytes:
+    """Render a 1-indexed PDF page to PNG bytes for vision OCR."""
+    doc = pymupdf.open(pdf_path)
+    try:
+        if page_num < 1 or page_num > len(doc):
+            raise ValueError(f"Page {page_num} out of range for {pdf_path}")
+        page = doc[page_num - 1]
+        pix = page.get_pixmap(dpi=dpi, alpha=False)  # type: ignore[attr-defined]
+        return pix.tobytes("png")
+    finally:
+        doc.close()
+
+
+def _repair_suspect_pages_with_openai(
+    pdf_path: str,
+    pages: List[Dict[str, Any]],
+    pymupdf_pages: Dict[int, str],
+    client: Optional[OpenAIOCRClient] = None,
+) -> List[Dict[str, Any]]:
+    """Try GPT fast OCR for suspect pages, then fall back to PyMuPDF text."""
+    repair_client = client or openai_ocr_client
+    repaired_pages: List[Dict[str, Any]] = []
+
+    for i, page in enumerate(pages):
+        new_page = dict(page)
+        quality = dict(new_page.get("ocr_quality") or {})
+        idx_raw = new_page.get("index")
+        page_num = (int(idx_raw) + 1) if idx_raw is not None else (i + 1)
+        pymupdf_text = pymupdf_pages.get(page_num, "")
+
+        if quality.get("status") != "suspect":
+            repaired_pages.append(new_page)
+            continue
+
+        original_markdown = str(new_page.get("markdown") or "")
+        new_page["mistral_markdown"] = original_markdown
+
+        if repair_client.is_configured:
+            try:
+                png_bytes = _render_page_png(pdf_path, page_num)
+                openai_page = repair_client.ocr_page_png(png_bytes, page_number=page_num)
+                openai_markdown = str(openai_page.get("markdown") or "").strip()
+                openai_quality = _page_ocr_quality(openai_markdown, pymupdf_text)
+                new_page["openai_ocr"] = {
+                    "model": openai_page.get("model"),
+                    "quality": openai_quality,
+                }
+
+                if (
+                    openai_markdown
+                    and openai_quality.get("status") != "suspect"
+                    and (
+                        openai_quality.get("pymupdf_token_recall", 0)
+                        >= _OPENAI_REPAIRED_RECALL_THRESHOLD
+                        or openai_quality.get("common_token_count", 0)
+                        >= _OPENAI_REPAIRED_COMMON_TOKEN_THRESHOLD
+                    )
+                ):
+                    logger.warning(
+                        "Repaired suspect Mistral OCR page %s with OpenAI OCR "
+                        "(model=%s recall=%s)",
+                        page_num,
+                        openai_page.get("model"),
+                        openai_quality.get("pymupdf_token_recall"),
+                    )
+                    new_page["markdown"] = openai_markdown
+                    new_page["markdown_source"] = "openai_ocr_repair"
+                    repaired_pages.append(new_page)
+                    continue
+            except (OpenAIOCRUnavailable, Exception) as e:
+                logger.warning(
+                    "OpenAI OCR repair failed for page %s; using pymupdf fallback: %s",
+                    page_num,
+                    e,
+                )
+        elif not quality.get("repair_reason"):
+            quality["repair_reason"] = "openai_ocr_not_configured"
+            new_page["ocr_quality"] = quality
+
+        if pymupdf_text.strip():
+            logger.warning(
+                "Mistral OCR page %s looks suspect; using pymupdf fallback "
+                "(recall=%s precision=%s)",
+                page_num,
+                quality.get("pymupdf_token_recall"),
+                quality.get("ocr_token_precision"),
+            )
+            new_page["markdown"] = pymupdf_text.strip()
+            new_page["markdown_source"] = "pymupdf_fallback"
+
+        repaired_pages.append(new_page)
+
+    return repaired_pages
+
+
 def extract_with_mistral(
     pdf_path: str,
     client: Optional[MistralOCRClient] = None,
@@ -227,13 +400,15 @@ def extract_with_mistral(
     if not pages:
         raise MistralOCRUnavailable("Mistral returned no pages")
 
-    raw_content, page_offset_map = _join_pages_markdown(pages)
-    figures = build_figures_map(pages)
-
     # Side-by-side pymupdf text, keyed by 1-indexed page number. The chat
     # citation reconciliation step uses this to map OCR-grounded quotes onto
     # what the highlighter will actually find on the rendered PDF.
     pymupdf_pages = _extract_pymupdf_pages(pdf_path)
+    pages = _annotate_low_quality_pages(pages, pymupdf_pages)
+    pages = _repair_suspect_pages_with_openai(pdf_path, pages, pymupdf_pages)
+
+    raw_content, page_offset_map = _join_pages_markdown(pages)
+    figures = build_figures_map(pages)
 
     cleaned_pages = _strip_image_base64(pages)
     for page in cleaned_pages:

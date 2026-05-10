@@ -137,6 +137,7 @@ export function AnnotationsView({
 			if (h.role === 'user') return true;
 			if (h.position) return true;
 			if (h.id && renderedHighlightPositions?.has(h.id)) return true;
+			if (h.role === 'assistant' && h.raw_text?.trim()) return true;
 			return false;
 		});
 
@@ -415,6 +416,17 @@ export function AnnotationsView({
 						const bg = isActive
 							? "bg-white dark:bg-zinc-950"
 							: ITEM_BG_MAP[color];
+						const hasPdfAnchor = Boolean(
+							highlight.position || renderedHighlightPositions?.has(hid)
+						);
+						const renderedPosition = renderedHighlightPositions?.get(hid);
+						const isUnanchoredAssistant =
+							highlight.role === 'assistant' && !hasPdfAnchor;
+						const isApproximateAssistantAnchor =
+							highlight.role === 'assistant' &&
+							!highlight.position &&
+							renderedPosition?.matchStrategy &&
+							renderedPosition.matchStrategy !== "normalized";
 
 						const hasMulti = threadAnns.length > 1;
 						const expanded = expandedThreads[hid] ?? false;
@@ -450,6 +462,15 @@ export function AnnotationsView({
 												isActive={isActive}
 												paragraphClassName="text-xs text-muted-foreground whitespace-pre-wrap break-words"
 											/>
+											{isUnanchoredAssistant ? (
+												<p className="mt-1 text-[11px] font-medium text-muted-foreground">
+													Couldn&apos;t locate quote in PDF
+												</p>
+											) : isApproximateAssistantAnchor ? (
+												<p className="mt-1 text-[11px] font-medium text-muted-foreground">
+													Located approximately in PDF
+												</p>
+											) : null}
 										</div>
 									) : null}
 									{visible.map((annotation) => {

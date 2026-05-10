@@ -4,6 +4,7 @@ import { fetchFromApi } from "@/lib/api";
 import {
 	cacheHighlights,
 	getCachedHighlights,
+	OFFLINE_HIGHLIGHTS_CHANGED_EVENT,
 	queueHighlightCreate,
 	queueHighlightDelete,
 	replayOutbox,
@@ -64,8 +65,25 @@ export function useHighlighterHighlights(
 					)
 			);
 
-			setHighlights(deduplicatedHighlights);
-			await cacheHighlights(paperId, deduplicatedHighlights);
+			// Preserve `local:` highlights that the user just created — they're
+			// still in the outbox waiting to replay. Without this merge the
+			// server fetch would clobber them and the user would watch their
+			// brand-new highlight vanish from the page mid-replay.
+			const cached = await getCachedHighlights(paperId).catch(() => null);
+			const serverKeys = new Set(
+				deduplicatedHighlights.map(
+					(h) => `${h.raw_text}::${h.page_number}`
+				)
+			);
+			const stillPending = (cached?.highlights || []).filter(
+				(h) =>
+					h.id?.startsWith("local:") &&
+					!serverKeys.has(`${h.raw_text}::${h.page_number}`)
+			);
+			const merged = [...deduplicatedHighlights, ...stillPending];
+
+			setHighlights(merged);
+			await cacheHighlights(paperId, merged);
 		} catch (error) {
 			console.error("Error loading highlights from server:", error);
 			const cached = await getCachedHighlights(paperId).catch(() => null);
@@ -203,6 +221,23 @@ export function useHighlighterHighlights(
 			fetchHighlights();
 		}
 	}, [paperId, readOnlyHighlights.length, fetchHighlights]);
+
+	// When the replay loop promotes a local highlight id to a server id, the
+	// IDB cache is the authoritative state — sync React state from it so a
+	// follow-up delete uses the real server id.
+	useEffect(() => {
+		const handler = (event: Event) => {
+			const detail = (event as CustomEvent<{ paperId?: string }>).detail;
+			if (detail?.paperId && detail.paperId !== paperId) return;
+			getCachedHighlights(paperId)
+				.then((cached) => {
+					if (cached) setHighlights(cached.highlights);
+				})
+				.catch(() => undefined);
+		};
+		window.addEventListener(OFFLINE_HIGHLIGHTS_CHANGED_EVENT, handler);
+		return () => window.removeEventListener(OFFLINE_HIGHLIGHTS_CHANGED_EVENT, handler);
+	}, [paperId]);
 
 	// Reset interaction state when selectedText is cleared
 	useEffect(() => {

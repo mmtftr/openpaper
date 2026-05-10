@@ -1,6 +1,12 @@
 export type { ExtendedHighlight } from "./types";
 export { paperHighlightToExtended, extendedToPaperHighlight } from "./types";
-export { normalizeForSearch, expandLatexCommands } from "./textNormalization";
+export {
+	normalizeForSearch,
+	expandLatexCommands,
+	normalizeForPdfMatch,
+	normalizePdfTextForMatch,
+	findServerAlignedPdfTextMatch,
+} from "./textNormalization";
 export { HighlightContainer } from "./HighlightContainer";
 export { activeHighlightStore } from "./activeHighlightStore";
 export { usePdfSearch } from "./usePdfSearch";
