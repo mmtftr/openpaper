@@ -1,22 +1,8 @@
 import useSWR from 'swr';
 import { fetchFromApi } from '@/lib/api';
-import { readCachedPaperList, writeCachedPaperList } from '@/lib/offline';
 import { PaperItem } from '@/lib/schema';
 
-const fetcher = async (url: string): Promise<PaperItem[]> => {
-	try {
-		const data = await fetchFromApi(url);
-		const papers: PaperItem[] = data.papers || data;
-		writeCachedPaperList(url, papers);
-		return papers;
-	} catch (err) {
-		// Network failure: fall back to whatever we cached on the previous
-		// successful load so the library page still renders offline.
-		const cached = readCachedPaperList(url);
-		if (cached) return cached;
-		throw err;
-	}
-};
+const fetcher = (url: string) => fetchFromApi(url).then(data => data.papers || data);
 
 interface UserPapersProps {
 	detailed?: boolean;
@@ -24,11 +10,7 @@ interface UserPapersProps {
 
 export function usePapers({ detailed = false }: UserPapersProps = {}) {
 	const url = detailed ? '/api/paper/all?detailed=true' : '/api/paper/all';
-	const { data, error, isLoading, mutate } = useSWR<PaperItem[]>(url, fetcher, {
-		// Seed SWR's cache from localStorage on first render so the list is
-		// visible before the (potentially failing) network request returns.
-		fallbackData: readCachedPaperList(url) || undefined,
-	});
+	const { data, error, isLoading, mutate } = useSWR<PaperItem[]>(url, fetcher);
 
 	const setPapers = (paperId: string, updatedPaper: PaperItem) => {
 		if (data) {

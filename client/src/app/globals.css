@@ -347,21 +347,52 @@
  * editor sits in the paper sidebar where the panel border already provides
  * the affordance — the inner outline is just visual noise.
  */
-.paper-doc-editor,
-.paper-doc-editor .milkdown {
-	min-height: 100%;
-}
-
 .paper-doc-editor .ProseMirror,
 .paper-doc-editor .ProseMirror:focus,
 .paper-doc-editor .ProseMirror-focused {
-	min-height: 100%;
 	outline: none !important;
 	box-shadow: none !important;
 }
 
-@media (max-width: 639px) {
-	.paper-markdown-reader .milkdown .ProseMirror {
-		padding: 0.75rem !important;
-	}
+/*
+ * Crepe ships with `padding: 60px 120px` on `.milkdown .ProseMirror` (see
+ * @milkdown/crepe/lib/theme/common/reset.css). That's fine for a full-page
+ * editor but absurd inside our narrow Doc sidebar — it eats most of the
+ * column. Tighten everything that contributes whitespace at the editor edge:
+ * the surface padding, oversized heading top margins, and the paragraph
+ * vertical padding. Selectors are scoped under `.paper-doc-editor` and use
+ * `!important` because the Crepe stylesheet is imported by the dynamic
+ * editor chunk and can win the cascade race depending on load order.
+ *
+ * Left padding is kept larger than right because Crepe's hover block-handle
+ * (drag dot + slash menu trigger, ~66px wide, positioned absolutely just
+ * left of the active block) needs room — collapse the left gutter and the
+ * menu clips against the panel edge.
+ */
+.paper-doc-editor .milkdown .ProseMirror {
+	padding: 8px 12px 8px 56px !important;
+}
+/*
+ * Crepe paints a hard white `--crepe-color-background` (and a slightly off
+ * `--crepe-color-on-background`) onto `.milkdown`, which clashes with the
+ * sidebar's `bg-background` token in both light and dark. Drop the fill and
+ * inherit text color so the editor blends with the rest of the panel.
+ */
+.paper-doc-editor .milkdown {
+	background: transparent !important;
+	color: inherit !important;
+}
+.paper-doc-editor .milkdown .ProseMirror h1 { margin-top: 12px !important; }
+.paper-doc-editor .milkdown .ProseMirror h2 { margin-top: 10px !important; }
+.paper-doc-editor .milkdown .ProseMirror h3 { margin-top: 8px !important; }
+.paper-doc-editor .milkdown .ProseMirror h4,
+.paper-doc-editor .milkdown .ProseMirror h5,
+.paper-doc-editor .milkdown .ProseMirror h6 {
+	margin-top: 6px !important;
+}
+.paper-doc-editor .milkdown .ProseMirror p {
+	padding: 2px 0 !important;
+}
+.paper-doc-editor .milkdown .ProseMirror blockquote {
+	padding-left: 20px !important;
 }

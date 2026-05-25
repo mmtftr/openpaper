@@ -314,7 +314,6 @@ export interface PaperItem {
     institutions?: string[]
     summary?: string
     created_at?: string
-    last_accessed_at?: string
     publish_date?: string
     status?: PaperStatus
     preview_url?: string

@@ -60,7 +60,6 @@ comparison_all.csv
 
 # local notes
 PDF_HIGHLIGHTER_CAVEATS.md
-plan_*.md
 
 # local-only caddy binary (host-installed, arch-specific — don't ship)
 /caddy

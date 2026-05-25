@@ -3,44 +3,27 @@ import {
 } from '@/lib/schema';
 import { fetchFromApi } from '@/lib/api';
 import { useEffect, useState } from 'react';
-import {
-    cacheAnnotations,
-    getCachedAnnotations,
-    OFFLINE_ANNOTATIONS_CHANGED_EVENT,
-    queueAnnotationCreate,
-    queueAnnotationDelete,
-    queueAnnotationUpdate,
-    replayOutbox,
-} from '@/lib/offline';
-import { nanoid } from 'nanoid';
 
 export function useAnnotations(paperId: string) {
     const [annotations, setAnnotations] = useState<PaperHighlightAnnotation[]>([]);
 
     const addAnnotation = async (highlightId: string, content: string) => {
-        const localAnnotation: PaperHighlightAnnotation = {
-            id: `local:${nanoid()}`,
+        const newAnnotation: Partial<PaperHighlightAnnotation> = {
             highlight_id: highlightId,
             paper_id: paperId,
             content,
-            role: 'user',
-            created_at: new Date().toISOString(),
         };
 
         try {
-            const nextAnnotations = [...annotations, localAnnotation];
-            setAnnotations(nextAnnotations);
-            await cacheAnnotations(paperId, nextAnnotations);
-            await queueAnnotationCreate({
-                localId: localAnnotation.id,
-                paperId,
-                highlightId,
-                content,
+            const savedAnnotation: PaperHighlightAnnotation = await fetchFromApi('/api/annotation/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(newAnnotation),
             });
-            if (typeof navigator === 'undefined' || navigator.onLine) {
-                void replayOutbox();
-            }
-            return localAnnotation;
+            setAnnotations(prev => [...prev, savedAnnotation]);
+            return savedAnnotation;
         } catch (error) {
             console.error('Error saving annotation:', error);
             throw error;
@@ -49,13 +32,11 @@ export function useAnnotations(paperId: string) {
 
     const removeAnnotation = async (annotationId: string) => {
         try {
-            const nextAnnotations = annotations.filter(a => a.id !== annotationId);
-            setAnnotations(nextAnnotations);
-            await cacheAnnotations(paperId, nextAnnotations);
-            await queueAnnotationDelete({ annotationId }, paperId);
-            if (typeof navigator === 'undefined' || navigator.onLine) {
-                void replayOutbox();
-            }
+            await fetchFromApi(`/api/annotation/${annotationId}`, {
+                method: 'DELETE',
+            });
+
+            setAnnotations(prev => prev.filter(a => a.id !== annotationId));
         } catch (error) {
             console.error('Error removing annotation:', error);
             throw error;
@@ -64,16 +45,20 @@ export function useAnnotations(paperId: string) {
 
     const updateAnnotation = async (annotationId: string, content: string) => {
         try {
-            const nextAnnotations = annotations.map(a =>
-                a.id === annotationId ? { ...a, content } : a
+            const updatedAnnotation: PaperHighlightAnnotation = await fetchFromApi(`/api/annotation/${annotationId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    content,
+                }),
+            });
+
+            setAnnotations(prev =>
+                prev.map(a => (a.id === annotationId ? updatedAnnotation : a))
             );
-            setAnnotations(nextAnnotations);
-            await cacheAnnotations(paperId, nextAnnotations);
-            await queueAnnotationUpdate({ annotationId, content }, paperId);
-            if (typeof navigator === 'undefined' || navigator.onLine) {
-                void replayOutbox();
-            }
-            return nextAnnotations.find(a => a.id === annotationId);
+            return updatedAnnotation;
         } catch (error) {
             console.error('Error updating annotation:', error);
             throw error;
@@ -86,25 +71,10 @@ export function useAnnotations(paperId: string) {
                 method: 'GET',
             });
 
-            // Preserve local annotations still waiting in the outbox so they
-            // don't disappear from the UI while replay is mid-flight.
-            const cached = await getCachedAnnotations(paperId).catch(() => null);
-            const serverIds = new Set(loadedAnnotations.map((a) => a.id));
-            const stillPending = (cached?.annotations || []).filter(
-                (a) => a.id?.startsWith('local:') && !serverIds.has(a.id)
-            );
-            const merged = [...loadedAnnotations, ...stillPending];
-
-            setAnnotations(merged);
-            await cacheAnnotations(paperId, merged);
-            return merged;
+            setAnnotations(loadedAnnotations);
+            return loadedAnnotations;
         } catch (error) {
             console.error('Error loading annotations:', error);
-            const cached = await getCachedAnnotations(paperId).catch(() => null);
-            if (cached) {
-                setAnnotations(cached.annotations);
-                return cached.annotations;
-            }
             throw error;
         }
     };
@@ -143,23 +113,6 @@ export function useAnnotations(paperId: string) {
     useEffect(() => {
         fetchAnnotations();
     }, []);
-
-    // Re-read annotations from IDB when replay promotes local ids — both
-    // annotation ids (after `replayAnnotationCreate`) and `highlight_id`
-    // foreign keys (after `replaceLocalHighlightId`).
-    useEffect(() => {
-        const handler = (event: Event) => {
-            const detail = (event as CustomEvent<{ paperId?: string }>).detail;
-            if (detail?.paperId && detail.paperId !== paperId) return;
-            getCachedAnnotations(paperId)
-                .then((cached) => {
-                    if (cached) setAnnotations(cached.annotations);
-                })
-                .catch(() => undefined);
-        };
-        window.addEventListener(OFFLINE_ANNOTATIONS_CHANGED_EVENT, handler);
-        return () => window.removeEventListener(OFFLINE_ANNOTATIONS_CHANGED_EVENT, handler);
-    }, [paperId]);
 
     return {
         annotations,

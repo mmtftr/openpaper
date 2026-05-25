@@ -9,17 +9,6 @@ import { Loader2, FileText, Plus, Pencil, Trash2, Check, X, ChevronDown } from '
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-    cacheDocument,
-    cacheDocumentList,
-    clearQueuedDocPut,
-    getCachedDocument,
-    getCachedDocumentList,
-    getQueuedDocPut,
-    OFFLINE_DOC_CONFLICT_EVENT,
-    queueDocPut,
-    useOnlineStatus,
-} from '@/lib/offline';
 
 const MilkdownImpl = dynamic(() => import('./PaperDocEditorImpl'), {
     ssr: false,
@@ -30,12 +19,6 @@ const MilkdownImpl = dynamic(() => import('./PaperDocEditorImpl'), {
     ),
 });
 
-interface OfflineConflictMarker {
-    serverRevision?: number;
-    serverContent?: string;
-    localContent?: string;
-}
-
 interface DocumentResponse {
     id: string;
     paper_id: string | null;
@@ -44,7 +27,6 @@ interface DocumentResponse {
     revision: number;
     kind: string;
     updated_at?: string | null;
-    offlineConflict?: OfflineConflictMarker;
 }
 
 interface DocumentSummary {
@@ -68,7 +50,6 @@ type Status =
     | { kind: 'loading' }
     | { kind: 'saving' }
     | { kind: 'saved'; at: number }
-    | { kind: 'queued-offline' }
     | { kind: 'too-large' }
     | { kind: 'conflict' }
     | { kind: 'error'; message: string };
@@ -99,10 +80,6 @@ function StatusRow({ status }: { status: Status }) {
             else text = `Saved · ${Math.round(seconds / 60)}m ago`;
             break;
         }
-        case 'queued-offline':
-            text = 'Saved offline - will sync when reconnected.';
-            tone = 'text-amber-600 dark:text-amber-400';
-            break;
         case 'too-large':
             text = 'Document too large — trim to under 1MB to resume saving.';
             tone = 'text-amber-600 dark:text-amber-400';
@@ -126,7 +103,6 @@ interface PaperDocEditorProps {
 
 export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
     const isMobile = useIsMobile();
-    const online = useOnlineStatus();
     const [docs, setDocs] = useState<DocumentSummary[]>([]);
     const [activeDocId, setActiveDocId] = useState<string | null>(null);
     const [doc, setDoc] = useState<DocumentResponse | null>(null);
@@ -150,26 +126,14 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
     // missing). Subsequent switches are handled by the activeDocId effect.
     useEffect(() => {
         let cancelled = false;
-        let servedFromCache = false;
         setStatus({ kind: 'loading' });
         (async () => {
             try {
-                const cachedList = await getCachedDocumentList(paperId);
-                if (!cancelled && cachedList) {
-                    const docs = cachedList.documents as DocumentSummary[];
-                    setDocs(docs);
-                    const main = docs.find((d) => d.kind === 'main');
-                    setActiveDocId(main?.id || docs[0]?.id || null);
-                    setStatus({ kind: 'idle' });
-                    servedFromCache = true;
-                }
-
                 const list: DocumentSummary[] = await fetchFromApi(
                     `/api/document?paper_id=${encodeURIComponent(paperId)}`
                 );
                 if (cancelled) return;
                 setDocs(list);
-                await cacheDocumentList(paperId, list);
                 const main = list.find((d) => d.kind === 'main');
                 const initial = main?.id || list[0]?.id || null;
                 setActiveDocId(initial);
@@ -178,10 +142,6 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                 }
             } catch (e) {
                 if (cancelled) return;
-                // If we already rendered from cache, the network failure is
-                // expected (offline). Don't replace the user's view with a
-                // misleading "Save failed" status.
-                if (servedFromCache) return;
                 setStatus({
                     kind: 'error',
                     message: e instanceof Error ? e.message : 'Could not load documents',
@@ -197,56 +157,20 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
     useEffect(() => {
         if (!activeDocId) return;
         let cancelled = false;
-        let servedFromCache = false;
         setStatus({ kind: 'loading' });
         (async () => {
             try {
-                const cached = await getCachedDocument(activeDocId);
-                if (!cancelled && cached) {
-                    const cachedDoc = cached.data as DocumentResponse;
-                    setDoc(cachedDoc);
-                    setOverwriteContent(cachedDoc.content);
-                    setOverwriteToken((t) => t + 1);
-                    pendingContentRef.current = null;
-                    setStatus(cachedDoc.offlineConflict ? { kind: 'conflict' } : { kind: 'idle' });
-                    servedFromCache = true;
-                }
-
                 const response: DocumentResponse = await fetchFromApi(
                     `/api/document/${encodeURIComponent(activeDocId)}`
                 );
                 if (cancelled) return;
-                const queued = await getQueuedDocPut(response.id);
-                const cachedAfterFetch = await getCachedDocument(response.id);
-                const conflictMarker =
-                    cachedAfterFetch?.data && typeof cachedAfterFetch.data === 'object'
-                        ? (cachedAfterFetch.data as DocumentResponse).offlineConflict
-                        : undefined;
-                const hasOfflineConflict = Boolean(conflictMarker);
-                const hydrated = queued
-                    ? { ...response, content: queued.payload.content }
-                    : response;
-                if (conflictMarker) {
-                    hydrated.offlineConflict = conflictMarker;
-                }
-                setDoc(hydrated);
-                await cacheDocument(response.id, hydrated);
-                setOverwriteContent(hydrated.content);
+                setDoc(response);
+                setOverwriteContent(response.content);
                 setOverwriteToken((t) => t + 1);
-                pendingContentRef.current = queued ? queued.payload.content : null;
-                setStatus(
-                    hasOfflineConflict
-                        ? { kind: 'conflict' }
-                        : queued
-                            ? { kind: 'queued-offline' }
-                            : { kind: 'idle' }
-                );
+                pendingContentRef.current = null;
+                setStatus({ kind: 'idle' });
             } catch (e) {
                 if (cancelled) return;
-                // Same offline-tolerant behavior as the doc list effect: a
-                // network throw after a cache hit is expected, not an error
-                // the user needs to see.
-                if (servedFromCache) return;
                 setStatus({
                     kind: 'error',
                     message: e instanceof Error ? e.message : 'Could not load document',
@@ -335,17 +259,13 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
 
             if (pendingContentRef.current === sentContent) {
                 pendingContentRef.current = null;
-                await clearQueuedDocPut(sentDocId);
             }
             setStatus({ kind: 'saved', at: Date.now() });
         } catch (e) {
-            await queueDocPut({
-                documentId: sentDocId,
-                paperId: current.paper_id,
-                content: sentContent,
-                expectedRevision: sentRevision,
+            setStatus({
+                kind: 'error',
+                message: e instanceof Error ? e.message : 'Network error',
             });
-            setStatus({ kind: 'queued-offline' });
         } finally {
             inFlightRef.current = false;
             if (pendingContentRef.current != null) {
@@ -365,23 +285,6 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                 return;
             }
             pendingContentRef.current = markdown;
-            // Always write to IDB and queue an outbox put. The queue acts as a
-            // crash-durability checkpoint: if the tab is closed before the
-            // 800ms debounced PUT fires, replay still picks up the latest
-            // content on next mount. The outbox key is collapsed to one item
-            // per document (`doc-put:<id>`), so this stays O(1) regardless of
-            // typing rate.
-            void cacheDocument(current.id, { ...current, content: markdown });
-            void queueDocPut({
-                documentId: current.id,
-                paperId: current.paper_id,
-                content: markdown,
-                expectedRevision: current.revision,
-            });
-            if (!online) {
-                setStatus({ kind: 'queued-offline' });
-                return;
-            }
             if (status.kind === 'too-large' || status.kind === 'conflict') {
                 // Block autosaves while the user resolves the situation.
                 return;
@@ -389,7 +292,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
             if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
             debounceTimerRef.current = setTimeout(persist, AUTOSAVE_DEBOUNCE_MS);
         },
-        [online, persist, status.kind]
+        [persist, status.kind]
     );
 
     // Flush any pending content synchronously and clear the debounce. Returns
@@ -412,10 +315,6 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
             const response: DocumentResponse = await fetchFromApi(
                 `/api/document/${encodeURIComponent(activeDocId)}`
             );
-            // Drop any pending local writes for this doc — the user chose to
-            // throw them away — and strip the conflict marker from IDB.
-            await clearQueuedDocPut(response.id);
-            await cacheDocument(response.id, response);
             setDoc(response);
             setOverwriteContent(response.content);
             setOverwriteToken((t) => t + 1);
@@ -429,53 +328,6 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
         }
     }, [activeDocId]);
 
-    const handleKeepLocal = useCallback(async () => {
-        const current = docRef.current;
-        const localContent = pendingContentRef.current ?? current?.content;
-        if (!current || localContent == null) return;
-        // Read the conflict marker the replay loop wrote into IDB. The server
-        // revision and content live there — without using them, we'd queue a
-        // PUT with the stale revision and 409 again forever.
-        const cached = await getCachedDocument(current.id);
-        const conflict =
-            cached?.data && typeof cached.data === 'object'
-                ? (cached.data as DocumentResponse).offlineConflict
-                : undefined;
-        const targetRevision =
-            typeof conflict?.serverRevision === 'number'
-                ? conflict.serverRevision
-                : current.revision;
-
-        pendingContentRef.current = localContent;
-        // Strip offlineConflict by destructuring it out — leaving it as
-        // `undefined` would still satisfy a truthy check after a structured
-        // clone round-trip, keeping the editor stuck in conflict mode.
-        const { offlineConflict: _stripped, ...cleanCurrent } = current;
-        const nextDoc: DocumentResponse = {
-            ...cleanCurrent,
-            revision: targetRevision,
-            content: localContent,
-        };
-        setDoc(nextDoc);
-        await cacheDocument(current.id, nextDoc);
-        await queueDocPut({
-            documentId: current.id,
-            paperId: current.paper_id,
-            content: localContent,
-            expectedRevision: targetRevision,
-        });
-        setStatus({ kind: 'queued-offline' });
-        if (online) {
-            if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-            debounceTimerRef.current = setTimeout(persist, AUTOSAVE_DEBOUNCE_MS);
-        }
-    }, [online, persist]);
-
-    const handleCopyLocal = useCallback(async () => {
-        const localContent = pendingContentRef.current ?? docRef.current?.content ?? '';
-        await navigator.clipboard.writeText(localContent);
-    }, []);
-
     const handleSwitch = useCallback(
         async (id: string) => {
             setSwitcherOpen(false);
@@ -487,7 +339,6 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
     );
 
     const handleCreate = useCallback(async () => {
-        if (!online) return;
         try {
             setSwitcherOpen(false);
             await flushPending();
@@ -511,11 +362,10 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                 message: e instanceof Error ? e.message : 'Could not create doc',
             });
         }
-    }, [online, paperId, flushPending]);
+    }, [paperId, flushPending]);
 
     const handleRenameSubmit = useCallback(
         async (id: string) => {
-            if (!online) return;
             const title = renameDraft.trim();
             if (!title) {
                 setRenamingId(null);
@@ -548,12 +398,11 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                 setRenamingId(null);
             }
         },
-        [online, renameDraft]
+        [renameDraft]
     );
 
     const handleDelete = useCallback(
         async (id: string) => {
-            if (!online) return;
             // window.confirm is fine for v1 — slice 3a doesn't introduce a
             // confirm-dialog primitive just for this one action.
             if (typeof window !== 'undefined' && !window.confirm('Delete this doc?')) {
@@ -575,32 +424,8 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                 });
             }
         },
-        [activeDocId, docs, online]
+        [activeDocId, docs]
     );
-
-    // The replay loop writes an `offlineConflict` marker into the cached doc
-    // when a queued PUT 409s. Pick that up live so the editor flips into
-    // conflict mode without waiting for a doc switch / reload.
-    useEffect(() => {
-        const handler = (event: Event) => {
-            const detail = (event as CustomEvent<{ documentId?: string }>).detail;
-            const current = docRef.current;
-            if (!current || !detail?.documentId) return;
-            if (current.id !== detail.documentId) return;
-            (async () => {
-                const cached = await getCachedDocument(current.id);
-                const conflict =
-                    cached?.data && typeof cached.data === 'object'
-                        ? (cached.data as DocumentResponse).offlineConflict
-                        : undefined;
-                if (!conflict) return;
-                setDoc((prev) => (prev ? { ...prev, offlineConflict: conflict } : prev));
-                setStatus({ kind: 'conflict' });
-            })();
-        };
-        window.addEventListener(OFFLINE_DOC_CONFLICT_EVENT, handler);
-        return () => window.removeEventListener(OFFLINE_DOC_CONFLICT_EVENT, handler);
-    }, []);
 
     // While the agentic chat is streaming, poll for `write_main_doc` results.
     // Only meaningful when the user is viewing MAIN — the agent doesn't write
@@ -734,14 +559,12 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                                                 }}
                                                 className="h-7 text-sm"
                                                 maxLength={200}
-                                                disabled={!online}
                                             />
                                             <button
                                                 type="button"
                                                 onClick={() => handleRenameSubmit(d.id)}
                                                 className="p-1 rounded hover:bg-accent"
                                                 aria-label="Save"
-                                                disabled={!online}
                                             >
                                                 <Check className="h-3.5 w-3.5" />
                                             </button>
@@ -775,13 +598,11 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                                                 type="button"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    if (!online) return;
                                                     setRenameDraft(d.title);
                                                     setRenamingId(d.id);
                                                 }}
                                                 className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-background"
                                                 aria-label="Rename"
-                                                disabled={!online}
                                             >
                                                 <Pencil className="h-3.5 w-3.5" />
                                             </button>
@@ -795,7 +616,6 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                                                 }}
                                                 className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-background text-red-600 dark:text-red-400"
                                                 aria-label="Delete"
-                                                disabled={!online}
                                             >
                                                 <Trash2 className="h-3.5 w-3.5" />
                                             </button>
@@ -808,8 +628,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                             <button
                                 type="button"
                                 onClick={handleCreate}
-                                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                                disabled={!online}
+                                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm hover:bg-accent"
                             >
                                 <Plus className="h-3.5 w-3.5" />
                                 <span>New doc</span>
@@ -821,33 +640,17 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                 <div className="flex items-center gap-2">
                     <StatusRow status={status} />
                     {status.kind === 'conflict' && (
-                        <>
-                            <button
-                                type="button"
-                                onClick={handleKeepLocal}
-                                className="text-xs px-2 py-1 rounded bg-amber-100 dark:bg-amber-950 hover:bg-amber-200 dark:hover:bg-amber-900 text-amber-900 dark:text-amber-100"
-                            >
-                                Keep local
-                            </button>
-                            <button
-                                type="button"
-                                onClick={handleReload}
-                                className="text-xs px-2 py-1 rounded bg-amber-100 dark:bg-amber-950 hover:bg-amber-200 dark:hover:bg-amber-900 text-amber-900 dark:text-amber-100"
-                            >
-                                Reload
-                            </button>
-                            <button
-                                type="button"
-                                onClick={handleCopyLocal}
-                                className="text-xs px-2 py-1 rounded bg-amber-100 dark:bg-amber-950 hover:bg-amber-200 dark:hover:bg-amber-900 text-amber-900 dark:text-amber-100"
-                            >
-                                Copy
-                            </button>
-                        </>
+                        <button
+                            type="button"
+                            onClick={handleReload}
+                            className="text-xs px-2 py-1 rounded bg-amber-100 dark:bg-amber-950 hover:bg-amber-200 dark:hover:bg-amber-900 text-amber-900 dark:text-amber-100"
+                        >
+                            Reload
+                        </button>
                     )}
                 </div>
             </div>
-            <div className={`min-h-0 flex-1 overflow-y-auto ${isMobile ? 'pb-24' : ''}`}>
+            <div className={`flex-1 overflow-y-auto ${isMobile ? 'pb-24' : ''}`}>
                 {activeDoc ? (
                     <MilkdownImpl
                         initialContent={activeDoc.content}

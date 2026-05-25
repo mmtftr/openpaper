@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { ShieldX } from 'lucide-react';
 import { fetchFromApi } from './api';
 
@@ -36,20 +36,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 
-	// Sync user state with localStorage whenever it changes — but skip the
-	// very first run. Initial state is `null` (for SSR/hydration parity), and
-	// the auth-check effect below restores from localStorage right after.
-	// Without this guard, the sync effect runs first with `null` and wipes
-	// the cached identity before anyone gets to read it. That's invisible
-	// online (checkAuth re-populates from /api/auth/me) but fatal offline:
-	// the cached user is destroyed, leaving the redirect-to-login fallback
-	// to fire on every offline reload.
-	const isInitialMountRef = useRef(true);
+	// Sync user state with localStorage whenever it changes
 	useEffect(() => {
-		if (isInitialMountRef.current) {
-			isInitialMountRef.current = false;
-			return;
-		}
 		if (user) {
 			localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
 		} else {
@@ -75,26 +63,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				if (response.success && response.user) {
 					setUser(response.user);
 				} else {
-					// Server explicitly said "not authenticated" — that's the
-					// only signal strong enough to log a cached user out.
+					// Auth check failed, clear the user
 					setUser(null);
 				}
 			} catch (err) {
-				// Network error: server unreachable, DNS failure, VPN down,
-				// plane mode, anything. `navigator.onLine` only reflects the
-				// OS-level link state, so we can't trust it as a proxy for
-				// "user is actually offline" — the server can be down while
-				// Wi-Fi reports online. In every network-error case we keep
-				// whatever localStorage gave us. If the session has truly
-				// expired, real API calls will return 401s and the app can
-				// handle reauth lazily; meanwhile the offline reader/notes
-				// flow still works against IDB.
 				console.error('Auth check failed:', err);
-				setError(
-					typeof navigator !== 'undefined' && !navigator.onLine
-						? 'Offline — using cached session'
-						: 'Could not reach server — using cached session'
-				);
+				setError('Failed to check authentication status');
+				// Also clear the user on error
+				setUser(null);
 			} finally {
 				setLoading(false);
 			}

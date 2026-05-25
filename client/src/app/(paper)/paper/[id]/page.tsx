@@ -9,12 +9,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
     AudioLines,
-    Check,
-    Download,
     FileText,
     Highlighter,
     Lightbulb,
-    Loader2,
     MessageCircle,
 } from 'lucide-react';
 import { toast } from "sonner";
@@ -39,13 +36,6 @@ import { SidePanelContent } from '@/components/SidePanelContent';
 import { PaperMarkdownReader } from '@/components/PaperMarkdownReader';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Book, Box, ScrollText } from 'lucide-react';
-import {
-    cachePaperMetadata,
-    cachePdfBlob,
-    getCachedPaperMetadata,
-    getCachedPdfObjectUrl,
-    pinPaperForOffline,
-} from '@/lib/offline';
 
 const OverviewTool = {
     name: "Overview",
@@ -95,9 +85,6 @@ export default function PaperView() {
     const { user, loading: authLoading } = useAuth();
     const [paperData, setPaperData] = useState<PaperData | null>(null);
     const [loading, setLoading] = useState(true);
-    const [offlinePdfUrl, setOfflinePdfUrl] = useState<string | null>(null);
-    const [preparingOffline, setPreparingOffline] = useState(false);
-    const [offlineReady, setOfflineReady] = useState(false);
 
     const {
         highlights,
@@ -452,17 +439,25 @@ export default function PaperView() {
 
 
     useEffect(() => {
-        if (authLoading || user) return;
-        // Don't redirect to /login while offline — that page itself isn't
-        // reachable without the network and would just dead-end the user.
-        if (typeof navigator !== 'undefined' && !navigator.onLine) return;
-        // Don't redirect if we have a cached identity from a prior session.
-        // The auth provider may have failed to verify (server unreachable,
-        // VPN down, etc.) but the user was authenticated previously — better
-        // to show cached IDB content than bounce them off the page.
-        if (typeof window !== 'undefined' && window.localStorage.getItem('auth_user')) return;
-        window.location.href = `/login`;
+        if (!authLoading && !user) {
+            // Redirect to login if user is not authenticated
+            window.location.href = `/login`;
+        }
     }, [authLoading, user]);
+
+    // The paper page is a client component, so the static `title: "Open Paper"`
+    // from the paper layout metadata is what initially lands in the tab. Patch
+    // document.title once the paper loads, and restore it on unmount so
+    // navigating away doesn't leave a stale paper title on the next route.
+    useEffect(() => {
+        const title = paperData?.title?.trim();
+        if (!title) return;
+        const previous = document.title;
+        document.title = `${title} - Open Paper`;
+        return () => {
+            document.title = previous;
+        };
+    }, [paperData?.title]);
 
     useEffect(() => {
         if (activeHighlight) {
@@ -510,51 +505,10 @@ export default function PaperView() {
 
         async function fetchPaper() {
             try {
-                const cached = await getCachedPaperMetadata(id);
-                if (cached) {
-                    setPaperData(cached.data);
-                    setOfflineReady(true);
-                    const cachedPdf = await getCachedPdfObjectUrl(id);
-                    if (cachedPdf) setOfflinePdfUrl(cachedPdf);
-                    setLoading(false);
-                }
-
                 const response: PaperData = await fetchFromApi(`/api/paper?id=${id}`);
                 setPaperData(response);
-                await cachePaperMetadata(id, response);
-
-                // Auto-cache the PDF on first online open. The plane scenario
-                // is "I read this online and now I want it offline" — if we
-                // only cache on an explicit pin click, users who forget to
-                // hit the button get a blank PDF mid-flight. Best-effort:
-                // skip if no file_url, or if a blob is already cached.
-                if (response.file_url) {
-                    const existing = await getCachedPdfObjectUrl(id);
-                    if (!existing) {
-                        cachePdfBlob(id, response.file_url)
-                            .then(async () => {
-                                const cachedUrl = await getCachedPdfObjectUrl(id);
-                                if (cachedUrl) {
-                                    setOfflinePdfUrl(cachedUrl);
-                                    setOfflineReady(true);
-                                }
-                            })
-                            .catch((err) => {
-                                // Don't surface to the user — this is a
-                                // background warm-up, not an explicit ask.
-                                console.warn('Background PDF cache failed:', err);
-                            });
-                    }
-                }
             } catch (error) {
                 console.error('Error fetching paper:', error);
-                const cached = await getCachedPaperMetadata(id);
-                if (cached) {
-                    setPaperData(cached.data);
-                    setOfflineReady(true);
-                    const cachedPdf = await getCachedPdfObjectUrl(id);
-                    if (cachedPdf) setOfflinePdfUrl(cachedPdf);
-                }
             } finally {
                 setLoading(false);
             }
@@ -566,18 +520,6 @@ export default function PaperView() {
         refreshAnnotations();
         fetchHighlights();
     }, [id, jobId]);
-
-    useEffect(() => {
-        if (!id) return;
-        getCachedPdfObjectUrl(id)
-            .then((url) => {
-                if (url) {
-                    setOfflinePdfUrl(url);
-                    setOfflineReady(true);
-                }
-            })
-            .catch((error) => console.error('Error loading cached PDF:', error));
-    }, [id]);
 
     useEffect(() => {
         if (userMessageReferences.length > 0) {
@@ -608,29 +550,6 @@ export default function PaperView() {
             return null;
         }
     }, [id]);
-
-    const handleMakeAvailableOffline = useCallback(async () => {
-        if (!id || !paperData || preparingOffline) return;
-        setPreparingOffline(true);
-        try {
-            await cachePaperMetadata(id, paperData, { pinned: true });
-            await pinPaperForOffline(id);
-            if (paperData.file_url) {
-                await cachePdfBlob(id, paperData.file_url, { pinned: true });
-                const cachedUrl = await getCachedPdfObjectUrl(id);
-                setOfflinePdfUrl(cachedUrl);
-            }
-            setOfflineReady(true);
-            toast.success("Paper is available offline.");
-        } catch (error) {
-            console.error('Error preparing paper offline:', error);
-            toast.error("Could not prepare this paper for offline use.", {
-                description: error instanceof Error ? error.message : undefined,
-            });
-        } finally {
-            setPreparingOffline(false);
-        }
-    }, [id, paperData, preparingOffline]);
 
     const handleShare = useCallback(async () => {
         if (!id || !paperData || isSharing) return;
@@ -712,46 +631,9 @@ export default function PaperView() {
 
     if (loading) return <PaperViewSkeleton />;
 
-    if (!paperData) {
-        return (
-            <div className="flex h-[calc(100vh-64px)] items-center justify-center p-6 text-center">
-                <div>
-                    <h1 className="text-base font-semibold">This paper is not available offline yet.</h1>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                        Reconnect and open paper {id} once to prepare it for offline reading.
-                    </p>
-                </div>
-            </div>
-        );
-    }
+    if (!paperData) return null;
 
-    // Always prefer the IDB-cached blob when we have one. PDFs don't change
-    // server-side after upload, so there's no freshness reason to re-download.
-    // And `navigator.onLine` lies on flaky networks (Wi-Fi associated but no
-    // route, captive portal, VPN partially up) — preferring the cached blob
-    // means the viewer doesn't dead-end into ERR_INTERNET_DISCONNECTED whenever
-    // the network heuristic is wrong.
-    const pdfUrlForViewer = offlinePdfUrl || paperData.file_url;
-    const OfflineControl = (
-        <Button
-            size="sm"
-            variant={offlineReady ? "secondary" : "outline"}
-            className="absolute right-3 top-3 z-20 gap-2 bg-background/90 backdrop-blur"
-            onClick={handleMakeAvailableOffline}
-            disabled={preparingOffline || !paperData.file_url}
-        >
-            {preparingOffline ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-            ) : offlineReady ? (
-                <Check className="h-4 w-4" />
-            ) : (
-                <Download className="h-4 w-4" />
-            )}
-            <span className="hidden sm:inline">
-                {offlineReady ? "Available offline" : "Make available offline"}
-            </span>
-        </Button>
-    );
+    const pdfUrlForViewer = paperData.file_url;
 
     const sidePanelProps = {
         rightSideFunction,
@@ -786,7 +668,6 @@ export default function PaperView() {
                 <div className="flex-grow overflow-auto min-h-0">
                     {mobileView === 'reader' ? (
                         <div className="relative w-full h-full">
-                            {OfflineControl}
                             {pdfUrlForViewer && (
                                 <PdfHighlighterViewer
                                     pdfUrl={pdfUrlForViewer}
@@ -896,7 +777,6 @@ export default function PaperView() {
                 >
                     {pdfUrlForViewer && (
                         <div className="relative w-full h-full">
-                            {OfflineControl}
                             <PdfHighlighterViewer
                                 pdfUrl={pdfUrlForViewer}
                                 explicitSearchTerm={explicitSearchTerm}
