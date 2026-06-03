@@ -32,6 +32,16 @@ export interface PaperData {
     parser?: "mistral" | "pymupdf";
     page_count?: number;
     figure_count?: number;
+    supplementary_of_paper_id?: string | null;
+}
+
+export interface SupplementaryMaterialSummary {
+    id: string;
+    title: string | null;
+    preview_url: string | null;
+    page_count: number | null;
+    created_at: string;
+    status: 'pending' | 'running' | 'completed' | 'failed' | string;
 }
 
 export interface SharedPaper {

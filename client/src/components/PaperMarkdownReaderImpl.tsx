@@ -76,7 +76,7 @@ export default function PaperMarkdownReaderImpl({ markdown }: PaperMarkdownReade
         <>
             <div
                 ref={rootRef}
-                className="paper-markdown-reader h-full [&_img]:cursor-zoom-in max-sm:[&_.milkdown]:px-2 max-sm:[&_.ProseMirror]:px-2"
+                className="paper-markdown-reader h-full [&_img]:cursor-zoom-in"
             />
             {zoomedImage && (
                 <div

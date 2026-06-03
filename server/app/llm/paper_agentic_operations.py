@@ -164,6 +164,7 @@ def _build_system_prompt(
     paper: Paper,
     mode: ContextMode,
     response_style: Optional[str],
+    supplementary_papers: Optional[Sequence[Paper]] = None,
 ) -> str:
     outline = build_outline(paper)
     outline_text = render_outline_text(outline)
@@ -172,6 +173,10 @@ def _build_system_prompt(
         outline=outline_text,
         additional_instructions=additional,
     )
+
+    supplementary_block = _render_supplementary_block(supplementary_papers)
+    if supplementary_block:
+        base = base + "\n\n" + supplementary_block
 
     parser = str(getattr(paper, "parser", "") or "")
     preload = _select_preload(mode, paper, outline)
@@ -185,6 +190,45 @@ def _build_system_prompt(
             preloaded_content=preload
         )
     return base + "\n\n" + ADAPTIVE_MODE_PRELOAD.format(preloaded_content=preload)
+
+
+def _render_supplementary_block(
+    supplementary_papers: Optional[Sequence[Paper]],
+) -> str:
+    """Emit the supplementary-papers listing for the system prompt.
+
+    The agent is told it can reach into each supplementary by passing the
+    listed `paper_id` to the same tools (read_section, read_pages,
+    search_paper, get_figure). Returns "" when there are no supplementaries
+    so the prompt stays untouched for ordinary single-paper chats.
+    """
+    if not supplementary_papers:
+        return ""
+    lines: List[str] = [
+        "## Supplementary materials attached to this paper",
+        (
+            "These are accessible via the same tools (read_section, read_pages, "
+            "search_paper, get_figure) by passing their paper_id. Treat them as "
+            "additional sections of the main paper. Calling search_paper without "
+            "a paper_id searches the whole family at once and tags each hit with "
+            "the paper_id it came from."
+        ),
+        "",
+    ]
+    for sup in supplementary_papers:
+        sup_id = str(getattr(sup, "id", "") or "")
+        sup_title = str(getattr(sup, "title", "") or "(untitled)")
+        sup_pages = getattr(sup, "page_count", None)
+        pages_suffix = f" ({sup_pages} pages)" if sup_pages else ""
+        lines.append(f'- paper_id={sup_id} — "{sup_title}"{pages_suffix}')
+    lines.append("")
+    lines.append(
+        "When citing evidence from a supplementary, extend the evidence-block "
+        "marker with the supplementary's paper_id, e.g. "
+        "`@cite[3|page=2|paper_id=<id>]`. Citations without a paper_id are "
+        "treated as belonging to the main paper."
+    )
+    return "\n".join(lines)
 
 
 class PaperAgenticOperations(BaseLLMClient):
@@ -219,13 +263,47 @@ class PaperAgenticOperations(BaseLLMClient):
         if parser == "mistral" and context_mode == "raw":
             context_mode = "adaptive"
 
+        # Pull any supplementary papers attached to this parent. The chat
+        # always runs against the parent paper; supplementaries widen the
+        # agent's tool surface (they're addressable by paper_id on every
+        # paper-reading tool) but never get their own conversation.
+        supplementary_papers: List[Paper] = []
+        try:
+            supplementary_papers = list(
+                paper_crud.list_supplementary_for(
+                    db,
+                    parent_paper_id=uuid.UUID(paper_id),
+                    user=current_user,
+                )
+                or []
+            )
+        except AttributeError:
+            # paper_crud.list_supplementary_for is being added by a separate
+            # change; treat its absence as "no supplementaries for now".
+            supplementary_papers = []
+        except Exception as exc:
+            logger.warning(
+                "Failed to load supplementary papers for %s: %s", paper_id, exc
+            )
+            supplementary_papers = []
+
+        allowed_paper_ids: List[str] = [
+            paper_id,
+            *[str(p.id) for p in supplementary_papers],
+        ]
+
         conversation_history = message_crud.get_conversation_messages(
             db,
             conversation_id=uuid.UUID(conversation_id),
             current_user=current_user,
         )
 
-        system_prompt = _build_system_prompt(paper, context_mode, response_style)
+        system_prompt = _build_system_prompt(
+            paper,
+            context_mode,
+            response_style,
+            supplementary_papers=supplementary_papers,
+        )
 
         user_citations = (
             CitationHandler.convert_references_to_citations(user_references)
@@ -235,6 +313,28 @@ class PaperAgenticOperations(BaseLLMClient):
         user_message_text = (
             f"{question}\n\n{user_citations}" if user_citations else question
         )
+
+        # The reconciler needs the supplementary papers in scope so it can
+        # match a citation's quote against the correct paper's pymupdf text
+        # and tag the citation with the originating supplementary id. Bind
+        # them onto the function via a small closure to avoid changing
+        # `run_pydantic_paper_agent`'s reconciler contract.
+        family_index: Dict[str, Paper] = {paper_id: paper}
+        for sup in supplementary_papers:
+            family_index[str(sup.id)] = sup
+
+        async def _reconcile_family_citations(
+            citations: List[Dict[str, Any]],
+            parent_paper: Paper,
+            llm_client: BaseLLMClient,
+        ) -> Optional[List[Dict[str, Any]]]:
+            return await _reconcile_citations(
+                citations,
+                parent_paper,
+                llm_client,
+                family_index=family_index,
+                parent_paper_id=paper_id,
+            )
 
         async for chunk in run_pydantic_paper_agent(
             llm_client=self,
@@ -246,12 +346,13 @@ class PaperAgenticOperations(BaseLLMClient):
             system_prompt=system_prompt,
             user_message_text=user_message_text,
             conversation_history=conversation_history,
-            citation_reconciler=_reconcile_citations,
+            citation_reconciler=_reconcile_family_citations,
             llm_provider=llm_provider,
             model_type=model_type,
             model=model,
             reasoning_effort=reasoning_effort,
             max_agentic_iterations=MAX_AGENTIC_ITERATIONS,
+            allowed_paper_ids=allowed_paper_ids,
         ):
             yield chunk
 
@@ -296,29 +397,52 @@ async def _reconcile_citations(
     citations: List[Dict[str, Any]],
     paper: Paper,
     llm_client: BaseLLMClient,
+    *,
+    family_index: Optional[Dict[str, Paper]] = None,
+    parent_paper_id: Optional[str] = None,
 ) -> Optional[List[Dict[str, Any]]]:
     """For each citation, replace its `reference` text with the substring
     that actually matches the PDF page (so the highlighter can find it).
 
     Strategy per citation:
       1. If the citation has no page (legacy format), skip — leave verbatim.
-      2. Try the markdown→pymupdf normalizer. ~88% of prose hits this path
+      2. Pick the right paper. If the citation came tagged with `paper_id`
+         (supplementary-sourced), use that paper's OCR. Otherwise default to
+         the parent paper, then try each supplementary as a fallback so a
+         missing tag doesn't sink the match.
+      3. Try the markdown→pymupdf normalizer. ~88% of prose hits this path
          and costs nothing.
-      3. On miss, fall back to a fast-model call: the model gets the page's
+      4. On miss, fall back to a fast-model call: the model gets the page's
          plain-text and the OCR quote, returns the matching substring or
          NO_MATCH.
 
-    Falls back to the original quote when both fail. Returns None when there
-    were no citations to reconcile (so the caller can skip the event).
+    Convention on the `paper_id` field of a citation:
+      - Absent (or equal to the parent) → citation is from the parent paper.
+      - Equal to a supplementary's id → citation is from that supplementary.
+    The reconciled output carries `paper_id` explicitly for every citation
+    that we matched against a non-parent paper, so the client can route the
+    highlight to the right PDF.
     """
     if not citations:
         return None
-    if str(getattr(paper, "parser", "") or "") != "mistral":
-        return None
+
+    family_index = family_index or {}
+    # Always make the supplied parent paper available for lookup.
+    if parent_paper_id and parent_paper_id not in family_index:
+        family_index = {parent_paper_id: paper, **family_index}
+
+    def _resolve_paper_for_citation(cit: Dict[str, Any]) -> Tuple[Paper, Optional[str]]:
+        """Pick which paper a citation should match against. Returns
+        (paper_used, paper_id_to_tag_on_output_if_supplementary)."""
+        tagged = cit.get("paper_id")
+        if tagged and str(tagged) in family_index:
+            chosen = family_index[str(tagged)]
+            return chosen, (str(tagged) if str(tagged) != parent_paper_id else None)
+        return paper, None
 
     # Pair (citation, normalizer_result). Normalizer is sync + cheap so we run
     # it inline.
-    todo_for_llm: List[Tuple[int, Dict[str, Any], str]] = []
+    todo_for_llm: List[Tuple[int, Dict[str, Any], str, Paper, Optional[str]]] = []
     out: List[Dict[str, Any]] = []
     for cit in citations:
         page = cit.get("page")
@@ -327,7 +451,12 @@ async def _reconcile_citations(
             out.append(dict(cit))
             continue
 
-        page_text = _pymupdf_text_for_page(paper, int(page))
+        candidate_paper, supplementary_id = _resolve_paper_for_citation(cit)
+        if str(getattr(candidate_paper, "parser", "") or "") != "mistral":
+            out.append(dict(cit))
+            continue
+
+        page_text = _pymupdf_text_for_page(candidate_paper, int(page))
         if not page_text:
             out.append(dict(cit))
             continue
@@ -340,22 +469,28 @@ async def _reconcile_citations(
             patched = dict(cit)
             patched["reference"] = normalized_hit
             patched["matched_via"] = "normalizer"
+            if supplementary_id:
+                patched["paper_id"] = supplementary_id
             out.append(patched)
             continue
 
         # Defer to LLM fallback. Keep position so we can re-insert in order.
         out.append(dict(cit))
-        todo_for_llm.append((len(out) - 1, cit, page_text))
+        todo_for_llm.append(
+            (len(out) - 1, cit, page_text, candidate_paper, supplementary_id)
+        )
 
     if todo_for_llm:
         results = await asyncio.gather(
             *[
                 _reconcile_one_via_llm(cit, page_text, llm_client)
-                for _, cit, page_text in todo_for_llm
+                for _, cit, page_text, _, _ in todo_for_llm
             ],
             return_exceptions=True,
         )
-        for (idx, cit, _), result in zip(todo_for_llm, results):
+        for (idx, cit, _, _, supplementary_id), result in zip(
+            todo_for_llm, results
+        ):
             if isinstance(result, Exception):
                 logger.warning(
                     "LLM reconciliation failed for citation %s: %s",
@@ -368,6 +503,8 @@ async def _reconcile_citations(
             patched = dict(cit)
             patched["reference"] = result
             patched["matched_via"] = "llm"
+            if supplementary_id:
+                patched["paper_id"] = supplementary_id
             out[idx] = patched
 
     return out

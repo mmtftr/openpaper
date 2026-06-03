@@ -187,20 +187,37 @@ def _find_in_pdf_text(quote: str, page_text: str) -> Optional[str]:
     return None
 
 
-def _scaled_rect(rect: Any, page_number: int) -> dict[str, float | int]:
+# react-pdf-highlighter-extended stores a `Scaled` rect as the rect's position
+# (x1,y1 = top-left, x2,y2 = bottom-right) plus the *page* dimensions in
+# `width`/`height`. At render time it rescales linearly: out = viewport.dim *
+# coord / scaled.dim. PyMuPDF's `search_for` already returns rects in this exact
+# convention — top-left origin, y growing downward, in unrotated PDF points
+# (page size at scale 1.0) — so we just carry the page dimensions through.
+#
+# We deliberately do NOT set `usePdfCoordinates`: that routes the library through
+# PDF.js `convertToViewportRectangle`, which expects PDF-native bottom-left-origin
+# coordinates and flips the y-axis. Feeding it PyMuPDF's top-left coords mirrors
+# every highlight vertically.
+def _scaled_rect(
+    rect: Any, page_number: int, page_width: float, page_height: float
+) -> dict[str, float | int]:
     return {
         "x1": float(rect.x0),
         "y1": float(rect.y0),
         "x2": float(rect.x1),
         "y2": float(rect.y1),
-        "width": float(rect.width),
-        "height": float(rect.height),
+        "width": page_width,
+        "height": page_height,
         "pageNumber": page_number,
     }
 
 
-def _scaled_position(rects: Iterable[Any], page_number: int) -> Optional[dict[str, Any]]:
-    scaled_rects = [_scaled_rect(rect, page_number) for rect in rects]
+def _scaled_position(
+    rects: Iterable[Any], page_number: int, page_width: float, page_height: float
+) -> Optional[dict[str, Any]]:
+    scaled_rects = [
+        _scaled_rect(rect, page_number, page_width, page_height) for rect in rects
+    ]
     if not scaled_rects:
         return None
 
@@ -213,14 +230,13 @@ def _scaled_position(rects: Iterable[Any], page_number: int) -> Optional[dict[st
         "y1": y1,
         "x2": x2,
         "y2": y2,
-        "width": x2 - x1,
-        "height": y2 - y1,
+        "width": page_width,
+        "height": page_height,
         "pageNumber": page_number,
     }
     return {
         "boundingRect": bounding_rect,
         "rects": scaled_rects,
-        "usePdfCoordinates": True,
     }
 
 
@@ -246,13 +262,18 @@ def anchor_ai_highlights(
                 if not matched_text:
                     continue
 
+                page_width = float(page.rect.width)
+                page_height = float(page.rect.height)
+
                 search_terms = [highlight.text]
                 if matched_text not in search_terms:
                     search_terms.append(matched_text)
 
                 for term in search_terms:
                     rects = page.search_for(term)  # type: ignore
-                    position = _scaled_position(rects, page_number)
+                    position = _scaled_position(
+                        rects, page_number, page_width, page_height
+                    )
                     if position:
                         anchors[index] = {
                             "page_number": page_number,

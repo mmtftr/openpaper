@@ -21,6 +21,7 @@ import {
 	PaperHighlightAnnotation,
 	ScaledPosition,
 	HighlightColor,
+	SupplementaryMaterialSummary,
 } from "@/lib/schema";
 
 import EnigmaticLoadingExperience from "@/components/EnigmaticLoadingExperience";
@@ -38,6 +39,7 @@ import {
 	activeHighlightStore,
 	usePdfSearch,
 	PdfToolbar,
+	PdfBottomControls,
 	findTextPages,
 	createTextHighlightOverlays,
 	getAssistantHighlightBackgroundRgba,
@@ -174,6 +176,14 @@ export interface PdfHighlighterViewerProps {
 	onToggleReadMode?: () => void;
 	/** Fires once a search dispatched via `explicitSearchTerm` resolves, so callers can react to no-match. */
 	onSearchComplete?: (term: string, matchCount: number) => void;
+	/** Supplementary-materials wiring for PdfToolbar. The toolbar renders the
+	 *  dropdown + upload control; we only forward props through. */
+	parentPaperId?: string;
+	displayedPaperId?: string;
+	parentPaperTitle?: string;
+	supplementaryMaterials?: SupplementaryMaterialSummary[];
+	onChangeDisplayed?: (paperId: string) => void;
+	onSupplementaryUploaded?: () => void;
 }
 
 /** Syncs PdfLoader's render-prop pdfDocument into parent state without calling setState during render. */
@@ -220,8 +230,6 @@ export function PdfHighlighterViewer(props: PdfHighlighterViewerProps) {
 		setActiveHighlight,
 		addHighlight,
 		removeHighlight,
-		paperStatus,
-		handleStatusChange = () => { },
 		setUserMessageReferences,
 		onOverlaysCreated,
 		onRefreshUrl,
@@ -238,6 +246,12 @@ export function PdfHighlighterViewer(props: PdfHighlighterViewerProps) {
 		isReadMode = false,
 		onToggleReadMode,
 		onSearchComplete,
+		parentPaperId,
+		displayedPaperId,
+		parentPaperTitle,
+		supplementaryMaterials,
+		onChangeDisplayed,
+		onSupplementaryUploaded,
 	} = props;
 
 	// Position anchors for inline annotation cards
@@ -1751,10 +1765,6 @@ export function PdfHighlighterViewer(props: PdfHighlighterViewerProps) {
 		>
 			{/* Toolbar */}
 			<PdfToolbar
-				currentPage={currentPage}
-				numPages={numPages}
-				goToPreviousPage={goToPreviousPage}
-				goToNextPage={goToNextPage}
 				searchText={search.searchText}
 				showSearchInput={search.showSearchInput}
 				setShowSearchInput={search.setShowSearchInput}
@@ -1771,14 +1781,14 @@ export function PdfHighlighterViewer(props: PdfHighlighterViewerProps) {
 				scale={scale}
 				zoomIn={zoomIn}
 				zoomOut={zoomOut}
-				paperStatus={paperStatus}
-				handleStatusChange={handleStatusChange}
-				highlightColor={highlightColor}
-				setHighlightColor={setHighlightColor}
-				showAnnotationCards={showAnnotationCards}
-				onToggleAnnotationCards={onToggleAnnotationCards}
 				isReadMode={isReadMode}
 				onToggleReadMode={onToggleReadMode}
+				parentPaperId={parentPaperId}
+				displayedPaperId={displayedPaperId}
+				parentPaperTitle={parentPaperTitle}
+				supplementaryMaterials={supplementaryMaterials}
+				onChangeDisplayed={onChangeDisplayed}
+				onSupplementaryUploaded={onSupplementaryUploaded}
 			/>
 
 			{/* PDF Viewer — overflow-x-visible so margin annotation cards beside the page are not clipped */}
@@ -1836,6 +1846,18 @@ export function PdfHighlighterViewer(props: PdfHighlighterViewerProps) {
 						);
 					}}
 				</PdfLoader>
+
+				{/* Bottom controls: page nav + annotation thingy. Transparent until hovered. */}
+				<PdfBottomControls
+					currentPage={currentPage}
+					numPages={numPages}
+					goToPreviousPage={goToPreviousPage}
+					goToNextPage={goToNextPage}
+					highlightColor={highlightColor}
+					setHighlightColor={setHighlightColor}
+					showAnnotationCards={showAnnotationCards}
+					onToggleAnnotationCards={onToggleAnnotationCards}
+				/>
 			</div>
 
 			{/* Inline Annotation Menu */}

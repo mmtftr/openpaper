@@ -23,6 +23,7 @@ import {
     PaperData,
     PaperHighlight,
     PaperUploadJobStatusResponse,
+    SupplementaryMaterialSummary,
 } from '@/lib/schema';
 
 import { PaperSidebar } from '@/components/PaperSidebar';
@@ -31,6 +32,7 @@ import { useAuth } from '@/lib/auth';
 
 import PaperViewSkeleton from '@/components/PaperViewSkeleton';
 import ReportSkeleton from '@/components/ReportSkeleton';
+import { usePaperHeader } from '@/components/PaperHeaderContext';
 
 import { SidePanelContent } from '@/components/SidePanelContent';
 import { PaperMarkdownReader } from '@/components/PaperMarkdownReader';
@@ -83,8 +85,25 @@ export default function PaperView() {
     const searchParams = useSearchParams();
     const id = params.id as string;
     const { user, loading: authLoading } = useAuth();
+    // `paperData` always refers to the *parent* paper. When the route id is a
+    // supplementary, an effect below resolves the parent and re-fetches into
+    // this slot. The chat / doc / annotations panels all bind to this.
     const [paperData, setPaperData] = useState<PaperData | null>(null);
     const [loading, setLoading] = useState(true);
+    // The id of the parent paper (= route id for normal papers; = paperData.supplementary_of_paper_id
+    // when the user landed directly on a supplementary's URL).
+    const [parentPaperId, setParentPaperId] = useState<string>(id);
+    // The id of the paper whose PDF is currently rendered. Defaults to the
+    // `display` query param if present, else the route id.
+    const [displayedPaperId, setDisplayedPaperId] = useState<string>(() => {
+        if (typeof window === 'undefined') return id;
+        const display = new URLSearchParams(window.location.search).get('display');
+        return display || id;
+    });
+    // PaperData for the currently displayed PDF. When displayedPaperId === parentPaperId,
+    // we just reuse `paperData`. Otherwise we fetch the supplementary's PaperData here.
+    const [displayedPaperData, setDisplayedPaperData] = useState<PaperData | null>(null);
+    const [supplementaryMaterials, setSupplementaryMaterials] = useState<SupplementaryMaterialSummary[] | null>(null);
 
     const {
         highlights,
@@ -102,7 +121,7 @@ export default function PaperView() {
         addHighlight,
         removeHighlight,
         fetchHighlights
-    } = useHighlighterHighlights(id);
+    } = useHighlighterHighlights(parentPaperId);
 
     const {
         annotations,
@@ -111,7 +130,7 @@ export default function PaperView() {
         updateAnnotation,
         renderAnnotations,
         refreshAnnotations,
-    } = useAnnotations(id);
+    } = useAnnotations(parentPaperId);
 
     const [annotationCardsVisible, setAnnotationCardsVisible] = useState(false);
     /** When Annotations side panel is open, compose first note / reply here instead of margin cards */
@@ -120,6 +139,10 @@ export default function PaperView() {
     const [activeCitationMessageIndex, setActiveCitationMessageIndex] = useState<number | null>(null);
     const [flashCitation, setFlashCitation] = useState<{ key: string; messageIndex: number } | null>(null);
     const pendingCitationLookupRef = useRef<{ key: string; messageIndex: number; term: string } | null>(null);
+    // Tracks which paper id is currently held in `displayedPaperData` so the
+    // direct-visit branch (which seeds `displayedPaperData` from the route
+    // fetch) doesn't trigger a duplicate fetch in the effect below.
+    const displayedPaperDataIdRef = useRef<string | null>(null);
     const flashCitationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [explicitSearchTerm, setExplicitSearchTerm] = useState<string | undefined>(undefined);
     const [isSharing, setIsSharing] = useState(false);
@@ -358,10 +381,19 @@ export default function PaperView() {
         }
     };
 
-    // Add this function to handle citation clicks
-    const handleCitationClick = useCallback((key: string, messageIndex: number) => {
+    // Add this function to handle citation clicks. When `paperId` is provided
+    // and refers to a supplementary, flip the displayed PDF first so the
+    // explicit search term lands on the right document.
+    const handleCitationClick = useCallback((key: string, messageIndex: number, paperId?: string) => {
         setActiveCitationKey(key);
         setActiveCitationMessageIndex(messageIndex);
+
+        // Backwards-compat: a missing paperId means "the parent". Only switch
+        // displayed paper when the citation explicitly references something
+        // other than the parent.
+        if (paperId && paperId !== parentPaperId && paperId !== displayedPaperId) {
+            setDisplayedPaperId(paperId);
+        }
 
         // Scroll to the citation
         const element = document.getElementById(`citation-${key}-${messageIndex}`);
@@ -390,7 +422,7 @@ export default function PaperView() {
 
         // Clear the highlight after a few seconds
         setTimeout(() => setActiveCitationKey(null), 3000);
-    }, []);
+    }, [parentPaperId, displayedPaperId]);
 
     const handleSearchComplete = useCallback((term: string, matchCount: number) => {
         const pending = pendingCitationLookupRef.current;
@@ -419,11 +451,20 @@ export default function PaperView() {
 
         // Look up the citations terms from the citationKey
         const citationMatch = paperData?.summary_citations?.find(c => c.index === citationIndex);
+        // If the summary citation references a supplementary, flip the displayed
+        // PDF so the highlight lands on the right document.
+        if (
+            citationMatch?.paper_id &&
+            citationMatch.paper_id !== parentPaperId &&
+            citationMatch.paper_id !== displayedPaperId
+        ) {
+            setDisplayedPaperId(citationMatch.paper_id);
+        }
         setExplicitSearchTerm(citationMatch ? citationMatch.text : citationKey);
 
         // Clear the highlight after a few seconds
         setTimeout(() => setActiveCitationKey(null), 3000);
-    }, [paperData?.summary_citations]);
+    }, [paperData?.summary_citations, parentPaperId, displayedPaperId]);
 
     const handleHighlightClick = useCallback((highlight: PaperHighlight) => {
         setActiveHighlight(highlight);
@@ -506,7 +547,46 @@ export default function PaperView() {
         async function fetchPaper() {
             try {
                 const response: PaperData = await fetchFromApi(`/api/paper?id=${id}`);
-                setPaperData(response);
+                if (response.supplementary_of_paper_id) {
+                    // The route id is a supplementary. Rewrite the URL so the user
+                    // sees /paper/<parent>?display=<supp> and re-fetch the parent's
+                    // PaperData (which is what the chat/annotations panels bind to).
+                    // Use history.replaceState rather than router.replace for the same
+                    // reason as the rsf URL sync above: avoid Next.js RSC fetches
+                    // that can trigger full reloads on transient failures.
+                    const newParentId = response.supplementary_of_paper_id;
+                    try {
+                        const params = new URLSearchParams(window.location.search);
+                        params.set('display', id);
+                        const nextUrl = `/paper/${newParentId}?${params.toString()}`;
+                        const currentUrl = `${window.location.pathname}${window.location.search}`;
+                        if (nextUrl !== currentUrl) {
+                            window.history.replaceState(null, '', nextUrl);
+                        }
+                    } catch (err) {
+                        console.error('Error rewriting supplementary URL:', err);
+                    }
+                    setDisplayedPaperId(id);
+                    setParentPaperId(newParentId);
+                    // Cache the supplementary's PaperData since we already have it
+                    setDisplayedPaperData(response);
+                    displayedPaperDataIdRef.current = id;
+                    try {
+                        const parentResponse: PaperData = await fetchFromApi(`/api/paper?id=${newParentId}`);
+                        setPaperData(parentResponse);
+                    } catch (parentErr) {
+                        console.error('Error fetching parent paper:', parentErr);
+                    }
+                    // Note: useHighlighterHighlights re-fetches on paperId change
+                    // (its effect lists paperId as a dep). useAnnotations only
+                    // fetches on mount, so for the rare direct-visit-to-supplementary
+                    // case the annotations panel may need a manual refresh until
+                    // that hook is updated.
+                } else {
+                    // Route id is the parent. Honor any existing `display` query param.
+                    setParentPaperId(id);
+                    setPaperData(response);
+                }
             } catch (error) {
                 console.error('Error fetching paper:', error);
             } finally {
@@ -527,6 +607,72 @@ export default function PaperView() {
         }
     }, [userMessageReferences]);
 
+    // Fetch the displayed paper's data when it diverges from the parent.
+    // When they match, the parent's `paperData` is the source of truth and we
+    // just clear `displayedPaperData` so the consumer falls back to it.
+    useEffect(() => {
+        if (!displayedPaperId) return;
+        if (displayedPaperId === parentPaperId) {
+            setDisplayedPaperData(null);
+            displayedPaperDataIdRef.current = null;
+            return;
+        }
+        if (displayedPaperDataIdRef.current === displayedPaperId) return;
+        let cancelled = false;
+        async function fetchDisplayed() {
+            try {
+                const response: PaperData = await fetchFromApi(`/api/paper?id=${displayedPaperId}`);
+                if (!cancelled) {
+                    setDisplayedPaperData(response);
+                    displayedPaperDataIdRef.current = displayedPaperId;
+                }
+            } catch (err) {
+                console.error('Error fetching displayed paper:', err);
+            }
+        }
+        fetchDisplayed();
+        return () => {
+            cancelled = true;
+        };
+    }, [displayedPaperId, parentPaperId]);
+
+    // Fetch the supplementary list whenever the parent id is known.
+    const refetchSupplementaryMaterials = useCallback(async () => {
+        if (!parentPaperId) return;
+        try {
+            const response = await fetchFromApi(`/api/paper/${parentPaperId}/supplementary`);
+            setSupplementaryMaterials(Array.isArray(response) ? response : []);
+        } catch (err) {
+            console.error('Error fetching supplementary materials:', err);
+        }
+    }, [parentPaperId]);
+
+    useEffect(() => {
+        if (!parentPaperId) return;
+        refetchSupplementaryMaterials();
+    }, [parentPaperId, refetchSupplementaryMaterials]);
+
+    // Keep the `display` query param in sync as the user flips between PDFs.
+    // history.replaceState (not router.replace) for the same reason described
+    // in the rsf URL-sync effect above.
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const params = new URLSearchParams(window.location.search);
+        if (!displayedPaperId || displayedPaperId === parentPaperId) {
+            params.delete('display');
+        } else {
+            params.set('display', displayedPaperId);
+        }
+        const qs = params.toString();
+        const nextUrl = qs
+            ? `${window.location.pathname}?${qs}`
+            : window.location.pathname;
+        const currentUrl = `${window.location.pathname}${window.location.search}`;
+        if (nextUrl !== currentUrl) {
+            window.history.replaceState(null, '', nextUrl);
+        }
+    }, [displayedPaperId, parentPaperId]);
+
     const matchesCurrentCitation = useCallback((key: string, messageIndex: number) => {
         return activeCitationKey === key.toString() && activeCitationMessageIndex === messageIndex;
     }, [activeCitationKey, activeCitationMessageIndex]);
@@ -537,11 +683,19 @@ export default function PaperView() {
     }, [flashCitation]);
 
 
+    // Refresh the currently displayed PDF's signed URL (called on 403). This
+    // operates on the displayed paper, NOT the parent — when a supplementary is
+    // shown it's the supplementary's URL that's stale.
     const refreshPdfUrl = useCallback(async (): Promise<string | null> => {
+        if (!displayedPaperId) return null;
         try {
-            const response: PaperData = await fetchFromApi(`/api/paper?id=${id}`);
+            const response: PaperData = await fetchFromApi(`/api/paper?id=${displayedPaperId}`);
             if (response.file_url) {
-                setPaperData(response);
+                if (displayedPaperId === parentPaperId) {
+                    setPaperData(response);
+                } else {
+                    setDisplayedPaperData(response);
+                }
                 return response.file_url;
             }
             return null;
@@ -549,13 +703,13 @@ export default function PaperView() {
             console.error('Error refreshing PDF URL:', error);
             return null;
         }
-    }, [id]);
+    }, [displayedPaperId, parentPaperId]);
 
     const handleShare = useCallback(async () => {
-        if (!id || !paperData || isSharing) return;
+        if (!parentPaperId || !paperData || isSharing) return;
         setIsSharing(true);
         try {
-            const response = await fetchFromApi(`/api/paper/share?id=${id}`, {
+            const response = await fetchFromApi(`/api/paper/share?id=${parentPaperId}`, {
                 method: 'POST',
             });
             setPaperData(prev => prev ? { ...prev, share_id: response.share_id } : null);
@@ -568,13 +722,13 @@ export default function PaperView() {
         } finally {
             setIsSharing(false);
         }
-    }, [id, paperData, isSharing]);
+    }, [parentPaperId, paperData, isSharing]);
 
     const handleUnshare = useCallback(async () => {
-        if (!id || !paperData || !paperData.share_id || isSharing) return;
+        if (!parentPaperId || !paperData || !paperData.share_id || isSharing) return;
         setIsSharing(true);
         try {
-            await fetchFromApi(`/api/paper/unshare?id=${id}`, {
+            await fetchFromApi(`/api/paper/unshare?id=${parentPaperId}`, {
                 method: 'POST',
             });
             setPaperData(prev => prev ? { ...prev, share_id: "" } : null);
@@ -585,30 +739,51 @@ export default function PaperView() {
         } finally {
             setIsSharing(false);
         }
-    }, [id, paperData, isSharing]);
+    }, [parentPaperId, paperData, isSharing]);
+
+    const paperHeader = usePaperHeader();
+    const setPaperHeaderContext = paperHeader?.setPaperContext;
+    const headerUpdatePaperStatus = paperHeader?.updatePaperStatus;
+    const headerPaperStatus = paperHeader?.paperStatus ?? null;
+
+    // Publish the parent paper's id/status/title to the layout's header so the
+    // status dropdown can live there. Re-sync whenever any of those change.
+    useEffect(() => {
+        if (!setPaperHeaderContext) return;
+        setPaperHeaderContext(parentPaperId, paperData?.status ?? null, paperData?.title ?? null);
+        return () => setPaperHeaderContext(null, null, null);
+    }, [setPaperHeaderContext, parentPaperId, paperData?.status, paperData?.title]);
+
+    // Mirror header-initiated status changes back into local paperData so any
+    // remaining consumers (toasts, downstream effects) stay in sync.
+    useEffect(() => {
+        if (!headerPaperStatus) return;
+        setPaperData(prev => (prev && prev.status !== headerPaperStatus ? { ...prev, status: headerPaperStatus } : prev));
+    }, [headerPaperStatus]);
 
     const handleStatusChange = useCallback((status: PaperStatus) => {
+        setPaperData(prev => prev ? { ...prev, status: status } : null);
+        if (headerUpdatePaperStatus) {
+            headerUpdatePaperStatus(status);
+            return;
+        }
+        // Fallback (provider not mounted, e.g. share routes)
         try {
-            const url = `/api/paper/status?status=${status}&paper_id=${id}`;
-            fetchFromApi(url, {
+            fetchFromApi(`/api/paper/status?status=${status}&paper_id=${parentPaperId}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' }
             });
-            setPaperData(prev => prev ? { ...prev, status: status } : null);
             if (status === PaperStatusEnum.COMPLETED) {
-                toast.success(
-                    "Completed reading! 🎉",
-                    {
-                        description: `Congrats on finishing ${paperData?.title}!`,
-                        duration: 5000,
-                    }
-                )
+                toast.success("Completed reading! 🎉", {
+                    description: `Congrats on finishing ${paperData?.title}!`,
+                    duration: 5000,
+                });
             }
         } catch (error) {
             console.error('Error updating paper status:', error);
             toast.error("Failed to update paper status.");
         }
-    }, [id, paperData]);
+    }, [parentPaperId, paperData, headerUpdatePaperStatus]);
 
     const onAnnotateViaSidePanel = useCallback((payload: { highlightId: string }) => {
         setComposeHighlightId(payload.highlightId);
@@ -633,10 +808,21 @@ export default function PaperView() {
 
     if (!paperData) return null;
 
-    const pdfUrlForViewer = paperData.file_url;
+    // Resolve the PaperData for the displayed PDF. When viewing the parent
+    // directly it's just `paperData`; otherwise it's the supplementary's
+    // `displayedPaperData` (which the effect above keeps in sync).
+    const effectiveDisplayedPaperData =
+        displayedPaperId === parentPaperId
+            ? paperData
+            : displayedPaperData;
+
+    const pdfUrlForViewer = effectiveDisplayedPaperData?.file_url;
+    const displayedPaperStatus = effectiveDisplayedPaperData?.status ?? paperData.status;
 
     const sidePanelProps = {
         rightSideFunction,
+        // Side panel content (chat / doc / annotations / overview) is always
+        // bound to the parent — even when a supplementary PDF is shown.
         paperData,
         annotations,
         highlights,
@@ -645,7 +831,7 @@ export default function PaperView() {
         isSharing,
         handleShare,
         handleUnshare,
-        id,
+        id: parentPaperId,
         matchesCurrentCitation,
         flashesCurrentCitation,
         handleCitationClickFromSummary,
@@ -691,7 +877,7 @@ export default function PaperView() {
                                     annotations={annotations}
                                     setHighlights={setHighlights}
                                     handleStatusChange={handleStatusChange}
-                                    paperStatus={paperData.status}
+                                    paperStatus={displayedPaperStatus}
                                     onOverlaysCreated={handleOverlaysCreated}
                                     onRefreshUrl={refreshPdfUrl}
                                     addAnnotation={addAnnotation}
@@ -703,14 +889,25 @@ export default function PaperView() {
                                     annotationsPanelActive={annotationsPanelActive}
                                     onAnnotateViaSidePanel={onAnnotateViaSidePanel}
                                     onSearchComplete={handleSearchComplete}
+                                    parentPaperId={parentPaperId}
+                                    displayedPaperId={displayedPaperId}
+                                    parentPaperTitle={paperData?.title ?? undefined}
+                                    supplementaryMaterials={supplementaryMaterials ?? []}
+                                    onChangeDisplayed={setDisplayedPaperId}
+                                    onSupplementaryUploaded={refetchSupplementaryMaterials}
                                 />
                             )}
                         </div>
                     ) : mobileView === 'markdown' ? (
                         <PaperMarkdownReader
-                            endpoint={`/api/paper/markdown?id=${encodeURIComponent(id)}`}
-                            paperId={id}
-                            title={paperData.title}
+                            endpoint={`/api/paper/markdown?id=${encodeURIComponent(displayedPaperId)}`}
+                            paperId={displayedPaperId}
+                            title={effectiveDisplayedPaperData?.title ?? paperData.title}
+                            parentPaperId={parentPaperId}
+                            displayedPaperId={displayedPaperId}
+                            parentPaperTitle={paperData.title ?? undefined}
+                            supplementaryMaterials={supplementaryMaterials ?? []}
+                            onChangeDisplayed={setDisplayedPaperId}
                         />
                     ) : (
                         <div className="w-full h-full">
@@ -799,7 +996,7 @@ export default function PaperView() {
                                 annotations={annotations}
                                 setHighlights={setHighlights}
                                 handleStatusChange={handleStatusChange}
-                                paperStatus={paperData.status}
+                                paperStatus={displayedPaperStatus}
                                 onOverlaysCreated={handleOverlaysCreated}
                                 onRefreshUrl={refreshPdfUrl}
                                 addAnnotation={addAnnotation}
@@ -816,6 +1013,12 @@ export default function PaperView() {
                                 isReadMode={isReadMode}
                                 onToggleReadMode={handleToggleReadMode}
                                 onSearchComplete={handleSearchComplete}
+                                parentPaperId={parentPaperId}
+                                displayedPaperId={displayedPaperId}
+                                parentPaperTitle={paperData?.title ?? undefined}
+                                supplementaryMaterials={supplementaryMaterials ?? []}
+                                onChangeDisplayed={setDisplayedPaperId}
+                                onSupplementaryUploaded={refetchSupplementaryMaterials}
                             />
                         </div>
                     )}

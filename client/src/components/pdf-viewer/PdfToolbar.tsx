@@ -1,48 +1,45 @@
 "use client";
 
-import { MutableRefObject } from "react";
+import { Ref, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-	ArrowLeft,
-	ArrowRight,
 	Minus,
 	Plus,
 	ChevronUp,
 	ChevronDown,
 	Search,
 	X,
-	Highlighter,
 	Maximize2,
 	Minimize2,
 	EllipsisVertical,
 	ZoomIn,
 	ZoomOut,
-	ToggleLeft,
-	ToggleRight,
+	Paperclip,
+	Check,
 } from "lucide-react";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { getStatusIcon, PaperStatus } from "@/components/utils/PdfStatus";
-import { HighlightColor } from "@/lib/schema";
-import { HIGHLIGHT_COLOR_SWATCHES } from "@/components/pdf-viewer/highlightColors";
+import { PaperUploadJobStatusResponse, SupplementaryMaterialSummary } from "@/lib/schema";
+import { uploadSupplementaryFile } from "@/lib/uploadUtils";
+import { fetchFromApi } from "@/lib/api";
+
+const SUPPLEMENTARY_MAX_SIZE_MB = 30;
+const SUPPLEMENTARY_POLL_INTERVAL_MS = 2000;
 
 interface PdfToolbarProps {
-	// Page navigation
-	currentPage: number;
-	numPages: number | null;
-	goToPreviousPage: () => void;
-	goToNextPage: () => void;
-
 	// Search
 	searchText: string;
 	showSearchInput: boolean;
 	setShowSearchInput: (show: boolean) => void;
-	searchInputRef: MutableRefObject<HTMLInputElement | null>;
+	searchInputRef: Ref<HTMLInputElement | null>;
 	handleSearchChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
 	handleSearchSubmit: (e: React.FormEvent) => void;
 	handleClearSearch: () => void;
@@ -51,38 +48,28 @@ interface PdfToolbarProps {
 	currentMatchIndex: number;
 	goToPreviousMatch: () => void;
 	goToNextMatch: () => void;
-	lastSearchTermRef: MutableRefObject<string | undefined>;
+	lastSearchTermRef: Ref<string | undefined>;
 
 	// Zoom
 	scale: number;
 	zoomIn: () => void;
 	zoomOut: () => void;
 
-	// Status
-	paperStatus?: PaperStatus;
-	handleStatusChange?: (status: PaperStatus) => void;
-
-	// Highlight color
-	highlightColor: HighlightColor;
-	setHighlightColor: (color: HighlightColor) => void;
-
-	/**
-	 * When set, show the inline-annotation visibility toggle on this bar (next to zoom).
-	 * Omit when the parent shows the control elsewhere (e.g. mobile Tools panel with no PDF toolbar).
-	 */
-	showAnnotationCards?: boolean;
-	onToggleAnnotationCards?: () => void;
-
 	/** Focus / read mode: expand PDF to fill the viewport, hiding the side panel. */
 	isReadMode?: boolean;
 	onToggleReadMode?: () => void;
+
+	// Supplementary materials. Only rendered when parentPaperId is set, so the
+	// toolbar still works on the home/upload flow where these aren't relevant.
+	parentPaperId?: string;
+	displayedPaperId?: string;
+	supplementaryMaterials?: SupplementaryMaterialSummary[];
+	onChangeDisplayed?: (paperId: string) => void;
+	onSupplementaryUploaded?: () => void;
+	parentPaperTitle?: string;
 }
 
 export function PdfToolbar({
-	currentPage,
-	numPages,
-	goToPreviousPage,
-	goToNextPage,
 	searchText,
 	showSearchInput,
 	setShowSearchInput,
@@ -99,48 +86,190 @@ export function PdfToolbar({
 	scale,
 	zoomIn,
 	zoomOut,
-	paperStatus,
-	handleStatusChange = () => { },
-	highlightColor,
-	setHighlightColor,
-	showAnnotationCards = true,
-	onToggleAnnotationCards,
 	isReadMode = false,
 	onToggleReadMode,
+	parentPaperId,
+	displayedPaperId,
+	supplementaryMaterials = [],
+	onChangeDisplayed,
+	onSupplementaryUploaded,
+	parentPaperTitle,
 }: PdfToolbarProps) {
-	const currentColorConfig =
-		HIGHLIGHT_COLOR_SWATCHES.find((c) => c.color === highlightColor) || HIGHLIGHT_COLOR_SWATCHES[2];
+	const supplementaryFileInputRef = useRef<HTMLInputElement | null>(null);
+	const [isUploadingSupplementary, setIsUploadingSupplementary] = useState(false);
+
+	const showSupplementaryControls = Boolean(parentPaperId);
+	const parentTitle = parentPaperTitle?.trim() || "Main paper";
+	const isParentDisplayed =
+		!displayedPaperId || (parentPaperId !== undefined && displayedPaperId === parentPaperId);
+	const currentSupplementaryIndex = isParentDisplayed
+		? -1
+		: supplementaryMaterials.findIndex((s) => s.id === displayedPaperId);
+	const currentLabel = isParentDisplayed
+		? "Main"
+		: currentSupplementaryIndex >= 0
+			? `Suppl ${currentSupplementaryIndex + 1}`
+			: "Suppl";
+
+	const pollSupplementaryStatus = (jobId: string, fileName: string): Promise<void> => {
+		return new Promise((resolve, reject) => {
+			const poll = async () => {
+				try {
+					const response: PaperUploadJobStatusResponse = await fetchFromApi(
+						`/api/paper/upload/status/${jobId}`,
+					);
+					if (response.status === "completed") {
+						resolve();
+					} else if (response.status === "failed") {
+						reject(new Error(`Failed to process ${fileName}`));
+					} else {
+						setTimeout(poll, SUPPLEMENTARY_POLL_INTERVAL_MS);
+					}
+				} catch (err) {
+					reject(err instanceof Error ? err : new Error(String(err)));
+				}
+			};
+			poll();
+		});
+	};
+
+	const handleSupplementaryFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+		const file = e.target.files?.[0];
+		// Reset input early so the same file can be re-selected.
+		if (e.target) e.target.value = "";
+		if (!file || !parentPaperId) return;
+
+		if (file.type !== "application/pdf") {
+			toast.error("Invalid file type. Please upload a PDF.");
+			return;
+		}
+		if (file.size > SUPPLEMENTARY_MAX_SIZE_MB * 1024 * 1024) {
+			toast.error(`File size exceeds the ${SUPPLEMENTARY_MAX_SIZE_MB}MB limit.`);
+			return;
+		}
+
+		const toastId = toast.loading(`Uploading ${file.name}…`);
+		setIsUploadingSupplementary(true);
+		try {
+			const job = await uploadSupplementaryFile(parentPaperId, file);
+			toast.loading(`Processing ${file.name}…`, { id: toastId });
+			await pollSupplementaryStatus(job.jobId, file.name);
+			toast.success("Supplementary uploaded.", { id: toastId });
+			onSupplementaryUploaded?.();
+		} catch (err) {
+			console.error("Supplementary upload failed", err);
+			toast.error(
+				err instanceof Error ? err.message : "Failed to upload supplementary PDF.",
+				{ id: toastId },
+			);
+		} finally {
+			setIsUploadingSupplementary(false);
+		}
+	};
 	return (
-		<div className="sticky top-0 z-10 flex items-center bg-white/80 dark:bg-black/80 backdrop-blur-sm px-3 py-2 w-full border-b border-gray-300">
-			{/* Left section: Page navigation */}
-			<div className="flex items-center gap-1">
-				<Button
-					onClick={goToPreviousPage}
-					size="sm"
-					variant="ghost"
-					className="h-8 w-8 p-0"
-					disabled={currentPage <= 1}
-				>
-					<ArrowLeft size={16} />
-				</Button>
-				<span className="text-xs text-secondary-foreground min-w-16 text-center">
-					{currentPage} / {numPages || "?"}
-				</span>
-				<Button
-					onClick={goToNextPage}
-					size="sm"
-					variant="ghost"
-					className="h-8 w-8 p-0"
-					disabled={!numPages || currentPage >= numPages}
-				>
-					<ArrowRight size={16} />
-				</Button>
-			</div>
+		<div className="sticky top-0 z-10 flex items-center bg-white/80 dark:bg-black/80 backdrop-blur-sm px-3 py-1.5 w-full border-b border-gray-300">
+			{/* Source picker (compact) + supplementary upload */}
+			{showSupplementaryControls && (
+				<>
+					<div className="flex items-center gap-0.5">
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button
+									size="sm"
+									variant="ghost"
+									className="h-7 px-2 gap-0.5 text-xs"
+									title={isParentDisplayed ? parentTitle : (supplementaryMaterials[currentSupplementaryIndex]?.title || "Supplementary")}
+								>
+									<span>{currentLabel}</span>
+									<ChevronDown size={12} className="opacity-60" />
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="start" className="min-w-56">
+								<DropdownMenuLabel className="text-xs text-muted-foreground">
+									Displayed PDF
+								</DropdownMenuLabel>
+								<DropdownMenuItem
+									onClick={() => {
+										if (parentPaperId && onChangeDisplayed && !isParentDisplayed) {
+											onChangeDisplayed(parentPaperId);
+										}
+									}}
+								>
+									<span className="flex items-center gap-2 flex-1 min-w-0">
+										{isParentDisplayed ? (
+											<Check size={14} className="shrink-0" />
+										) : (
+											<span className="w-[14px] shrink-0" />
+										)}
+										<span className="flex flex-col min-w-0">
+											<span className="text-sm">Main</span>
+											<span className="text-[10px] text-muted-foreground truncate">{parentTitle}</span>
+										</span>
+									</span>
+								</DropdownMenuItem>
+								{supplementaryMaterials.length > 0 && (
+									<>
+										<DropdownMenuSeparator />
+										{supplementaryMaterials.map((item, idx) => {
+											const isCompleted = item.status === "completed";
+											const isCurrent = displayedPaperId === item.id;
+											const subLabel = isCompleted
+												? (item.title?.trim() || "Untitled")
+												: `Processing… (${item.status})`;
+											return (
+												<DropdownMenuItem
+													key={item.id}
+													disabled={!isCompleted}
+													onClick={() => {
+														if (isCompleted && !isCurrent) {
+															onChangeDisplayed?.(item.id);
+														}
+													}}
+												>
+													<span className="flex items-center gap-2 flex-1 min-w-0">
+														{isCurrent ? (
+															<Check size={14} className="shrink-0" />
+														) : (
+															<span className="w-[14px] shrink-0" />
+														)}
+														<span className="flex flex-col min-w-0">
+															<span className="text-sm">Suppl {idx + 1}</span>
+															<span className="text-[10px] text-muted-foreground truncate">{subLabel}</span>
+														</span>
+													</span>
+												</DropdownMenuItem>
+											);
+										})}
+									</>
+								)}
+							</DropdownMenuContent>
+						</DropdownMenu>
 
-			{/* Separator */}
-			<div className="h-5 w-px bg-gray-300 mx-1.5 md:mx-3" />
+						<Button
+							size="sm"
+							variant="ghost"
+							className="h-7 w-7 p-0"
+							onClick={() => supplementaryFileInputRef.current?.click()}
+							disabled={isUploadingSupplementary}
+							title="Attach supplementary PDF"
+							aria-label="Attach supplementary PDF"
+						>
+							<Paperclip size={14} />
+						</Button>
+						<input
+							ref={supplementaryFileInputRef}
+							type="file"
+							accept=".pdf"
+							className="hidden"
+							onChange={handleSupplementaryFileChange}
+						/>
+					</div>
 
-			{/* Center section: Search */}
+					<div className="h-5 w-px bg-gray-300 mx-1.5 md:mx-3" />
+				</>
+			)}
+
+			{/* Search */}
 			<div className="flex items-center gap-1">
 				{showSearchInput ? (
 					<form onSubmit={handleSearchSubmit} className="flex items-center gap-2">
@@ -152,7 +281,7 @@ export function PdfToolbar({
 								placeholder="Search..."
 								value={searchText}
 								onChange={handleSearchChange}
-								className="h-8 w-40 pl-7 pr-7 text-xs"
+								className="h-7 w-40 pl-7 pr-7 text-xs"
 								autoFocus
 							/>
 							{searchText && (
@@ -180,7 +309,7 @@ export function PdfToolbar({
 									type="button"
 									variant="ghost"
 									size="sm"
-									className="h-7 w-7 p-0"
+									className="h-6 w-6 p-0"
 									onClick={goToPreviousMatch}
 									title="Previous match"
 								>
@@ -190,14 +319,14 @@ export function PdfToolbar({
 									type="button"
 									variant="ghost"
 									size="sm"
-									className="h-7 w-7 p-0"
+									className="h-6 w-6 p-0"
 									onClick={goToNextMatch}
 									title="Next match"
 								>
 									<ChevronDown size={14} />
 								</Button>
 							</div>
-						) : searchText && lastSearchTermRef.current === searchText ? (
+						) : searchText && (lastSearchTermRef as React.RefObject<string | undefined>).current === searchText ? (
 							<span className="text-xs text-muted-foreground">
 								No results
 							</span>
@@ -207,75 +336,14 @@ export function PdfToolbar({
 					<Button
 						onClick={() => {
 							setShowSearchInput(true);
-							setTimeout(() => searchInputRef.current?.focus(), 0);
+							setTimeout(() => (searchInputRef as React.RefObject<HTMLInputElement | null>).current?.focus(), 0);
 						}}
 						size="sm"
 						variant="ghost"
-						className="h-8 w-8 p-0"
+						className="h-7 w-7 p-0"
 						title="Search (Cmd+F)"
 					>
-						<Search size={16} />
-					</Button>
-				)}
-			</div>
-
-			{/* Separator */}
-			<div className="h-5 w-px bg-gray-300 mx-1.5 md:mx-3" />
-
-			{/* Annotation controls: color picker + visibility toggle in a pill */}
-			<div className="flex items-center gap-0.5 rounded-md border border-gray-200 dark:border-zinc-700 px-0.5 py-0.5">
-				<DropdownMenu>
-					<DropdownMenuTrigger asChild>
-						<Button
-							size="sm"
-							variant="ghost"
-							className="h-7 px-2 gap-1.5"
-							title="Highlight color"
-						>
-							<Highlighter size={16} />
-							<div className={`w-3.5 h-3.5 rounded-sm ${currentColorConfig.bg}`} />
-						</Button>
-					</DropdownMenuTrigger>
-					<DropdownMenuContent align="start" className="min-w-0">
-						<div className="flex gap-1 p-1">
-							{HIGHLIGHT_COLOR_SWATCHES.map(({ color, bg }) => (
-								<button
-									key={color}
-									type="button"
-									onClick={() => setHighlightColor(color)}
-									className={`w-6 h-6 rounded-sm ${bg} hover:scale-110 transition-transform ${
-										highlightColor === color ? "ring-2 ring-offset-1 ring-gray-400" : ""
-									}`}
-									title={color}
-								/>
-							))}
-						</div>
-					</DropdownMenuContent>
-				</DropdownMenu>
-
-				{onToggleAnnotationCards && (
-					<Button
-						type="button"
-						size="sm"
-						variant="ghost"
-						className={`h-7 px-2 ${
-							showAnnotationCards
-								? "bg-blue-100 text-blue-600 hover:bg-blue-200 dark:bg-blue-900/50 dark:text-blue-400 dark:hover:bg-blue-900/70"
-								: "text-muted-foreground hover:bg-muted dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-						}`}
-						onClick={onToggleAnnotationCards}
-						title={
-							showAnnotationCards
-								? "Hide inline annotations"
-								: "Show inline annotations"
-						}
-						aria-label={
-							showAnnotationCards
-								? "Hide inline annotations"
-								: "Show inline annotations"
-						}
-					>
-						{showAnnotationCards ? <ToggleRight className="size-5" /> : <ToggleLeft className="size-5" />}
+						<Search size={14} />
 					</Button>
 				)}
 			</div>
@@ -283,78 +351,40 @@ export function PdfToolbar({
 			{/* Spacer */}
 			<div className="flex-1" />
 
-			{/* Right section: Zoom + Status + Focus (desktop) */}
-			<div className="hidden md:flex items-center gap-3">
-				{/* Zoom controls */}
-				<div className="flex items-center gap-1">
-					<Button
-						onClick={zoomOut}
-						size="sm"
-						variant="ghost"
-						className="h-8 w-8 p-0"
-					>
-						<Minus size={16} />
+			{/* Right: Zoom + Focus (desktop) */}
+			<div className="hidden md:flex items-center gap-2">
+				<div className="flex items-center gap-0.5">
+					<Button onClick={zoomOut} size="sm" variant="ghost" className="h-7 w-7 p-0">
+						<Minus size={14} />
 					</Button>
-					<span className="text-xs w-10 text-center tabular-nums">
+					<span className="text-[11px] w-10 text-center tabular-nums text-muted-foreground">
 						{Math.round(scale * 100)}%
 					</span>
-					<Button
-						onClick={zoomIn}
-						size="sm"
-						variant="ghost"
-						className="h-8 w-8 p-0"
-					>
-						<Plus size={16} />
+					<Button onClick={zoomIn} size="sm" variant="ghost" className="h-7 w-7 p-0">
+						<Plus size={14} />
 					</Button>
 				</div>
 
-				{/* Reading status */}
-				{paperStatus && (
-					<DropdownMenu>
-						<DropdownMenuTrigger asChild>
-							<Button size="sm" variant="outline" className="h-8 px-2 gap-1">
-								{getStatusIcon(paperStatus)}
-								<span className="text-xs capitalize">{paperStatus}</span>
-							</Button>
-						</DropdownMenuTrigger>
-						<DropdownMenuContent align="end">
-							<DropdownMenuItem onClick={() => handleStatusChange("todo")}>
-								{getStatusIcon("todo")}
-								Todo
-							</DropdownMenuItem>
-							<DropdownMenuItem onClick={() => handleStatusChange("reading")}>
-								{getStatusIcon("reading")}
-								Reading
-							</DropdownMenuItem>
-							<DropdownMenuItem onClick={() => handleStatusChange("completed")}>
-								{getStatusIcon("completed")}
-								Completed
-							</DropdownMenuItem>
-						</DropdownMenuContent>
-					</DropdownMenu>
-				)}
-
-				{/* Focus / read mode toggle */}
 				{onToggleReadMode && (
 					<Button
 						size="sm"
 						variant="ghost"
-						className="h-8 w-8 p-0"
+						className="h-7 w-7 p-0"
 						onClick={onToggleReadMode}
 						title={isReadMode ? "Exit focus mode" : "Focus mode"}
 						aria-label={isReadMode ? "Exit focus mode" : "Focus mode"}
 					>
-						{isReadMode ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+						{isReadMode ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
 					</Button>
 				)}
 			</div>
 
-			{/* Right section: overflow menu (mobile) */}
+			{/* Right: overflow menu (mobile) */}
 			<div className="flex md:hidden items-center">
 				<DropdownMenu>
 					<DropdownMenuTrigger asChild>
-						<Button size="sm" variant="ghost" className="h-8 w-8 p-0">
-							<EllipsisVertical size={16} />
+						<Button size="sm" variant="ghost" className="h-7 w-7 p-0">
+							<EllipsisVertical size={14} />
 						</Button>
 					</DropdownMenuTrigger>
 					<DropdownMenuContent align="end" className="min-w-40">
@@ -366,22 +396,6 @@ export function PdfToolbar({
 							<ZoomOut size={14} className="mr-2" />
 							Zoom out
 						</DropdownMenuItem>
-						{paperStatus && (
-							<>
-								<DropdownMenuItem onClick={() => handleStatusChange("todo")}>
-									{getStatusIcon("todo")}
-									Todo
-								</DropdownMenuItem>
-								<DropdownMenuItem onClick={() => handleStatusChange("reading")}>
-									{getStatusIcon("reading")}
-									Reading
-								</DropdownMenuItem>
-								<DropdownMenuItem onClick={() => handleStatusChange("completed")}>
-									{getStatusIcon("completed")}
-									Completed
-								</DropdownMenuItem>
-							</>
-						)}
 					</DropdownMenuContent>
 				</DropdownMenu>
 			</div>

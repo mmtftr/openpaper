@@ -25,6 +25,7 @@ from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import (  # type: ignore
     DeclarativeBase,
+    backref,
     foreign,
     relationship,
     sessionmaker,
@@ -222,6 +223,11 @@ class PaperUploadJob(Base):
     started_at = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
     task_id = Column(String, nullable=True)  # For tracking task in Celery
+    # When set, this upload is producing a supplementary material for the
+    # referenced parent paper. The webhook stamps the resulting Paper row's
+    # supplementary_of_paper_id with this value. No FK here — the job is
+    # transient; the durable link lives on Paper.
+    supplementary_of_paper_id = Column(UUID(as_uuid=True), nullable=True)
 
     user = relationship("User", back_populates="paper_upload_jobs")
 
@@ -438,6 +444,17 @@ class Paper(Base):
         nullable=True,
     )
 
+    # Supplementary materials are themselves Paper rows that point back to
+    # their parent paper. Distinct from parent_paper_id (forks). Library
+    # listings filter rows where this is non-null so supplementaries don't
+    # surface as standalone library items.
+    supplementary_of_paper_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("papers.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+
     user = relationship("User", back_populates="papers")
     conversations = relationship(
         "Conversation",
@@ -482,6 +499,18 @@ class Paper(Base):
         "PaperTag",
         secondary="paper_tag_association",
         back_populates="papers",
+    )
+
+    # Self-referential link for supplementary materials. Disambiguated from
+    # the existing parent_paper_id (fork) link via foreign_keys=. The
+    # backref's remote_side wires up the parent_supplementary accessor on
+    # the supplementary side back to the parent Paper row.
+    supplementary_materials = relationship(
+        "Paper",
+        foreign_keys="Paper.supplementary_of_paper_id",
+        backref=backref("parent_supplementary", remote_side="Paper.id"),
+        cascade="all, delete-orphan",
+        single_parent=True,
     )
 
 

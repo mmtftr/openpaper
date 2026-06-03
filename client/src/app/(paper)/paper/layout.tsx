@@ -16,6 +16,8 @@ import Link from "next/link";
 import { ManageProjectsButton } from "@/components/ManageProjectsButton";
 import { MobilePaperMenu } from "@/components/MobilePaperMenu";
 import { CitePaperButton } from "@/components/CitePaperButton";
+import { PaperHeaderProvider } from "@/components/PaperHeaderContext";
+import { HeaderPaperStatusButton } from "@/components/HeaderPaperStatusButton";
 const geistSans = Geist({
 	variable: "--font-geist-sans",
 	subsets: ["latin"],
@@ -87,30 +89,33 @@ export default function RootLayout({
 							<SidebarProvider>
 								<AppSidebar />
 								<SidebarInset>
-									<header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-										<SidebarTrigger className="-ml-1" />
-										<Separator orientation="vertical" className="mr-2 h-4" />
-										<Link href="/" className="flex flex-1 items-center gap-2 hover:opacity-80 transition-opacity">
-											<Image
-												src="/openpaper.svg"
-												width={24}
-												height={24}
-												alt="Open Paper Logo"
-											/>
-											<span className="text-sm font-semibold">Open Paper</span>
-										</Link>
-									{/* Desktop buttons */}
-								<div className="hidden md:flex items-center gap-2">
-									<ManageProjectsButton />
-									<CitePaperButton />
-									<SharePaperButton />
-								</div>
-									{/* Mobile menu */}
-									<MobilePaperMenu />
-									</header>
-									<SidebarController>
-										{children}
-									</SidebarController>
+									<PaperHeaderProvider>
+										<header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+											<SidebarTrigger className="-ml-1" />
+											<Separator orientation="vertical" className="mr-2 h-4" />
+											<Link href="/" className="flex flex-1 items-center gap-2 hover:opacity-80 transition-opacity">
+												<Image
+													src="/openpaper.svg"
+													width={24}
+													height={24}
+													alt="Open Paper Logo"
+												/>
+												<span className="text-sm font-semibold">Open Paper</span>
+											</Link>
+											{/* Desktop buttons */}
+											<div className="hidden md:flex items-center gap-2">
+												<ManageProjectsButton />
+												<HeaderPaperStatusButton />
+												<CitePaperButton />
+												<SharePaperButton />
+											</div>
+											{/* Mobile menu */}
+											<MobilePaperMenu />
+										</header>
+										<SidebarController>
+											{children}
+										</SidebarController>
+									</PaperHeaderProvider>
 								</SidebarInset>
 							</SidebarProvider>
 						</AnalyticsProvider>

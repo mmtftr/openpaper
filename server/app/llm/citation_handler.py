@@ -55,15 +55,20 @@ class CitationHandler:
         Parse evidence block into structured citations
         Handles multi-line citations between @cite markers
 
-        Accepts two forms — `page=N` is optional and used by the agentic
-        chat to pin a citation to a single PDF page (so the reconciliation
-        step can match the quote against that page's pymupdf text):
+        Accepts these forms — `page=N` and `paper_id=ID` are optional and
+        used by the agentic chat to pin a citation to a single PDF page (so
+        the reconciliation step can match the quote against that page's
+        pymupdf text) and to tag the originating paper (parent or one of its
+        supplementaries):
 
             @cite[1]
             "First piece of evidence"
 
             @cite[2|page=4]
             "Second piece of evidence"
+
+            @cite[3|page=2|paper_id=abc-123]
+            "Evidence from a supplementary paper"
         """
         citations = []
         lines = evidence_text.strip().split("\n")
@@ -78,16 +83,32 @@ class CitationHandler:
                     current_citation["reference"] = " ".join(current_text_lines).strip()
                     citations.append(current_citation)
 
-                # Start new citation. Match either `@cite[N]` or
-                # `@cite[N|page=P]` (case-insensitive on the key).
+                # Start new citation. Match `@cite[N]`, `@cite[N|page=P]`, or
+                # any combination of `page=P` and `paper_id=ID` separated by
+                # `|`. `key` is case-insensitive on the leading digit only.
                 match = re.search(
-                    r"@cite\[(\d+)(?:\|page=(\d+))?\]", line, re.IGNORECASE
+                    r"@cite\[(\d+)((?:\|[^\]]+)*)\]", line, re.IGNORECASE
                 )
                 if match:
                     number = int(match.group(1))
                     current_citation = {"key": number, "reference": ""}
-                    if match.group(2):
-                        current_citation["page"] = int(match.group(2))
+                    extras = match.group(2) or ""
+                    for part in extras.split("|"):
+                        part = part.strip()
+                        if not part:
+                            continue
+                        if "=" not in part:
+                            continue
+                        k, _, v = part.partition("=")
+                        k = k.strip().lower()
+                        v = v.strip()
+                        if k == "page":
+                            try:
+                                current_citation["page"] = int(v)
+                            except ValueError:
+                                pass
+                        elif k == "paper_id" and v:
+                            current_citation["paper_id"] = v
                     current_text_lines = []
             elif current_citation is not None and line:
                 # Accumulate lines for the current citation
@@ -104,14 +125,21 @@ class CitationHandler:
     def convert_response_citation_to_paper_citation(
         response_citations: List[ResponseCitation],
     ):
-        """Convert ResponseCitation objects to structured citation dicts"""
+        """Convert ResponseCitation objects to structured citation dicts.
+
+        `paper_id` is included when the response citation carries one
+        (multi-paper / supplementary-paper flows). When absent, the citation
+        is treated as originating from the parent paper of the chat.
+        """
         citations = []
         for resp_citation in response_citations:
-            citation = {
+            citation: dict = {
                 "key": resp_citation.index,
                 "reference": resp_citation.text,
-                "paper_id": resp_citation.paper_id,
             }
+            paper_id = getattr(resp_citation, "paper_id", None)
+            if paper_id:
+                citation["paper_id"] = paper_id
             citations.append(citation)
         return {"citations": citations}
 

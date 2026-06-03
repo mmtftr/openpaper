@@ -10,7 +10,7 @@ import logging
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
 from app.database.models import Message, Paper
@@ -78,6 +78,10 @@ class PaperAgentDeps:
     citation_reconciler: CitationReconciler
     max_tool_calls: int = 25
     tool_calls_used: int = 0
+    # Paper ids the agent is allowed to read this turn — parent + any
+    # supplementary papers. Defaults to [paper_id] so legacy call sites
+    # that don't pass anything keep working unchanged.
+    allowed_paper_ids: List[str] = field(default_factory=list)
 
 
 EVIDENCE_START = "---EVIDENCE---"
@@ -144,13 +148,15 @@ def build_pydantic_paper_agent(
             name="read_section",
             description=(
                 "Read a section by heading. On miss, returns available_sections. "
-                "Use text_only=true when figures are not needed."
+                "Use text_only=true when figures are not needed. Pass paper_id "
+                "to target a supplementary paper; defaults to the main paper."
             ),
         )
         async def read_section_tool(
             ctx: RunContext[PaperAgentDeps],
             name: str,
             text_only: bool = False,
+            paper_id: Optional[str] = None,
         ) -> Dict[str, Any]:
             if exhausted := _consume_tool_budget(ctx.deps):
                 return exhausted
@@ -159,32 +165,49 @@ def build_pydantic_paper_agent(
                 ctx.deps,
                 name=name,
                 text_only=text_only,
+                target_paper_id=paper_id,
+                allowed_paper_ids=ctx.deps.allowed_paper_ids,
             )
 
         @agent.tool(
             name="read_pages",
-            description="Read a contiguous 1-indexed inclusive page range.",
+            description=(
+                "Read a contiguous 1-indexed inclusive page range. Pass "
+                "paper_id to target a supplementary paper; defaults to the "
+                "main paper."
+            ),
         )
         async def read_pages_tool(
             ctx: RunContext[PaperAgentDeps],
             start: int,
             end: int,
+            paper_id: Optional[str] = None,
         ) -> Dict[str, Any]:
             if exhausted := _consume_tool_budget(ctx.deps):
                 return exhausted
-            return await _run_sync_tool(read_pages, ctx.deps, start=start, end=end)
+            return await _run_sync_tool(
+                read_pages,
+                ctx.deps,
+                start=start,
+                end=end,
+                target_paper_id=paper_id,
+                allowed_paper_ids=ctx.deps.allowed_paper_ids,
+            )
 
         @agent.tool(
             name="search_paper",
             description=(
                 "Regex search the paper. Returns page, line, match, and "
-                "surrounding context lines."
+                "surrounding context lines. Omit paper_id to search the main "
+                "paper plus all supplementary papers together (each hit is "
+                "tagged with its paper_id); pass paper_id to scope to one."
             ),
         )
         async def search_paper_tool(
             ctx: RunContext[PaperAgentDeps],
             query: str,
             context_lines: int = 3,
+            paper_id: Optional[str] = None,
         ) -> Dict[str, Any]:
             if exhausted := _consume_tool_budget(ctx.deps):
                 return exhausted
@@ -193,6 +216,8 @@ def build_pydantic_paper_agent(
                 ctx.deps,
                 query=query,
                 context_lines=context_lines,
+                target_paper_id=paper_id,
+                allowed_paper_ids=ctx.deps.allowed_paper_ids,
             )
 
         if str(getattr(paper, "parser", "") or "") == "mistral" and context_mode != "raw":
@@ -202,12 +227,15 @@ def build_pydantic_paper_agent(
                 description=(
                     "Fetch a figure or table by label, such as Figure 2 or "
                     "Table 4. Returns metadata (label, page, caption) plus "
-                    "the rendered image so you can read the figure directly."
+                    "the rendered image so you can read the figure directly. "
+                    "Pass paper_id to target a supplementary paper; defaults "
+                    "to the main paper."
                 ),
             )
             async def get_figure_tool(
                 ctx: RunContext[PaperAgentDeps],
                 label: str,
+                paper_id: Optional[str] = None,
             ) -> Any:
                 if exhausted := _consume_tool_budget(ctx.deps):
                     return exhausted
@@ -215,6 +243,8 @@ def build_pydantic_paper_agent(
                     _resolve_figure_with_image,
                     ctx.deps,
                     label=label,
+                    target_paper_id=paper_id,
+                    allowed_paper_ids=ctx.deps.allowed_paper_ids,
                 )
                 if "error" in payload:
                     return payload
@@ -318,6 +348,7 @@ async def run_pydantic_paper_agent(
     model: Optional[str] = None,
     reasoning_effort: Optional[str] = None,
     max_agentic_iterations: int = 6,
+    allowed_paper_ids: Optional[List[str]] = None,
 ) -> AsyncGenerator[Union[str, Dict[str, Any]], None]:
     pai_model, resolved_provider, resolved_model = _build_pai_model(
         llm_client=llm_client,
@@ -340,6 +371,7 @@ async def run_pydantic_paper_agent(
         llm_client=llm_client,
         citation_reconciler=citation_reconciler,
         max_tool_calls=max_agentic_iterations,
+        allowed_paper_ids=list(allowed_paper_ids) if allowed_paper_ids else [paper_id],
     )
     accumulated_text = ""
     accumulated_reasoning = ""
@@ -509,6 +541,8 @@ def _resolve_figure_with_image(
     current_user: CurrentUser,
     db: Session,
     label: str,
+    target_paper_id: Optional[str] = None,
+    allowed_paper_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Resolve a figure label to metadata + PNG bytes for multimodal return.
 
@@ -519,7 +553,17 @@ def _resolve_figure_with_image(
     """
     from app.api.paper_figure_api import resolve_figure
 
-    paper = paper_crud.get(db, id=paper_id, user=current_user)
+    effective_paper_id = target_paper_id or paper_id
+    # Gate: if the model passed an explicit paper_id, it must be in the
+    # allowed list (parent + supplementaries). Without a list (legacy path)
+    # fall through to ownership-only check below.
+    if (
+        target_paper_id is not None
+        and allowed_paper_ids
+        and effective_paper_id not in allowed_paper_ids
+    ):
+        return {"error": f"paper_id {effective_paper_id} is not part of this paper family"}
+    paper = paper_crud.get(db, id=effective_paper_id, user=current_user)
     if not paper:
         return {"error": "Paper not found"}
     if str(getattr(paper, "parser", "") or "") != "mistral":
@@ -545,6 +589,7 @@ def _resolve_figure_with_image(
             "page": figure.get("page"),
             "caption": figure.get("caption"),
             "id": figure.get("id"),
+            "paper_id": effective_paper_id,
         },
         "image_bytes": image_bytes,
         "media_type": "image/png",

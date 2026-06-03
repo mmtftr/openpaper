@@ -547,10 +547,24 @@ async def chat_message_stream(
                 )
 
                 # First-message title: rename_conversation is idempotent —
-                # later messages no-op once a title exists.
-                operations.rename_conversation(
-                    db=db, conversation_id=request.conversation_id, user=current_user
-                )
+                # later messages no-op once a title exists. It runs the FAST
+                # model, which can hit the provider's content filter (e.g.
+                # Azure's jailbreak prompt shield returning a 400). By this
+                # point the answer — and the stream's finish/[DONE] lifecycle —
+                # has already gone to the client, so a failure here must stay
+                # non-fatal: never let it bubble into the `error` chunk below,
+                # or the client would discard the answer the user already saw.
+                try:
+                    operations.rename_conversation(
+                        db=db,
+                        conversation_id=request.conversation_id,
+                        user=current_user,
+                    )
+                except Exception as title_error:
+                    logger.warning(
+                        "Conversation title generation failed (non-fatal): %s",
+                        title_error,
+                    )
 
                 # Track chat message event
                 track_event(

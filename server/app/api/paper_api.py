@@ -15,7 +15,7 @@ from app.database.crud.paper_note_crud import (
 )
 from app.database.crud.projects.project_paper_crud import project_paper_crud
 from app.database.database import get_db
-from app.database.models import Paper, PaperStatus
+from app.database.models import JobStatus, Paper, PaperStatus, PaperUploadJob
 from app.database.telemetry import track_event
 from app.helpers.paper_search import get_doi, get_enriched_data
 from app.helpers.parser import parse_publication_date
@@ -437,6 +437,75 @@ async def get_paper_conversations(
             for c in conversations
         ],
     )
+
+
+@paper_router.get("/{paper_id}/supplementary")
+async def list_supplementary_materials(
+    paper_id: str,
+    current_user: CurrentUser = Depends(get_required_user),
+    db: Session = Depends(get_db),
+):
+    """List supplementary materials attached to a paper, plus any in-flight upload jobs."""
+    casted_paper_id = uuid.UUID(paper_id)
+
+    parent = paper_crud.get(db, id=casted_paper_id, user=current_user)
+    if not parent:
+        return JSONResponse(
+            status_code=404, content={"message": "Parent paper not found"}
+        )
+
+    # In-flight upload jobs targeting this parent
+    in_flight_jobs = (
+        db.query(PaperUploadJob)
+        .filter(
+            PaperUploadJob.supplementary_of_paper_id == casted_paper_id,
+            PaperUploadJob.user_id == current_user.id,
+            PaperUploadJob.status.notin_([JobStatus.COMPLETED, JobStatus.FAILED]),
+        )
+        .all()
+    )
+
+    supplementary_papers = paper_crud.list_supplementary_for(
+        db, parent_paper_id=casted_paper_id, user=current_user
+    )
+
+    job_items = [
+        {
+            "id": str(job.id),
+            "title": None,
+            "preview_url": None,
+            "page_count": None,
+            "created_at": (
+                job.started_at.isoformat() if job.started_at else None  # type: ignore[union-attr]
+            ),
+            "status": (
+                job.status.value
+                if hasattr(job.status, "value")
+                else str(job.status)
+            ),
+        }
+        for job in in_flight_jobs
+    ]
+
+    paper_items = [
+        {
+            "id": str(paper.id),
+            "title": paper.title,
+            "preview_url": paper.preview_url,
+            "page_count": paper.page_count,
+            "created_at": (
+                paper.created_at.isoformat() if paper.created_at else None  # type: ignore[union-attr]
+            ),
+            "status": "completed",
+        }
+        for paper in sorted(
+            supplementary_papers,
+            key=lambda p: p.created_at or datetime.min.replace(tzinfo=timezone.utc),  # type: ignore[arg-type]
+        )
+    ]
+
+    items = job_items + paper_items
+    return JSONResponse(status_code=200, content=items)
 
 
 @paper_router.get("/conversation")

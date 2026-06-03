@@ -53,6 +53,19 @@ const uploadFile = async (file: File, projectId?: string): Promise<MinimalJob> =
     return { jobId: res.job_id, fileName: file.name }
 }
 
+/**
+ * Uploads a single PDF as a supplementary material attached to a parent paper.
+ */
+export const uploadSupplementaryFile = async (parentPaperId: string, file: File): Promise<MinimalJob> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const res: PdfUploadResponse = await fetchFromApi(
+        `/api/paper/upload?supplementary_of=${encodeURIComponent(parentPaperId)}`,
+        { method: "POST", body: formData },
+    );
+    return { jobId: res.job_id, fileName: file.name };
+};
+
 export const uploadFiles = async (files: File[]): Promise<MinimalJob[]> => {
     const newJobs: MinimalJob[] = []
     const errors: Error[] = []

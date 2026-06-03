@@ -123,7 +123,9 @@ interface PaperChatPanelProps {
     isMobile: boolean;
     userMessageReferences: string[];
     setUserMessageReferences: React.Dispatch<React.SetStateAction<string[]>>;
-    handleCitationClick: (key: string, messageIndex: number) => void;
+    // `paperId` lets the page route citation jumps to the right PDF when a
+    // citation refers to a supplementary. Optional for backwards-compat.
+    handleCitationClick: (key: string, messageIndex: number, paperId?: string) => void;
     matchesCurrentCitation: (key: string, messageIndex: number) => boolean;
     flashesCurrentCitation?: (key: string, messageIndex: number) => boolean;
     setExplicitSearchTerm: (value: string) => void;
@@ -779,20 +781,33 @@ export function PaperChatPanel({
                     console.error("Error refetching subscription:", err);
                 }
             } catch (error) {
-                if (
+                const aborted =
                     controller.signal.aborted ||
-                    (error instanceof DOMException && error.name === "AbortError")
-                ) {
-                    if (accumulated) {
-                        const stoppedMessage: ChatMessage = {
-                            role: "assistant",
-                            content: stripEvidenceBlock(accumulated),
-                            references,
-                            reasoning: reasoning || undefined,
-                        };
-                        setMessages((prev) => [...prev, stoppedMessage]);
+                    (error instanceof DOMException &&
+                        error.name === "AbortError");
+
+                if (accumulated) {
+                    // We already streamed a (partial) answer. A late failure —
+                    // an abort, or an auxiliary/post-stream step such as
+                    // citation reconciliation or title generation hitting the
+                    // provider's content filter — must never discard what the
+                    // user already saw. Finalize the streamed message instead
+                    // of dropping the whole turn into the error state.
+                    const finalizedMessage: ChatMessage = {
+                        role: "assistant",
+                        content: stripEvidenceBlock(accumulated),
+                        references,
+                        reasoning: reasoning || undefined,
+                    };
+                    setMessages((prev) => [...prev, finalizedMessage]);
+                    if (!aborted) {
+                        console.error(
+                            "Stream ended with an error after partial content was received:",
+                            error
+                        );
                     }
-                } else {
+                } else if (!aborted) {
+                    // Nothing streamed yet — surface the retryable error box.
                     console.error("Error during streaming:", error);
                     setErrorState({ failedUserMessage });
                 }
@@ -1105,9 +1120,10 @@ export function PaperChatPanel({
                         const streamingIndex = messages.length;
                         const onStreamingCitationClick = (
                             key: string,
-                            msgIdx: number
+                            msgIdx: number,
+                            paperId?: string
                         ) => {
-                            handleCitationClick(key, msgIdx);
+                            handleCitationClick(key, msgIdx, paperId);
                             if (msgIdx === streamingIndex)
                                 setStreamingSourcesOpen(true);
                         };
@@ -1555,14 +1571,23 @@ function LoadEarlier({ isLoading, onLoad }: LoadEarlierProps) {
 }
 
 function citationComponents(
-    handleCitationClick: (key: string, messageIndex: number) => void,
+    handleCitationClick: (key: string, messageIndex: number, paperId?: string) => void,
     messageIndex: number,
     citations: Citation[]
 ): Components {
+    // CustomCitationLink calls handleCitationClick(key, messageIndex) without a
+    // paper_id (it's a shared component used in non-chat surfaces too). We
+    // resolve the matching citation's paper_id from the citations array here so
+    // it reaches the page's handler — which uses it to flip the displayed PDF
+    // when the citation refers to a supplementary.
+    const onClickWithPaperId = (key: string, msgIdx: number) => {
+        const match = citations.find((c) => String(c.key) === key);
+        handleCitationClick(key, msgIdx, match?.paper_id);
+    };
     const inject = (props: object) => (
         <CustomCitationLink
             {...(props as Record<string, unknown>)}
-            handleCitationClick={handleCitationClick}
+            handleCitationClick={onClickWithPaperId}
             messageIndex={messageIndex}
             citations={citations}
         />
@@ -1580,7 +1605,7 @@ interface PaperMessageProps {
     message: ChatMessage;
     index: number;
     user: ReturnType<typeof useAuth>["user"];
-    handleCitationClick: (key: string, messageIndex: number) => void;
+    handleCitationClick: (key: string, messageIndex: number, paperId?: string) => void;
     matchesCurrentCitation: (key: string, messageIndex: number) => boolean;
     flashesCurrentCitation?: (key: string, messageIndex: number) => boolean;
     onJumpToReference: (text: string) => void;
@@ -1609,8 +1634,8 @@ function PaperMessage({
     }, [hasFlash]);
 
     const onCitationClick = useCallback(
-        (key: string, msgIdx: number) => {
-            handleCitationClick(key, msgIdx);
+        (key: string, msgIdx: number, paperId?: string) => {
+            handleCitationClick(key, msgIdx, paperId);
             if (msgIdx === index) setSourcesOpen(true);
         },
         [handleCitationClick, index]
@@ -1708,7 +1733,7 @@ function PaperMessage({
 interface PaperSourcesProps {
     citations: Citation[];
     messageIndex: number;
-    handleCitationClick: (key: string, messageIndex: number) => void;
+    handleCitationClick: (key: string, messageIndex: number, paperId?: string) => void;
     matchesCurrentCitation: (key: string, messageIndex: number) => boolean;
     flashesCurrentCitation?: (key: string, messageIndex: number) => boolean;
     rightSlot?: React.ReactNode;
@@ -1758,7 +1783,8 @@ function PaperSources({
                                 onClick={() =>
                                     handleCitationClick(
                                         citation.key,
-                                        messageIndex
+                                        messageIndex,
+                                        citation.paper_id
                                     )
                                 }
                                 onKeyDown={(e) => {
@@ -1766,7 +1792,8 @@ function PaperSources({
                                         e.preventDefault();
                                         handleCitationClick(
                                             citation.key,
-                                            messageIndex
+                                            messageIndex,
+                                            citation.paper_id
                                         );
                                     }
                                 }}

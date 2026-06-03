@@ -64,6 +64,7 @@ class PaperCreate(PaperBase):
     upload_job_id: Optional[str] = None
     preview_url: Optional[str] = None
     parent_paper_id: Optional[uuid.UUID] = None
+    supplementary_of_paper_id: Optional[uuid.UUID] = None
 
 
 class PaperUpdate(PaperBase):
@@ -77,6 +78,7 @@ class PaperUpdate(PaperBase):
     journal: Optional[str] = None
     publisher: Optional[str] = None
     attempted_metadata_at: Optional[datetime] = None
+    supplementary_of_paper_id: Optional[uuid.UUID] = None
 
 
 class PaperDocumentMetadata(BaseModel):
@@ -126,7 +128,11 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
         # First, get reading papers
         reading_papers = (
             db.query(Paper)
-            .filter(Paper.user_id == user.id, Paper.status == PaperStatus.reading)
+            .filter(
+                Paper.user_id == user.id,
+                Paper.status == PaperStatus.reading,
+                Paper.supplementary_of_paper_id.is_(None),
+            )
             .order_by(Paper.last_accessed_at.desc())
             .limit(limit)
             .all()
@@ -142,7 +148,11 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
         # Get todo papers to fill the remaining slots
         todo_papers = (
             db.query(Paper)
-            .filter(Paper.user_id == user.id, Paper.status == PaperStatus.todo)
+            .filter(
+                Paper.user_id == user.id,
+                Paper.status == PaperStatus.todo,
+                Paper.supplementary_of_paper_id.is_(None),
+            )
             .order_by(Paper.last_accessed_at.desc())
             .limit(remaining_limit)
             .all()
@@ -172,6 +182,7 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
                 ),
                 Paper.size_in_kb.is_(None),  # Only papers without size_in_kb
                 Paper.s3_object_key.isnot(None),  # Must have S3 object key
+                Paper.supplementary_of_paper_id.is_(None),
             )
             .all()
         )
@@ -200,6 +211,7 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
                     )  # Or job is completed
                 ),
                 Paper.size_in_kb.isnot(None),  # Only papers with size_in_kb
+                Paper.supplementary_of_paper_id.is_(None),
             )
             .all()
         )
@@ -268,6 +280,7 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
                         PaperUploadJob.status == JobStatus.COMPLETED
                     )  # Or job is completed
                 ),
+                Paper.supplementary_of_paper_id.is_(None),
             )
             .count()
         )
@@ -298,6 +311,7 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
                     )  # Or job is completed
                 ),
                 (Paper.status == status if status else True),
+                Paper.supplementary_of_paper_id.is_(None),
             )
             .order_by(Paper.updated_at.desc())
             .offset(skip)
@@ -491,7 +505,10 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
         If a query is provided, it will filter papers by raw_content.
         If paper_ids is provided, it will filter papers by the given list of IDs.
         """
-        db_query = db.query(Paper).filter(Paper.user_id == user.id)
+        db_query = db.query(Paper).filter(
+            Paper.user_id == user.id,
+            Paper.supplementary_of_paper_id.is_(None),
+        )
 
         if paper_ids:
             db_query = db_query.filter(Paper.id.in_(paper_ids))
@@ -603,6 +620,7 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
             JOIN papers p ON p.id = pp.paper_id
             WHERE pp.ts_vector @@ ({fts_query_clause})
               AND p.user_id = :user_id
+              AND p.supplementary_of_paper_id IS NULL
         """
 
         params: dict = {"user_id": user.id}
@@ -660,6 +678,23 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
             db.query(Paper)
             .filter(Paper.parent_paper_id == parent_paper_id, Paper.user_id == user.id)
             .one_or_none()
+        )
+
+    def list_supplementary_for(
+        self,
+        db: Session,
+        parent_paper_id: uuid.UUID,
+        user: CurrentUser,
+    ) -> List[Paper]:
+        """Return supplementary Paper rows for a given parent, owned by the user."""
+        return (
+            db.query(self.model)
+            .filter(
+                self.model.supplementary_of_paper_id == parent_paper_id,
+                self.model.user_id == user.id,
+            )
+            .order_by(self.model.created_at.asc())
+            .all()
         )
 
     def fork_paper(

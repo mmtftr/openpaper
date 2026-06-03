@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from typing import Optional
+from uuid import UUID
 
 from app.database.crud.base_crud import CRUDBase
 from app.database.models import JobStatus, PaperUploadJob
@@ -17,8 +18,11 @@ class PaperUploadJobBase(BaseModel):
 
 
 class PaperUploadJobCreate(PaperUploadJobBase):
-    # user_id will be set based on current_user, so not required in input
-    pass
+    # user_id will be set based on current_user, so not required in input.
+    # supplementary_of_paper_id, when set, marks this job as producing a
+    # supplementary material for the referenced parent paper. The webhook
+    # reads it off the job and stamps the resulting Paper row.
+    supplementary_of_paper_id: Optional[UUID] = None
 
 
 class PaperUploadJobUpdate(PaperUploadJobBase):

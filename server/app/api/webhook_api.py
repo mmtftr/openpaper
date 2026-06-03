@@ -141,6 +141,11 @@ async def handle_paper_processing_webhook(
 
     job_id = str(job.id)
 
+    # Supplementary uploads attach to a parent paper and skip the
+    # auto-generated conversation/annotations that normal uploads receive.
+    is_supplementary = job.supplementary_of_paper_id is not None
+    supplementary_of_paper_id = job.supplementary_of_paper_id
+
     if job.status == JobStatus.COMPLETED:
         logger.warning(f"Received webhook for already completed job {job_id}, ignoring")
         return {"status": "webhook ignored - job already completed"}
@@ -245,6 +250,7 @@ async def handle_paper_processing_webhook(
                     ocr=result.ocr,
                     figure_count=result.figure_count,
                     page_count=result.page_count,
+                    supplementary_of_paper_id=supplementary_of_paper_id,
                 ),
                 db_obj=existing_paper,
                 user=job_user,
@@ -264,59 +270,62 @@ async def handle_paper_processing_webhook(
                         exc_info=True,
                     )
 
-            # Create highlights/annotations if any
-            if metadata.highlights and paper:
-                try:
-                    paper_crud.create_ai_annotations(
-                        db=db,
-                        paper_id=str(paper.id),
-                        extract_metadata=metadata,
-                        ai_highlight_anchors=result.ai_highlight_anchors,
-                        current_user=job_user,
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Error creating annotations for job {job_id}: {str(e)}",
-                        exc_info=True,
-                    )
-                    # Don't fail the whole process for annotation errors
+            # Supplementary uploads attach to a parent paper and don't get
+            # auto-generated AI annotations or a dedicated conversation.
+            if not is_supplementary:
+                # Create highlights/annotations if any
+                if metadata.highlights and paper:
+                    try:
+                        paper_crud.create_ai_annotations(
+                            db=db,
+                            paper_id=str(paper.id),
+                            extract_metadata=metadata,
+                            ai_highlight_anchors=result.ai_highlight_anchors,
+                            current_user=job_user,
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Error creating annotations for job {job_id}: {str(e)}",
+                            exc_info=True,
+                        )
+                        # Don't fail the whole process for annotation errors
 
-            if metadata.summary and paper:
-                try:
-                    conversation_data = ConversationCreate(
-                        conversable_type=ConversableType.PAPER,
-                        conversable_id=uuid.UUID(str(paper.id)),
-                    )
+                if metadata.summary and paper:
+                    try:
+                        conversation_data = ConversationCreate(
+                            conversable_type=ConversableType.PAPER,
+                            conversable_id=uuid.UUID(str(paper.id)),
+                        )
 
-                    conversation: Conversation | None = conversation_crud.create(
-                        db, obj_in=conversation_data, user=job_user
-                    )
+                        conversation: Conversation | None = conversation_crud.create(
+                            db, obj_in=conversation_data, user=job_user
+                        )
 
-                    if conversation:
-                        # Add the summary as the first message in the conversation, from the AI
+                        if conversation:
+                            # Add the summary as the first message in the conversation, from the AI
 
-                        citations_dict = (
-                            CitationHandler.convert_response_citation_to_paper_citation(
-                                metadata.summary_citations
+                            citations_dict = (
+                                CitationHandler.convert_response_citation_to_paper_citation(
+                                    metadata.summary_citations
+                                )
                             )
-                        )
 
-                        message_crud.create(
-                            db,
-                            obj_in=MessageCreate(
-                                conversation_id=uuid.UUID(str(conversation.id)),
-                                role="assistant",
-                                content=metadata.summary,
-                                references=citations_dict,
-                            ),
-                            user=job_user,
+                            message_crud.create(
+                                db,
+                                obj_in=MessageCreate(
+                                    conversation_id=uuid.UUID(str(conversation.id)),
+                                    role="assistant",
+                                    content=metadata.summary,
+                                    references=citations_dict,
+                                ),
+                                user=job_user,
+                            )
+                    except Exception as e:
+                        logger.error(
+                            f"Error creating conversation/message for job {job_id}: {str(e)}",
+                            exc_info=True,
                         )
-                except Exception as e:
-                    logger.error(
-                        f"Error creating conversation/message for job {job_id}: {str(e)}",
-                        exc_info=True,
-                    )
-                    # Don't fail the whole process for conversation/message errors
+                        # Don't fail the whole process for conversation/message errors
 
             # Post-processing: attempt to get DOI
             doi = get_doi(metadata.title, metadata.authors)

@@ -168,12 +168,52 @@ def _is_mistral(paper: Paper) -> bool:
 
 
 def _get_paper_or_raise(
-    paper_id: str, current_user: CurrentUser, db: Session
+    paper_id: str,
+    current_user: CurrentUser,
+    db: Session,
+    allowed_paper_ids: Optional[List[str]] = None,
 ) -> Paper:
+    """Fetch a paper, gating by ownership OR membership in `allowed_paper_ids`.
+
+    The allow-list is the chat-resolved set of papers the agent is permitted
+    to read this turn (the parent + its supplementary papers). When a
+    `paper_id` is in that list we still go through `paper_crud.get` with the
+    current user — supplementaries inherit the parent's user — so the row
+    must both exist and be accessible to the user. The list only narrows what
+    the agent can target, never widens what a user can read.
+    """
     paper = paper_crud.get(db, id=paper_id, user=current_user)
-    if not paper:
-        raise ValueError(f"Paper {paper_id} not found or access denied")
-    return paper
+    if paper:
+        if allowed_paper_ids is not None and str(paper.id) not in [
+            str(p) for p in allowed_paper_ids
+        ]:
+            raise ValueError(
+                f"Paper {paper_id} is not in the allowed paper family for this chat"
+            )
+        return paper
+    raise ValueError(f"Paper {paper_id} not found or access denied")
+
+
+def _resolve_target_paper_id(
+    default_paper_id: str,
+    target_paper_id: Optional[str],
+    allowed_paper_ids: Optional[List[str]],
+) -> str:
+    """Pick the paper id a tool call should hit.
+
+    Defaults to the parent paper. If the model explicitly passed
+    `target_paper_id`, validate it against `allowed_paper_ids` (when
+    supplied) so it cannot reach outside the family.
+    """
+    if not target_paper_id:
+        return default_paper_id
+    if allowed_paper_ids and str(target_paper_id) not in [
+        str(p) for p in allowed_paper_ids
+    ]:
+        # Fall back to the parent rather than raising — the tool will then
+        # surface a normal "not found" if the agent retries with garbage.
+        return default_paper_id
+    return str(target_paper_id)
 
 
 # --------------------------------------------------------------
@@ -423,8 +463,11 @@ def read_section(
     db: Session,
     text_only: bool = False,
     project_id: Optional[str] = None,
+    target_paper_id: Optional[str] = None,
+    allowed_paper_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    paper = _get_paper_or_raise(paper_id, current_user, db)
+    effective_id = _resolve_target_paper_id(paper_id, target_paper_id, allowed_paper_ids)
+    paper = _get_paper_or_raise(effective_id, current_user, db, allowed_paper_ids)
     if _is_mistral(paper):
         return _read_section_mistral(paper, name, text_only)
     return _read_section_pymupdf(paper, name, text_only)
@@ -437,8 +480,11 @@ def read_pages(
     current_user: CurrentUser,
     db: Session,
     project_id: Optional[str] = None,
+    target_paper_id: Optional[str] = None,
+    allowed_paper_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    paper = _get_paper_or_raise(paper_id, current_user, db)
+    effective_id = _resolve_target_paper_id(paper_id, target_paper_id, allowed_paper_ids)
+    paper = _get_paper_or_raise(effective_id, current_user, db, allowed_paper_ids)
 
     if start < 1 or end < start:
         return {"error": "Invalid page range"}
@@ -483,22 +529,16 @@ def read_pages(
     return response
 
 
-def search_paper(
-    paper_id: str,
-    query: str,
-    current_user: CurrentUser,
-    db: Session,
-    context_lines: int = 3,
-    project_id: Optional[str] = None,
-) -> Dict[str, Any]:
-    paper = _get_paper_or_raise(paper_id, current_user, db)
-    try:
-        pattern = re.compile(query, re.IGNORECASE)
-    except re.error as e:
-        return {"error": f"Invalid regex: {e}"}
-
+def _search_single_paper(
+    paper: Paper,
+    pattern: "re.Pattern[str]",
+    context_lines: int,
+    paper_id_for_tagging: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Run the per-paper search loop. Hits are tagged with `paper_id` when
+    provided so callers searching across the parent + supplementaries can
+    tell which paper each hit came from."""
     hits: List[Dict[str, Any]] = []
-
     if _is_mistral(paper):
         pages = _pages_from_paper(paper)
         for page_dict in pages:
@@ -512,19 +552,19 @@ def search_paper(
                     after = lines[
                         line_num + 1 : min(len(lines), line_num + 1 + context_lines)
                     ]
-                    hits.append(
-                        {
-                            "page": page_num,
-                            "line": line_num + 1,
-                            "match": line,
-                            "before": before,
-                            "after": after,
-                        }
-                    )
+                    hit: Dict[str, Any] = {
+                        "page": page_num,
+                        "line": line_num + 1,
+                        "match": line,
+                        "before": before,
+                        "after": after,
+                    }
+                    if paper_id_for_tagging:
+                        hit["paper_id"] = paper_id_for_tagging
+                    hits.append(hit)
     else:
         raw = str(getattr(paper, "raw_content", "") or "")
         page_offset_map = getattr(paper, "page_offset_map", None) or {}
-        # Build offset-to-page lookup once.
         ranges: List[Tuple[int, int, int]] = []
         for k, v in page_offset_map.items():
             try:
@@ -542,11 +582,10 @@ def search_paper(
             return None
 
         lines = raw.splitlines()
-        # Compute starting offset for each line so we can map to a page.
         line_starts: List[int] = [0]
         running = 0
         for line in lines:
-            running += len(line) + 1  # +1 for the newline
+            running += len(line) + 1
             line_starts.append(running)
 
         for line_num, line in enumerate(lines):
@@ -555,17 +594,58 @@ def search_paper(
                 after = lines[
                     line_num + 1 : min(len(lines), line_num + 1 + context_lines)
                 ]
-                hits.append(
-                    {
-                        "page": _page_for(line_starts[line_num]),
-                        "line": line_num + 1,
-                        "match": line,
-                        "before": before,
-                        "after": after,
-                    }
-                )
+                hit = {
+                    "page": _page_for(line_starts[line_num]),
+                    "line": line_num + 1,
+                    "match": line,
+                    "before": before,
+                    "after": after,
+                }
+                if paper_id_for_tagging:
+                    hit["paper_id"] = paper_id_for_tagging
+                hits.append(hit)
+    return hits
 
-    # Cap the result set to keep tool output bounded.
+
+def search_paper(
+    paper_id: str,
+    query: str,
+    current_user: CurrentUser,
+    db: Session,
+    context_lines: int = 3,
+    project_id: Optional[str] = None,
+    target_paper_id: Optional[str] = None,
+    allowed_paper_ids: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    try:
+        pattern = re.compile(query, re.IGNORECASE)
+    except re.error as e:
+        return {"error": f"Invalid regex: {e}"}
+
+    # When the agent passes no explicit target, search across the whole
+    # paper family (parent + supplementaries). Each hit is tagged with the
+    # paper_id it came from so the agent can follow up with `read_section`
+    # or `read_pages` against the right paper.
+    if target_paper_id is None and allowed_paper_ids and len(allowed_paper_ids) > 1:
+        all_hits: List[Dict[str, Any]] = []
+        for pid in allowed_paper_ids:
+            try:
+                p = _get_paper_or_raise(pid, current_user, db, allowed_paper_ids)
+            except ValueError:
+                continue
+            all_hits.extend(
+                _search_single_paper(p, pattern, context_lines, paper_id_for_tagging=str(pid))
+            )
+        return _cap_hits(all_hits)
+
+    effective_id = _resolve_target_paper_id(paper_id, target_paper_id, allowed_paper_ids)
+    paper = _get_paper_or_raise(effective_id, current_user, db, allowed_paper_ids)
+    hits = _search_single_paper(paper, pattern, context_lines, paper_id_for_tagging=None)
+    return _cap_hits(hits)
+
+
+def _cap_hits(hits: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Cap the result set to keep tool output bounded."""
     serialized = repr(hits)
     if len(serialized) > RESPONSE_CHAR_CAP:
         capped: List[Dict[str, Any]] = []
@@ -586,8 +666,11 @@ def get_figure(
     current_user: CurrentUser,
     db: Session,
     project_id: Optional[str] = None,
+    target_paper_id: Optional[str] = None,
+    allowed_paper_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    paper = _get_paper_or_raise(paper_id, current_user, db)
+    effective_id = _resolve_target_paper_id(paper_id, target_paper_id, allowed_paper_ids)
+    paper = _get_paper_or_raise(effective_id, current_user, db, allowed_paper_ids)
     if not _is_mistral(paper):
         return {"error": "Figures are unavailable for this paper (parsed in fallback mode)"}
 
@@ -608,5 +691,6 @@ def get_figure(
         "page": figure.get("page"),
         "caption": figure.get("caption"),
         "id": figure.get("id"),
-        "url": f"/api/paper/{paper_id}/figure/{figure.get('label') or figure.get('id')}",
+        "paper_id": effective_id,
+        "url": f"/api/paper/{effective_id}/figure/{figure.get('label') or figure.get('id')}",
     }

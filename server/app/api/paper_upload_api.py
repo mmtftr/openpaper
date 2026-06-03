@@ -142,21 +142,35 @@ async def upload_pdf_from_url(
     current_user: CurrentUser = Depends(get_required_user),
     db: Session = Depends(get_db),
     project_id: Optional[str] = None,
+    supplementary_of: Optional[str] = None,
 ):
     """
     Upload a document from a given URL, rather than the raw file.
     """
 
-    # Check subscription limits before proceeding
-    err_message = await check_subscription_limits(current_user, db)
-    if err_message:
-        return JSONResponse(
-            status_code=403,
-            content={
-                "message": err_message,
-                "error_code": "SUBSCRIPTION_LIMIT_EXCEEDED",
-            },
+    # If this is a supplementary upload, verify the parent paper belongs to
+    # the user. Supplementaries don't count against the subscription limit.
+    supplementary_parent_id: Optional[UUID] = None
+    if supplementary_of:
+        supplementary_parent_id = UUID(supplementary_of)
+        parent_paper = paper_crud.get(
+            db, id=supplementary_parent_id, user=current_user
         )
+        if not parent_paper:
+            return JSONResponse(
+                status_code=404, content={"message": "Parent paper not found"}
+            )
+    else:
+        # Check subscription limits before proceeding
+        err_message = await check_subscription_limits(current_user, db)
+        if err_message:
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "message": err_message,
+                    "error_code": "SUBSCRIPTION_LIMIT_EXCEEDED",
+                },
+            )
 
     # Validate the URL and fetch PDF content
     url = str(request.url)
@@ -167,6 +181,7 @@ async def upload_pdf_from_url(
     # Create the paper upload job
     paper_upload_job_obj = PaperUploadJobCreate(
         started_at=datetime.now(timezone.utc),
+        supplementary_of_paper_id=supplementary_parent_id,
     )
 
     paper_upload_job: PaperUploadJob = paper_upload_job_crud.create(
@@ -214,20 +229,34 @@ async def upload_pdf(
     current_user: CurrentUser = Depends(get_required_user),
     db: Session = Depends(get_db),
     project_id: Optional[str] = None,
+    supplementary_of: Optional[str] = None,
 ):
     """
     Upload a PDF file
     """
-    # Check subscription limits before proceeding
-    err_message = await check_subscription_limits(current_user, db)
-    if err_message:
-        return JSONResponse(
-            status_code=403,
-            content={
-                "message": err_message,
-                "error_code": "SUBSCRIPTION_LIMIT_EXCEEDED",
-            },
+    # If this is a supplementary upload, verify the parent paper belongs to
+    # the user. Supplementaries don't count against the subscription limit.
+    supplementary_parent_id: Optional[UUID] = None
+    if supplementary_of:
+        supplementary_parent_id = UUID(supplementary_of)
+        parent_paper = paper_crud.get(
+            db, id=supplementary_parent_id, user=current_user
         )
+        if not parent_paper:
+            return JSONResponse(
+                status_code=404, content={"message": "Parent paper not found"}
+            )
+    else:
+        # Check subscription limits before proceeding
+        err_message = await check_subscription_limits(current_user, db)
+        if err_message:
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "message": err_message,
+                    "error_code": "SUBSCRIPTION_LIMIT_EXCEEDED",
+                },
+            )
 
     # Read the file contents BEFORE adding to background task. We need this because the UploadFile object becomes inaccessible after the request is processed.
     try:
@@ -247,6 +276,7 @@ async def upload_pdf(
     # Create the paper upload job
     paper_upload_job_obj = PaperUploadJobCreate(
         started_at=datetime.now(timezone.utc),
+        supplementary_of_paper_id=supplementary_parent_id,
     )
 
     paper_upload_job: PaperUploadJob = paper_upload_job_crud.create(

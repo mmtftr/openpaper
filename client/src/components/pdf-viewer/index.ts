@@ -11,6 +11,7 @@ export { HighlightContainer } from "./HighlightContainer";
 export { activeHighlightStore } from "./activeHighlightStore";
 export { usePdfSearch } from "./usePdfSearch";
 export { PdfToolbar } from "./PdfToolbar";
+export { PdfBottomControls } from "./PdfBottomControls";
 export { findTextPages, createTextHighlightOverlays, removeHighlightOverlays, computeScaledPositionFromTextLayer } from "./findTextPosition";
 export {
 	getAssistantHighlightBackgroundRgba,

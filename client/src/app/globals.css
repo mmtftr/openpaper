@@ -396,3 +396,89 @@
 .paper-doc-editor .milkdown .ProseMirror blockquote {
 	padding-left: 20px !important;
 }
+
+/*
+ * Read-only markdown viewer (mobile "Markdown" tab). Crepe's default white
+ * `--crepe-color-background` makes the viewer look like a card overlay rather
+ * than part of the host panel — drop it and inherit. Then tune typography
+ * for comfortable phone reading: larger base size, generous line-height,
+ * breathing room between blocks, and a max line-length so paragraphs don't
+ * stretch edge-to-edge on tablets/landscape.
+ *
+ * Default Crepe ships 60px/120px padding which is absurd here; 18px/20px
+ * gives margin without wasting screen.
+ */
+.paper-markdown-reader .milkdown {
+	background: transparent !important;
+	color: inherit !important;
+}
+.paper-markdown-reader .milkdown .ProseMirror {
+	padding: 18px 20px !important;
+	font-size: 17px !important;
+	line-height: 1.7 !important;
+	max-width: 42rem;
+	margin-left: auto !important;
+	margin-right: auto !important;
+}
+@media (min-width: 640px) {
+	.paper-markdown-reader .milkdown .ProseMirror {
+		padding: 24px 32px !important;
+	}
+}
+.paper-markdown-reader .milkdown .ProseMirror h1 {
+	font-size: 1.6em !important;
+	line-height: 1.25 !important;
+	margin-top: 1.4em !important;
+	margin-bottom: 0.5em !important;
+}
+.paper-markdown-reader .milkdown .ProseMirror h2 {
+	font-size: 1.35em !important;
+	line-height: 1.3 !important;
+	margin-top: 1.3em !important;
+	margin-bottom: 0.45em !important;
+}
+.paper-markdown-reader .milkdown .ProseMirror h3 {
+	font-size: 1.15em !important;
+	line-height: 1.35 !important;
+	margin-top: 1.1em !important;
+	margin-bottom: 0.4em !important;
+}
+.paper-markdown-reader .milkdown .ProseMirror h4,
+.paper-markdown-reader .milkdown .ProseMirror h5,
+.paper-markdown-reader .milkdown .ProseMirror h6 {
+	font-size: 1em !important;
+	margin-top: 1em !important;
+	margin-bottom: 0.35em !important;
+}
+.paper-markdown-reader .milkdown .ProseMirror p {
+	padding: 0 !important;
+	margin: 0 0 0.85em !important;
+}
+.paper-markdown-reader .milkdown .ProseMirror blockquote {
+	padding-left: 14px !important;
+	margin: 0.85em 0 !important;
+	border-left: 3px solid var(--border, #e5e7eb);
+	color: color-mix(in srgb, currentColor 75%, transparent);
+}
+.paper-markdown-reader .milkdown .ProseMirror ul,
+.paper-markdown-reader .milkdown .ProseMirror ol {
+	padding-left: 1.4em !important;
+	margin: 0.6em 0 !important;
+}
+.paper-markdown-reader .milkdown .ProseMirror li {
+	margin: 0.25em 0 !important;
+}
+.paper-markdown-reader .milkdown .ProseMirror li > p {
+	margin: 0 !important;
+}
+.paper-markdown-reader .milkdown .ProseMirror code {
+	font-size: 0.92em !important;
+}
+.paper-markdown-reader .milkdown .ProseMirror img {
+	margin: 0.75em auto !important;
+	max-width: 100%;
+	height: auto;
+}
+.paper-markdown-reader .milkdown .ProseMirror hr {
+	margin: 1.5em 0 !important;
+}
