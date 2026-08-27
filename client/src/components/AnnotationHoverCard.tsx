@@ -22,8 +22,9 @@ export function AnnotationHoverCard({
     position,
     user,
 }: AnnotationHoverCardProps) {
-    if (annotations.length === 0) return null;
-
+    // useMemo must run before any early return: bailing out first made the hook
+    // count vary between renders, which React rejects the moment an instance
+    // goes from zero annotations to some.
     const sorted = useMemo(
         () =>
             [...annotations].sort(
@@ -31,6 +32,8 @@ export function AnnotationHoverCard({
             ),
         [annotations]
     );
+
+    if (annotations.length === 0) return null;
 
     // Clamp so the card stays within the viewport
     const left = Math.min(position.x, window.innerWidth - CARD_WIDTH - VIEWPORT_PADDING);

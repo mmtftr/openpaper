@@ -2,7 +2,7 @@ import { PaperItem } from "@/lib/schema";
 import { Button } from "./ui/button";
 import { toast } from "sonner";
 import { FilePlus2 } from "lucide-react";
-import { PdfHighlighterViewer } from "./PdfHighlighterViewer";
+import { PdfReader } from "@/components/reader";
 import { useRouter } from "next/navigation";
 import { fetchFromApi } from "@/lib/api";
 import { useEffect, useState, useCallback } from "react";
@@ -118,27 +118,8 @@ export function ProjectPaperPreview({ paper, projectId }: ProjectPaperPreviewPro
                 </div>
                 <div className="flex-grow overflow-auto">
                     {paper.file_url && (
-                        <PdfHighlighterViewer
+                        <PdfReader
                             pdfUrl={paper.file_url}
-                            explicitSearchTerm=""
-                            setUserMessageReferences={() => { }}
-                            highlights={[]}
-                            setHighlights={() => { }}
-                            selectedText=""
-                            setSelectedText={() => { }}
-                            tooltipPosition={null}
-                            setTooltipPosition={() => { }}
-                            isAnnotating={false}
-                            setIsAnnotating={() => { }}
-                            isHighlightInteraction={false}
-                            setIsHighlightInteraction={() => { }}
-                            activeHighlight={null}
-                            setActiveHighlight={() => { }}
-                            addHighlight={() => { }}
-                            removeHighlight={() => { }}
-                            loadHighlights={async () => { }}
-                            renderAnnotations={() => { }}
-                            annotations={[]}
                             onRefreshUrl={refreshPdfUrl}
                         />
                     )}

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { PdfHighlighterViewer } from '@/components/PdfHighlighterViewer';
+import { PdfReader } from '@/components/reader';
 import { AnnotationsView } from '@/components/AnnotationsView';
 import { fetchFromApi } from '@/lib/api';
 import {
@@ -357,27 +357,13 @@ export default function SharedPaperView() {
                     {mobileView === 'reader' ? (
                         <div className="w-full h-full">
                             {paperData.file_url ? (
-                                <PdfHighlighterViewer
+                                <PdfReader
                                     pdfUrl={paperData.file_url}
-                                    highlights={highlights}
-                                    activeHighlight={activeHighlight}
-                                    setUserMessageReferences={() => { }}
-                                    setSelectedText={() => { }}
-                                    setTooltipPosition={() => { }}
-                                    isAnnotating={false}
-                                    setIsAnnotating={() => { }}
-                                    setIsHighlightInteraction={() => { }}
-                                    isHighlightInteraction={false}
-                                    setHighlights={() => { }}
                                     explicitSearchTerm={explicitSearchTerm}
-                                    selectedText={''}
-                                    tooltipPosition={null}
-                                    setActiveHighlight={setActiveHighlight}
-                                    addHighlight={() => { }}
-                                    loadHighlights={async () => { }}
-                                    removeHighlight={() => { }}
-                                    renderAnnotations={() => { }}
+                                    highlights={highlights}
                                     annotations={annotations}
+                                    activeHighlight={activeHighlight}
+                                    setActiveHighlight={setActiveHighlight}
                                     onRefreshUrl={refreshPdfUrl}
                                     currentUser={owner ?? null}
                                     showAnnotationCards={showAnnotationCards}
@@ -490,33 +476,17 @@ export default function SharedPaperView() {
                 {/* Left Side: PDF Viewer */}
                 <div className="w-3/5 border-r dark:border-gray-800 border-gray-200 h-full overflow-hidden">
                     {paperData.file_url ? (
-                        <PdfHighlighterViewer
+                        <PdfReader
                             pdfUrl={paperData.file_url}
-                            highlights={highlights}
-                            activeHighlight={activeHighlight}
-                            setUserMessageReferences={() => { }}
-                            setSelectedText={() => { }}
-                            setTooltipPosition={() => { }}
                             explicitSearchTerm={explicitSearchTerm}
-                            isAnnotating={false}
-                            setIsAnnotating={() => { }}
-                            setIsHighlightInteraction={() => { }}
-                            isHighlightInteraction={false}
-                            setHighlights={() => { }}
-                            selectedText={''}
-                            tooltipPosition={null}
-                            setActiveHighlight={setActiveHighlight}
-                            addHighlight={() => { }}
-                            loadHighlights={async () => { }}
-                            removeHighlight={() => { }}
-                            renderAnnotations={() => { }}
+                            highlights={highlights}
                             annotations={annotations}
+                            activeHighlight={activeHighlight}
+                            setActiveHighlight={setActiveHighlight}
                             onRefreshUrl={refreshPdfUrl}
                             currentUser={owner ?? null}
                             showAnnotationCards={showAnnotationCards}
-                            onToggleAnnotationCards={() =>
-                                setShowAnnotationCards((v) => !v)
-                            }
+                            onToggleAnnotationCards={() => setShowAnnotationCards((v) => !v)}
                             sidePanelOpen
                         />
                     ) : (

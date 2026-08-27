@@ -1,6 +1,6 @@
 'use client';
 
-import { PdfHighlighterViewer, RenderedHighlightPosition } from '@/components/PdfHighlighterViewer';
+import { PdfReader, RenderedHighlightPosition } from '@/components/reader';
 import { Button } from '@/components/ui/button';
 import { fetchFromApi } from '@/lib/api';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
@@ -468,9 +468,9 @@ export default function PaperView() {
 
     const handleHighlightClick = useCallback((highlight: PaperHighlight) => {
         setActiveHighlight(highlight);
-        // Position-backed highlights: PdfHighlighterViewer scrolls via scrollToHighlight only.
-        // Do not set explicitSearchTerm — it triggers usePdfSearch goToMatch(0) (first occurrence)
-        // and fights correct alignment when raw_text appears multiple times.
+        // Coordinate-backed highlights are already drawn in the right place, so
+        // don't run a text search for them: pdf.js would jump to the first textual
+        // occurrence, which fights the anchor when raw_text repeats on the page.
         if (highlight.raw_text && !highlight.position) {
             setExplicitSearchTerm(highlight.raw_text);
         } else {
@@ -855,40 +855,28 @@ export default function PaperView() {
                     {mobileView === 'reader' ? (
                         <div className="relative w-full h-full">
                             {pdfUrlForViewer && (
-                                <PdfHighlighterViewer
+                                <PdfReader
                                     pdfUrl={pdfUrlForViewer}
                                     explicitSearchTerm={explicitSearchTerm}
-                                    setUserMessageReferences={setUserMessageReferences}
-                                    setSelectedText={setSelectedText}
-                                    setTooltipPosition={setTooltipPosition}
-                                    isAnnotating={isAnnotating}
-                                    setIsAnnotating={setIsAnnotating}
-                                    setIsHighlightInteraction={setIsHighlightInteraction}
-                                    isHighlightInteraction={isHighlightInteraction}
+                                    onSearchComplete={handleSearchComplete}
                                     highlights={highlights}
-                                    selectedText={selectedText}
-                                    tooltipPosition={tooltipPosition}
-                                    setActiveHighlight={setActiveHighlight}
-                                    activeHighlight={activeHighlight}
-                                    addHighlight={addHighlight}
-                                    loadHighlights={fetchHighlights}
-                                    removeHighlight={removeHighlight}
-                                    renderAnnotations={renderAnnotations}
                                     annotations={annotations}
-                                    setHighlights={setHighlights}
-                                    handleStatusChange={handleStatusChange}
-                                    paperStatus={displayedPaperStatus}
-                                    onOverlaysCreated={handleOverlaysCreated}
-                                    onRefreshUrl={refreshPdfUrl}
+                                    activeHighlight={activeHighlight}
+                                    setActiveHighlight={setActiveHighlight}
+                                    addHighlight={addHighlight}
+                                    removeHighlight={removeHighlight}
                                     addAnnotation={addAnnotation}
                                     updateAnnotation={updateAnnotation}
                                     removeAnnotation={removeAnnotation}
+                                    setUserMessageReferences={setUserMessageReferences}
+                                    onOverlaysCreated={handleOverlaysCreated}
+                                    onRefreshUrl={refreshPdfUrl}
                                     currentUser={user}
                                     showAnnotationCards={showAnnotationCards}
                                     onToggleAnnotationCards={() => setAnnotationCardsVisible((v) => !v)}
                                     annotationsPanelActive={annotationsPanelActive}
                                     onAnnotateViaSidePanel={onAnnotateViaSidePanel}
-                                    onSearchComplete={handleSearchComplete}
+                                    composeHighlightId={composeHighlightId}
                                     parentPaperId={parentPaperId}
                                     displayedPaperId={displayedPaperId}
                                     parentPaperTitle={paperData?.title ?? undefined}
@@ -974,45 +962,31 @@ export default function PaperView() {
                 >
                     {pdfUrlForViewer && (
                         <div className="relative w-full h-full">
-                            <PdfHighlighterViewer
+                            <PdfReader
                                 pdfUrl={pdfUrlForViewer}
                                 explicitSearchTerm={explicitSearchTerm}
-                                setUserMessageReferences={setUserMessageReferences}
-                                setSelectedText={setSelectedText}
-                                setTooltipPosition={setTooltipPosition}
-                                isAnnotating={isAnnotating}
-                                setIsAnnotating={setIsAnnotating}
-                                setIsHighlightInteraction={setIsHighlightInteraction}
-                                isHighlightInteraction={isHighlightInteraction}
+                                onSearchComplete={handleSearchComplete}
                                 highlights={highlights}
-                                selectedText={selectedText}
-                                tooltipPosition={tooltipPosition}
-                                setActiveHighlight={setActiveHighlight}
-                                activeHighlight={activeHighlight}
-                                addHighlight={addHighlight}
-                                loadHighlights={fetchHighlights}
-                                removeHighlight={removeHighlight}
-                                renderAnnotations={renderAnnotations}
                                 annotations={annotations}
-                                setHighlights={setHighlights}
-                                handleStatusChange={handleStatusChange}
-                                paperStatus={displayedPaperStatus}
-                                onOverlaysCreated={handleOverlaysCreated}
-                                onRefreshUrl={refreshPdfUrl}
+                                activeHighlight={activeHighlight}
+                                setActiveHighlight={setActiveHighlight}
+                                addHighlight={addHighlight}
+                                removeHighlight={removeHighlight}
                                 addAnnotation={addAnnotation}
                                 updateAnnotation={updateAnnotation}
                                 removeAnnotation={removeAnnotation}
+                                setUserMessageReferences={setUserMessageReferences}
+                                onOverlaysCreated={handleOverlaysCreated}
+                                onRefreshUrl={refreshPdfUrl}
                                 currentUser={user}
                                 showAnnotationCards={showAnnotationCards}
-                                onToggleAnnotationCards={() =>
-                                    setAnnotationCardsVisible((v) => !v)
-                                }
+                                onToggleAnnotationCards={() => setAnnotationCardsVisible((v) => !v)}
                                 annotationsPanelActive={annotationsPanelActive}
                                 onAnnotateViaSidePanel={onAnnotateViaSidePanel}
+                                composeHighlightId={composeHighlightId}
                                 sidePanelOpen={rightSideFunction !== 'Read'}
                                 isReadMode={isReadMode}
                                 onToggleReadMode={handleToggleReadMode}
-                                onSearchComplete={handleSearchComplete}
                                 parentPaperId={parentPaperId}
                                 displayedPaperId={displayedPaperId}
                                 parentPaperTitle={paperData?.title ?? undefined}

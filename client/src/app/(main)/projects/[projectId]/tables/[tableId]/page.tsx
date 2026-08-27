@@ -14,7 +14,7 @@ import {
     BreadcrumbPage,
     BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { PdfHighlighterViewer } from "@/components/PdfHighlighterViewer";
+import { PdfReader } from "@/components/reader";
 import { useIsMobile } from "@/lib/useMobile";
 import { useProject } from "@/hooks/useProjects";
 import { fetchFromApi } from "@/lib/api";
@@ -178,27 +178,9 @@ export default function DataTablePage() {
                     )}
                     <div className="flex-grow transition-all duration-300 ease-in-out overflow-y-auto">
                         {pdfUrl && (
-                            <PdfHighlighterViewer
+                            <PdfReader
                                 pdfUrl={pdfUrl}
                                 explicitSearchTerm={searchTerm || undefined}
-                                highlights={[]}
-                                activeHighlight={null}
-                                setUserMessageReferences={() => { }}
-                                setSelectedText={() => { }}
-                                setTooltipPosition={() => { }}
-                                isAnnotating={false}
-                                setIsAnnotating={() => { }}
-                                setIsHighlightInteraction={() => { }}
-                                isHighlightInteraction={false}
-                                setHighlights={() => { }}
-                                selectedText={''}
-                                tooltipPosition={null}
-                                setActiveHighlight={() => { }}
-                                addHighlight={() => { }}
-                                loadHighlights={async () => { }}
-                                removeHighlight={() => { }}
-                                renderAnnotations={() => { }}
-                                annotations={[]}
                             />
                         )}
                     </div>

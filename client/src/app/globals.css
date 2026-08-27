@@ -318,21 +318,130 @@
 	pointer-events: none;
 }
 
+/* ==========================================================================
+   PDF reader (pdf.js PDFViewer)
+   ========================================================================== */
+
 /*
- * Zoom: highlight rects jump every layout pass (library viewport math + DOM overlays from search/text-match).
- * Parent gets pdf-zoom-layout-pending until pagerendered quiets — see PdfHighlighterViewer.
+ * pdf.js ships `--page-border: 9px solid transparent` on `.page`. The element
+ * is border-box, so that border shrinks `.canvasWrapper` relative to the text
+ * and annotation layers and every selection box, highlight and link rect drifts
+ * a few percent away from the glyphs it is supposed to sit on. Removing it is
+ * the single fix that makes overlay geometry exact.
  */
-/* No opacity transition: fading 0→1 can run over frames where highlight rects are still wrong. */
-.pdf-zoom-layout-pending .PdfHighlighter__highlight-layer {
-	opacity: 0 !important;
-	pointer-events: none !important;
+.pdfViewer {
+	--page-border: none;
 }
 
-.pdf-zoom-layout-pending .text-match-highlight-overlay,
-.pdf-zoom-layout-pending .search-highlight-overlay {
-	opacity: 0 !important;
-	pointer-events: none !important;
+/*
+ * Dark mode inverts the rendered page image only — not the whole `.page` box.
+ * The overlay layers (highlights, links, selection) sit above the canvas and
+ * are authored in their own colours, so inverting them too would flip every
+ * highlight to its complement.
+ */
+.dark .pdfViewer .canvasWrapper {
+	filter: invert(88.8%) hue-rotate(180deg);
 }
+
+/*
+ * Sidebar page thumbnails are the same rendered page image, so they get the
+ * same inversion — otherwise the rail is a column of bright white cards in an
+ * otherwise dark reader.
+ */
+.dark .thumbnail-canvas {
+	filter: invert(88.8%) hue-rotate(180deg);
+}
+
+/*
+ * Highlight overlay.
+ *
+ * The root sits inside the scroll container as a sibling of `.pdfViewer` — NOT
+ * inside the page elements, because `PDFPageView.reset()` deletes any child it
+ * doesn't own (see HighlightLayer.tsx). One absolutely-positioned box per page
+ * is measured in pixels; the rects within it are percentages of that box, so
+ * they track zoom without further measurement.
+ *
+ * Nothing here takes pointer events: selecting text through a highlight has to
+ * keep working, so clicks and hovers are hit-tested in JS instead.
+ */
+.pdf-highlight-root {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 0;
+	height: 0;
+	pointer-events: none;
+	/*
+	 * Deliberately no `z-index`, `filter`, `opacity` or `isolation` on this
+	 * element or `.pdf-highlight-page`. Any of those makes it a stacking
+	 * context, and `mix-blend-mode` on the rects would then blend against this
+	 * subtree's own (transparent) backdrop instead of the page canvas — the
+	 * highlights would stop tinting the text and become opaque blocks over it.
+	 * Painting above the canvas is already guaranteed by DOM order: this root is
+	 * a later sibling of `.pdfViewer`.
+	 */
+}
+
+.pdf-highlight-page {
+	position: absolute;
+	pointer-events: none;
+}
+
+/*
+ * Highlight fills live here, not in JS.
+ *
+ * The blend mode is theme-dependent (`multiply` on a white page, `screen` over
+ * the inverted dark one) and so is the palette that suits it. Selecting the
+ * palette from React state while the blend mode came from the `.dark` class let
+ * the two disagree — during hydration, or any time the class is set outside
+ * React — and a light fill under `screen` blows out to white, erasing the text
+ * it was meant to tint. Deriving both from the same class makes that
+ * impossible; JS only picks *which* variable to use.
+ */
+.pdf-highlight-root {
+	--hl-yellow: #fef3c7;
+	--hl-yellow-active: #fde68a;
+	--hl-green: #dcfce7;
+	--hl-green-active: #86efac;
+	--hl-blue: #dbeafe;
+	--hl-blue-active: #93c5fd;
+	--hl-pink: #fce7f3;
+	--hl-pink-active: #f9a8d4;
+	--hl-purple: #f3e8ff;
+	--hl-purple-active: #c4b5fd;
+	--hl-assistant: #ede9fe;
+	--hl-assistant-active: #a78bfa;
+}
+
+.dark .pdf-highlight-root {
+	--hl-yellow: #4a3b00;
+	--hl-yellow-active: #6e5900;
+	--hl-green: #0c3b1e;
+	--hl-green-active: #12572c;
+	--hl-blue: #0d2e52;
+	--hl-blue-active: #14447a;
+	--hl-pink: #4a0f30;
+	--hl-pink-active: #6e1747;
+	--hl-purple: #2e1155;
+	--hl-purple-active: #45197f;
+	--hl-assistant: #2a1e52;
+	--hl-assistant-active: #3f2d7a;
+}
+
+.pdf-highlight-rect {
+	position: absolute;
+	pointer-events: none;
+	border-radius: 2px;
+	/* Tint the glyphs on the canvas below rather than covering them. */
+	mix-blend-mode: multiply;
+	transition: background-color 120ms ease;
+}
+
+/* Over an inverted (dark) canvas, lighten instead. */
+.dark .pdf-highlight-rect {
+	mix-blend-mode: screen;
+}
+
 
 /*
  * Left-align PDF pages when the side panel is open and inline annotation cards

@@ -24,3 +24,18 @@ To run the development server, use:
 ```bash
 yarn dev
 ```
+
+### pdf.js runtime assets
+
+The reader loads pdf.js's worker, cmaps, standard fonts and wasm over HTTP from
+`public/`. Those files are *generated*, not committed: `scripts/sync-pdfjs-assets.mjs`
+copies them out of `node_modules/pdfjs-dist` so they always match the installed
+version. It runs automatically via the `predev` and `prebuild` hooks.
+
+If you start Next directly (`npx next dev`) rather than through `yarn dev`, the
+copy step is skipped and the PDF pane fails with worker//cmap 404s. Run it by
+hand in that case:
+
+```bash
+node scripts/sync-pdfjs-assets.mjs
+```

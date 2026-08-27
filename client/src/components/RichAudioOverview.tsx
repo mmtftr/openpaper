@@ -14,7 +14,7 @@ import CustomCitationLink from "@/components/utils/CustomCitationLink";
 import { ChatMessageActions } from "@/components/ChatMessageActions";
 import { AudioOverview, Reference, PaperItem } from "@/lib/schema";
 import ReferencePaperCards from "@/components/ReferencePaperCards";
-import { PdfHighlighterViewer } from "@/components/PdfHighlighterViewer";
+import { PdfReader } from "@/components/reader";
 
 interface RichAudioOverviewProps {
     audioOverview: AudioOverview;
@@ -213,27 +213,9 @@ export const RichAudioOverview = ({
                     )}
                     <div className="flex-1 h-full overflow-hidden transition-all duration-300 ease-in-out">
                         {pdfUrl && (
-                            <PdfHighlighterViewer
+                            <PdfReader
                                 pdfUrl={pdfUrl}
                                 explicitSearchTerm={searchTerm || undefined}
-                                highlights={[]}
-                                activeHighlight={null}
-                                setUserMessageReferences={() => { }}
-                                setSelectedText={() => { }}
-                                setTooltipPosition={() => { }}
-                                isAnnotating={false}
-                                setIsAnnotating={() => { }}
-                                setIsHighlightInteraction={() => { }}
-                                isHighlightInteraction={false}
-                                setHighlights={() => { }}
-                                selectedText={''}
-                                tooltipPosition={null}
-                                setActiveHighlight={() => { }}
-                                addHighlight={() => { }}
-                                loadHighlights={async () => { }}
-                                removeHighlight={() => { }}
-                                renderAnnotations={() => { }}
-                                annotations={[]}
                             />
                         )}
                     </div>

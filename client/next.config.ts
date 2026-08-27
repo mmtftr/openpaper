@@ -8,7 +8,7 @@ const nextConfig = {
     // Enable source maps in production for error tracking
     productionBrowserSourceMaps: true,
     // Transpile packages that import CSS from node_modules
-    transpilePackages: ['react-pdf-highlighter-extended', 'pdfjs-dist'],
+    transpilePackages: ['pdfjs-dist'],
     // Add image remote patterns configuration
     images: {
         remotePatterns: [

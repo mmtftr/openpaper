@@ -26,7 +26,7 @@ import Link from "next/link";
 import { TopicBubbles } from "@/components/TopicBubbles";
 import { AnimatedGradientText } from "@/components/magicui/animated-gradient-text";
 import { ChatHistorySkeleton } from "@/components/ChatHistorySkeleton";
-import { PdfHighlighterViewer } from "@/components/PdfHighlighterViewer";
+import { PdfReader } from "@/components/reader";
 
 interface ConversationViewProps {
 	messages: ChatMessage[];
@@ -528,28 +528,10 @@ export const ConversationView = ({
 					</div>
 					<div className="flex-grow transition-all duration-300 ease-in-out overflow-y-auto">
 						{pdfUrl && (
-							<PdfHighlighterViewer
-								pdfUrl={pdfUrl}
-								explicitSearchTerm={searchTerm || undefined}
-								highlights={[]}
-								activeHighlight={null}
-								setUserMessageReferences={() => { }}
-								setSelectedText={() => { }}
-								setTooltipPosition={() => { }}
-								isAnnotating={false}
-								setIsAnnotating={() => { }}
-								setIsHighlightInteraction={() => { }}
-								isHighlightInteraction={false}
-								setHighlights={() => { }}
-								selectedText={''}
-								tooltipPosition={null}
-								setActiveHighlight={() => { }}
-								addHighlight={() => { }}
-								loadHighlights={async () => { }}
-								removeHighlight={() => { }}
-								renderAnnotations={() => { }}
-								annotations={[]}
-								onRefreshUrl={refreshPdfUrl}
+							<PdfReader
+							    pdfUrl={pdfUrl}
+							    explicitSearchTerm={searchTerm || undefined}
+							    onRefreshUrl={refreshPdfUrl}
 							/>
 						)}
 					</div>

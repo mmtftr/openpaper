@@ -6,7 +6,7 @@ import {
 	PaperHighlight,
 	PaperHighlightAnnotation,
 } from '@/lib/schema';
-import { RenderedHighlightPosition } from './PdfHighlighterViewer';
+import { RenderedHighlightPosition } from '@/components/reader';
 import { smoothScrollTo } from '@/lib/animation';
 import { BasicUser } from "@/lib/auth";
 import { cn, formatAnnotationDate } from '@/lib/utils';

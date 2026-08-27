@@ -3,7 +3,7 @@ import {
     PaperHighlight,
     PaperHighlightAnnotation,
 } from '@/lib/schema';
-import { RenderedHighlightPosition } from './PdfHighlighterViewer';
+import { RenderedHighlightPosition } from '@/components/reader';
 import { Loader, Share2Icon, LockIcon, Sparkle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
