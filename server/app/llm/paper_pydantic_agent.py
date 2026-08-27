@@ -105,13 +105,22 @@ TOOL_BUDGET_EXHAUSTED = {
 # replayed binary content byte-identical to the original tool return.
 _FIGURE_ID_PREFIX = "openpaper-figure:"
 
-# Azure OPENAI_MODELS deployment ids known not to accept image inputs.
-# Verified with a live Responses API call (1x1 PNG): both reject with
-# "does not support image inputs" rather than silently ignoring the image,
-# so get_figure must not attach BinaryImage content for these.
-_VISION_UNSUPPORTED_MODELS = frozenset(
+# Azure OPENAI_MODELS deployment ids where Azure's /responses gateway
+# rejects image input (400 "does not support image inputs") even though the
+# same deployment handles images fine via plain /chat/completions - verified
+# live with a 1x1 PNG against both endpoints for FW-Kimi-K3. Route these
+# through the chat-completions pydantic-ai model instead of responses.
+_RESPONSES_API_BROKEN_MODELS = frozenset(
     {
         "FW-Kimi-K3",
+    }
+)
+
+# Azure OPENAI_MODELS deployment ids that reject image input outright, on
+# both /responses and /chat/completions - a genuine model limitation, not an
+# Azure gateway gap. Verified live with a 1x1 PNG against both endpoints.
+_VISION_UNSUPPORTED_MODELS = frozenset(
+    {
         "DeepSeek-V4-Flash-0731",
     }
 )
@@ -715,10 +724,13 @@ def _build_pai_model(
         # Custom OpenAI-compatible endpoints (the local codex proxy, Groq,
         # Cerebras) only speak Chat Completions; the Responses API 404s there.
         # Standard OpenAI and Azure's v1 endpoint support Responses, so keep
-        # those on the responses model (reasoning summaries, etc.).
+        # those on the responses model (reasoning summaries, etc.) - except
+        # per-model overrides below, for deployments where Azure's Responses
+        # gateway is broken even though the model itself works fine.
         make_model = (
             make_openai_chat_model
             if provider_instance.has_custom_base_url
+            or resolved_model in _RESPONSES_API_BROKEN_MODELS
             else make_openai_responses_model
         )
         return (
