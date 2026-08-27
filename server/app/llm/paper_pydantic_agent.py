@@ -105,6 +105,21 @@ TOOL_BUDGET_EXHAUSTED = {
 # replayed binary content byte-identical to the original tool return.
 _FIGURE_ID_PREFIX = "openpaper-figure:"
 
+# Azure OPENAI_MODELS deployment ids known not to accept image inputs.
+# Verified with a live Responses API call (1x1 PNG): both reject with
+# "does not support image inputs" rather than silently ignoring the image,
+# so get_figure must not attach BinaryImage content for these.
+_VISION_UNSUPPORTED_MODELS = frozenset(
+    {
+        "FW-Kimi-K3",
+        "DeepSeek-V4-Flash-0731",
+    }
+)
+
+
+def _model_supports_vision(model: str) -> bool:
+    return model not in _VISION_UNSUPPORTED_MODELS
+
 
 def split_evidence_block(text: str) -> tuple[str, str]:
     """Return (content_before_evidence, raw_evidence_inner).
@@ -133,10 +148,12 @@ def _reasoning_part_delta(content: str, previous_reasoning: str) -> str:
 def build_pydantic_paper_agent(
     *,
     model: Any,
+    model_id: str,
     system_prompt: str,
     paper: Paper,
     context_mode: ContextMode,
 ) -> Agent[PaperAgentDeps, str]:
+    supports_vision = _model_supports_vision(model_id)
     agent: Agent[PaperAgentDeps, str] = Agent(
         model,
         output_type=str,
@@ -230,10 +247,17 @@ def build_pydantic_paper_agent(
                 name="get_figure",
                 description=(
                     "Fetch a figure or table by label, such as Figure 2 or "
-                    "Table 4. Returns metadata (label, page, caption) plus "
-                    "the rendered image so you can read the figure directly. "
-                    "Pass paper_id to target a supplementary paper; defaults "
-                    "to the main paper."
+                    "Table 4. Returns metadata (label, page, caption) "
+                    + (
+                        "plus the rendered image so you can read the figure "
+                        "directly. "
+                        if supports_vision
+                        else "— this model doesn't support image input, so "
+                        "only the caption/label/page is returned, not the "
+                        "rendered image. "
+                    )
+                    + "Pass paper_id to target a supplementary paper; "
+                    "defaults to the main paper."
                 ),
             )
             async def get_figure_tool(
@@ -252,6 +276,8 @@ def build_pydantic_paper_agent(
                 )
                 if "error" in payload:
                     return payload
+                if not supports_vision:
+                    return payload["metadata"]
                 return ToolReturn(
                     return_value=payload["metadata"],
                     content=[
@@ -362,6 +388,7 @@ async def run_pydantic_paper_agent(
     )
     agent = build_pydantic_paper_agent(
         model=pai_model,
+        model_id=resolved_model,
         system_prompt=system_prompt,
         paper=paper,
         context_mode=context_mode,
