@@ -48,18 +48,33 @@ logfire.configure(
     service_name="openpaper-server",
     send_to_logfire="if-token-present",
 )
-logfire.instrument_pydantic(record="failure")
-logfire.instrument_openai()
-logfire.instrument_anthropic()
-logfire.instrument_google_genai()
-logfire.instrument_httpx(capture_all=True)
+def _safe_instrument(label: str, instrument) -> None:
+    """Best-effort observability hookup.
+
+    Each ``logfire.instrument_*`` pulls an optional OpenTelemetry integration
+    whose version must line up with logfire's. A mismatch (e.g. an unpinned
+    rebuild floats logfire ahead of an integration package) raises at import
+    time — but instrumentation is observability, not core function, so it must
+    not take down server boot. Log and continue.
+    """
+    try:
+        instrument()
+    except Exception as exc:  # noqa: BLE001 - telemetry must never break boot
+        logger.warning("Skipping logfire instrumentation %s: %s", label, exc)
+
+
+_safe_instrument("pydantic", lambda: logfire.instrument_pydantic(record="failure"))
+_safe_instrument("openai", logfire.instrument_openai)
+_safe_instrument("anthropic", logfire.instrument_anthropic)
+_safe_instrument("google_genai", logfire.instrument_google_genai)
+_safe_instrument("httpx", lambda: logfire.instrument_httpx(capture_all=True))
 
 app = FastAPI(
     title="Open Paper",
     description="A web application for uploading and annotating papers.",
     version="1.0.0",
 )
-logfire.instrument_fastapi(app, capture_headers=True)
+_safe_instrument("fastapi", lambda: logfire.instrument_fastapi(app, capture_headers=True))
 
 client_domain = os.getenv("CLIENT_DOMAIN", "http://localhost:3000")
 

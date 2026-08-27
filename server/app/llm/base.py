@@ -79,6 +79,8 @@ class BaseLLMClient:
             return bool(os.getenv("GEMINI_API_KEY"))
         if provider == LLMProvider.OPENAI:
             return bool(os.getenv("OPENAI_API_KEY"))
+        if provider == LLMProvider.CODEX_PROXY:
+            return bool(os.getenv("CODEX_PROXY_BASE_URL"))
         if provider == LLMProvider.GROQ:
             return bool(os.getenv("GROQ_API_KEY") and os.getenv("GROQ_BASE_URL"))
         if provider == LLMProvider.CEREBRAS:
@@ -127,6 +129,20 @@ class BaseLLMClient:
                 self._providers[provider] = GeminiProvider()
             elif provider == LLMProvider.OPENAI:
                 self._providers[provider] = OpenAIProvider()
+            elif provider == LLMProvider.CODEX_PROXY:
+                # Local codex-raycast-proxy: an OpenAI Chat-Completions-compatible
+                # endpoint on the host, authenticated via the ChatGPT/Codex
+                # subscription (~/.codex/auth.json) rather than an API key.
+                # OPENAI_API_KEY-style auth is required by the openai client
+                # but ignored by the proxy, hence the placeholder default.
+                self._providers[provider] = OpenAIProvider(
+                    api_key=os.getenv("CODEX_PROXY_API_KEY", "codex-proxy-local"),
+                    base_url=os.getenv("CODEX_PROXY_BASE_URL"),
+                    default_model=os.getenv("CODEX_PROXY_MODEL", "gpt-5.5"),
+                    fast_model=os.getenv("CODEX_PROXY_FAST_MODEL", "gpt-5.4-mini"),
+                    supports_pdf_input=True,
+                    models_env_var="CODEX_PROXY_MODELS",
+                )
             elif provider == LLMProvider.GROQ:
                 # Custom OpenAI-compatible provider using a separate base URL and API key.
                 # These can be configured via environment variables or another config layer.

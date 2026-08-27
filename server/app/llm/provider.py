@@ -62,6 +62,7 @@ def _is_openai_compatible_azure_endpoint(url: Optional[str]) -> bool:
 class LLMProvider(Enum):
     GEMINI = "gemini"
     OPENAI = "openai"
+    CODEX_PROXY = "codex_proxy"
     GROQ = "groq"
     CEREBRAS = "cerebras"
     ANTHROPIC = "anthropic"
@@ -603,6 +604,13 @@ class OpenAIProvider(BaseLLMProvider):
         # OpenAI client, while the deployment-routed Azure URL uses
         # AzureOpenAI.
         self.is_azure = _is_azure_openai_enabled() and base_url is None
+        # True when talking to a custom OpenAI-compatible endpoint (the codex
+        # proxy, Groq, Cerebras, ... - see their own LLMProvider entries).
+        # Such endpoints implement Chat Completions but not the Responses
+        # API, so the pydantic_ai agent path must pick the chat model rather
+        # than the responses model. Standard OpenAI and Azure leave this
+        # False.
+        self.has_custom_base_url = False
         if self.is_azure:
             azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
             if not azure_endpoint:
@@ -622,12 +630,14 @@ class OpenAIProvider(BaseLLMProvider):
                     ),
                 )
         else:
-            # For standard OpenAI, base_url should be None. For OpenAI-compatible
-            # providers, pass a custom base_url when constructing this provider.
-            resolved_base_url = base_url or os.getenv("OPENAI_BASE_URL")
-            self._client = openai.OpenAI(
-                api_key=self.api_key, base_url=resolved_base_url
-            )
+            # Standard OpenAI: base_url is None unless a caller explicitly
+            # passes one (OpenAI-compatible providers - CODEX_PROXY, GROQ,
+            # CEREBRAS - construct their own OpenAIProvider instance with an
+            # explicit base_url; this provider itself no longer reads
+            # OPENAI_BASE_URL, so plain LLMProvider.OPENAI is always real
+            # OpenAI or Azure, never an implicit proxy).
+            self.has_custom_base_url = bool(base_url)
+            self._client = openai.OpenAI(api_key=self.api_key, base_url=base_url)
 
         self._default_model = default_model or os.getenv("OPENAI_MODEL") or "gpt-5.5"
         self._fast_model = (

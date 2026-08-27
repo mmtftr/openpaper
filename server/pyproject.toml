@@ -43,7 +43,7 @@ dependencies = [
     "exa-py>=1.0.0",
     "logfire[fastapi,httpx,sqlalchemy,celery,system-metrics]>=3.0.0",
     "opentelemetry-instrumentation-google-genai>=0.2b0",
-    "pydantic-ai>=1.89",
+    "pydantic-ai==1.89.1",
 ]
 
 [project.scripts]

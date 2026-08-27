@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from app.database.models import Message, Paper
 from app.database.telemetry import track_event
-from app.llm._pai_compat import make_openai_responses_model
+from app.llm._pai_compat import make_openai_chat_model, make_openai_responses_model
 from app.llm.base import BaseLLMClient, ModelType
 from app.llm.citation_handler import CitationHandler
 from app.llm.provider import (
@@ -50,7 +50,11 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.google import GoogleModel
-from pydantic_ai.models.openai import OpenAIResponsesModelSettings
+from pydantic_ai.models.openai import (
+    OpenAIChatModelSettings,
+    OpenAIResponsesModel,
+    OpenAIResponsesModelSettings,
+)
 from pydantic_ai.providers.anthropic import AnthropicProvider as PaiAnthropicProvider
 from pydantic_ai.providers.google import GoogleProvider
 from sqlalchemy.orm import Session
@@ -378,7 +382,12 @@ async def run_pydantic_paper_agent(
     start_times: Dict[str, float] = {}
     agent_result: Any = None
 
-    model_settings = _model_settings_for_provider(resolved_provider, reasoning_effort)
+    model_settings = _model_settings_for_provider(
+        resolved_provider,
+        resolved_model,
+        reasoning_effort,
+        use_responses_api=isinstance(pai_model, OpenAIResponsesModel),
+    )
     message_history = _convert_message_history(conversation_history)
 
     async for event in agent.run_stream_events(
@@ -667,11 +676,21 @@ def _build_pai_model(
             if provider_instance.client.base_url
             else None
         )
+        base_url = None if provider_instance.is_azure else client_base_url
+        # Custom OpenAI-compatible endpoints (the local codex proxy, Groq,
+        # Cerebras) only speak Chat Completions; the Responses API 404s there.
+        # Standard OpenAI and Azure's v1 endpoint support Responses, so keep
+        # those on the responses model (reasoning summaries, etc.).
+        make_model = (
+            make_openai_chat_model
+            if provider_instance.has_custom_base_url
+            else make_openai_responses_model
+        )
         return (
-            make_openai_responses_model(
+            make_model(
                 resolved_model,
                 api_key=provider_instance.api_key,
-                base_url=None if provider_instance.is_azure else client_base_url,
+                base_url=base_url,
             ),
             resolved_provider,
             resolved_model,
@@ -704,14 +723,30 @@ def _build_pai_model(
 
 def _model_settings_for_provider(
     provider: LLMProvider,
+    model: str,
     reasoning_effort: Optional[str],
+    *,
+    use_responses_api: bool = True,
 ) -> Optional[Dict[str, Any]]:
     if not reasoning_effort:
         return None
-    if provider == LLMProvider.OPENAI:
-        return OpenAIResponsesModelSettings(
+    if provider in (LLMProvider.OPENAI, LLMProvider.CODEX_PROXY):
+        # The Azure OPENAI_MODELS list also includes non-OpenAI passthrough
+        # deployments (Kimi, DeepSeek, ...) behind the same provider. Those
+        # don't uniformly support the reasoning-effort knob - DeepSeek 400s
+        # on it outright - so only attach it for OpenAI's own gpt-* models
+        # (true of both the OPENAI/Azure and CODEX_PROXY providers).
+        if not model.lower().startswith("gpt-"):
+            return None
+        if use_responses_api:
+            return OpenAIResponsesModelSettings(
+                openai_reasoning_effort=str(reasoning_effort),
+                openai_reasoning_summary="auto",
+            )
+        # Chat Completions model (custom OpenAI-compatible endpoint): only the
+        # reasoning-effort knob applies; reasoning summaries are Responses-only.
+        return OpenAIChatModelSettings(
             openai_reasoning_effort=str(reasoning_effort),
-            openai_reasoning_summary="auto",
         )
     return None
 
