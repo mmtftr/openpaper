@@ -113,14 +113,36 @@ class BaseLLMClient:
     def resolve_model(self, model_id: str) -> tuple[LLMProvider, str]:
         """Find which provider supplies this model id.
 
-        Returns (provider, model_id). Raises ValueError if no provider exposes
-        a model with this id.
+        Returns (provider, model_id). Ambiguous when two providers expose the
+        same id (e.g. Azure's OPENAI and a same-model-family CODEX_PROXY) -
+        returns the first match by provider iteration order. Callers that
+        know the provider should use `resolve_model_for_provider` instead.
+        Raises ValueError if no provider exposes a model with this id.
         """
         for provider, instance in self._providers.items():
             for option in instance.get_supported_models():
                 if option.id == model_id:
                     return provider, option.id
         raise ValueError(f"Model id '{model_id}' not found in any configured provider")
+
+    def resolve_model_for_provider(self, provider: LLMProvider, model_id: str) -> str:
+        """Validate model_id is offered by the given provider.
+
+        Use when the caller already knows the provider (e.g. it came from the
+        model picker, which returns {id, provider} pairs) - this disambiguates
+        the same id existing under multiple providers, unlike `resolve_model`.
+        Raises ValueError if the provider isn't configured or doesn't expose
+        this model id.
+        """
+        instance = self._providers.get(provider)
+        if instance is None:
+            raise ValueError(f"Provider '{provider.value}' is not configured")
+        for option in instance.get_supported_models():
+            if option.id == model_id:
+                return option.id
+        raise ValueError(
+            f"Model id '{model_id}' not found under provider '{provider.value}'"
+        )
 
     def _initialize_provider(self, provider: LLMProvider) -> None:
         """Initialize a provider if not already done"""

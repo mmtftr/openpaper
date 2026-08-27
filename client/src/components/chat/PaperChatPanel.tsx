@@ -199,6 +199,7 @@ interface ChatRequestBody {
     paper_id: string;
     user_references: string[];
     model?: string;
+    llm_provider?: string;
     reasoning_effort?: ReasoningEffort;
     context_mode?: ContextMode;
 }
@@ -720,7 +721,17 @@ export function PaperChatPanel({
                 paper_id: id,
                 user_references: userMessageReferences,
             };
-            if (selectedModel) requestBody.model = selectedModel;
+            if (selectedModel) {
+                requestBody.model = selectedModel;
+                // Disambiguates model ids shared across providers (e.g. the
+                // same gpt-5.5 id under Azure vs. a same-family proxy
+                // provider) - the picker already knows which provider this
+                // id came from.
+                const provider = availableModels.find(
+                    (m) => m.id === selectedModel
+                )?.provider;
+                if (provider) requestBody.llm_provider = provider;
+            }
             requestBody.reasoning_effort = reasoningEffort;
             requestBody.context_mode = contextMode;
 
@@ -826,6 +837,7 @@ export function PaperChatPanel({
             id,
             userMessageReferences,
             selectedModel,
+            availableModels,
             reasoningEffort,
             contextMode,
             transformReferencesToFormat,

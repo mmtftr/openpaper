@@ -659,7 +659,15 @@ def _build_pai_model(
     model_type: ModelType,
     model: Optional[str],
 ) -> tuple[Any, LLMProvider, str]:
-    if model:
+    if model and provider:
+        # Caller knows both (e.g. the model picker returns {id, provider}
+        # pairs) - resolve against that specific provider instead of the
+        # ambiguous global id lookup below, which would silently prefer
+        # whichever provider registered first when two expose the same id
+        # (e.g. Azure's OPENAI and a same-model-family CODEX_PROXY).
+        resolved_provider = provider
+        resolved_model = llm_client.resolve_model_for_provider(provider, model)
+    elif model:
         resolved_provider, resolved_model = llm_client.resolve_model(model)
     else:
         resolved_provider = provider or llm_client.default_provider
