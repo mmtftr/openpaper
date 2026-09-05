@@ -1,0 +1,254 @@
+{
+  "pathlib.Path('/repo')": {
+    "present": [
+      "name",
+      "suffix",
+      "stem",
+      "parent",
+      "parts"
+    ],
+    "absent": [
+      "iterdir",
+      "glob",
+      "rglob",
+      "read_text",
+      "read_bytes",
+      "write_text",
+      "is_dir",
+      "is_file",
+      "exists",
+      "stat",
+      "joinpath",
+      "resolve",
+      "absolute",
+      "as_posix",
+      "with_suffix",
+      "relative_to",
+      "match",
+      "open",
+      "samefile",
+      "parents",
+      "is_absolute",
+      "is_symlink",
+      "touch",
+      "mkdir"
+    ]
+  },
+  "re": {
+    "present": [
+      "search",
+      "match",
+      "fullmatch",
+      "findall",
+      "finditer",
+      "sub",
+      "split",
+      "compile",
+      "escape",
+      "IGNORECASE",
+      "I",
+      "MULTILINE",
+      "M",
+      "DOTALL",
+      "S",
+      "Pattern",
+      "Match"
+    ],
+    "absent": [
+      "subn",
+      "VERBOSE",
+      "X"
+    ]
+  },
+  "json": {
+    "present": [
+      "loads",
+      "dumps",
+      "JSONDecodeError"
+    ],
+    "absent": [
+      "load",
+      "dump"
+    ]
+  },
+  "collections": {
+    "present": [
+      "Counter",
+      "defaultdict",
+      "deque",
+      "namedtuple"
+    ],
+    "absent": [
+      "OrderedDict",
+      "ChainMap",
+      "UserDict"
+    ]
+  },
+  "itertools": {
+    "present": [
+      "chain",
+      "islice",
+      "count",
+      "cycle",
+      "repeat"
+    ],
+    "absent": [
+      "groupby",
+      "product",
+      "permutations",
+      "combinations",
+      "zip_longest",
+      "accumulate",
+      "takewhile",
+      "dropwhile",
+      "starmap",
+      "tee",
+      "filterfalse"
+    ]
+  },
+  "math": {
+    "present": [
+      "sqrt",
+      "floor",
+      "ceil",
+      "log",
+      "exp",
+      "pi",
+      "inf",
+      "isnan",
+      "pow"
+    ],
+    "absent": []
+  },
+  "sys": {
+    "present": [
+      "version",
+      "platform",
+      "stdout"
+    ],
+    "absent": [
+      "argv",
+      "path",
+      "maxsize",
+      "exit"
+    ]
+  },
+  "datetime": {
+    "present": [
+      "date",
+      "datetime",
+      "timedelta",
+      "timezone"
+    ],
+    "absent": [
+      "time"
+    ]
+  },
+  "builtins": {
+    "present": [
+      "len",
+      "range",
+      "print",
+      "open",
+      "sorted",
+      "enumerate",
+      "zip",
+      "sum",
+      "min",
+      "max",
+      "any",
+      "all",
+      "abs",
+      "round",
+      "str",
+      "int",
+      "float",
+      "bool",
+      "list",
+      "dict",
+      "set",
+      "tuple",
+      "frozenset",
+      "type",
+      "isinstance",
+      "hasattr",
+      "getattr",
+      "setattr",
+      "repr",
+      "reversed",
+      "map",
+      "filter",
+      "id",
+      "hash",
+      "iter",
+      "next",
+      "slice",
+      "divmod",
+      "bytes",
+      "ord",
+      "chr",
+      "hex",
+      "oct",
+      "bin",
+      "property",
+      "NotImplementedError",
+      "Exception",
+      "ValueError",
+      "KeyError",
+      "IndexError",
+      "TypeError",
+      "AttributeError",
+      "FileNotFoundError",
+      "PermissionError",
+      "StopIteration",
+      "RuntimeError",
+      "OSError",
+      "ZeroDivisionError"
+    ],
+    "absent": [
+      "dir",
+      "vars",
+      "eval",
+      "exec",
+      "compile",
+      "globals",
+      "locals",
+      "input",
+      "__import__",
+      "bytearray",
+      "format",
+      "callable",
+      "issubclass",
+      "super",
+      "staticmethod",
+      "classmethod"
+    ]
+  },
+  "str": {
+    "present": [],
+    "absent": [
+      "split",
+      "splitlines",
+      "strip",
+      "lower",
+      "upper",
+      "startswith",
+      "endswith",
+      "find",
+      "rfind",
+      "index",
+      "replace",
+      "join",
+      "count",
+      "format",
+      "partition",
+      "rsplit",
+      "lstrip",
+      "rstrip",
+      "encode",
+      "isdigit",
+      "title",
+      "zfill"
+    ]
+  }
+}

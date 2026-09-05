@@ -1,0 +1,59 @@
+
+==============================================================================
+>>> T5-bare-DeepSeek-V4-Flash-0731  [pydantic-ai / navigation]
+Where is retry logic for failed tool calls implemented? Show the relevant code.
+==============================================================================
+  !! ModelHTTPError: status_code: 429, model_name: DeepSeek-V4-Flash-0731, body: {'message': 'The system is currently experiencing high demand and cannot process your request. Your request exceeds the maximum usage size allowed during peak load. For improved capacity reliability, consider switching to Provisioned Throug
+  .. transient; backing off 20s (attempt 2/3)
+  !! ModelHTTPError: status_code: 429, model_name: DeepSeek-V4-Flash-0731, body: {'message': 'The system is currently experiencing high demand and cannot process your request. Your request exceeds the maximum usage size allowed during peak load. For improved capacity reliability, consider switching to Provisioned Throug
+  .. transient; backing off 40s (attempt 3/3)
+  !! ModelHTTPError: status_code: 429, model_name: DeepSeek-V4-Flash-0731, body: {'message': 'The system is currently experiencing high demand and cannot process your request. Your request exceeds the maximum usage size allowed during peak load. For improved capacity reliability, consider switching to Provisioned Throug
+
+--- T5-bare-DeepSeek-V4-Flash-0731: status=error wall=1979.2s tool_calls=24 errors=0 resets=0 ---
+
+==============================================================================
+>>> T5-prelude-DeepSeek-V4-Flash-0731  [pydantic-ai / navigation]
+Where is retry logic for failed tool calls implemented? Show the relevant code.
+==============================================================================
+  !! ModelHTTPError: status_code: 429, model_name: DeepSeek-V4-Flash-0731, body: {'message': 'The system is currently experiencing high demand and cannot process your request. Your request exceeds the maximum usage size allowed during peak load. For improved capacity reliability, consider switching to Provisioned Throug
+  .. transient; backing off 20s (attempt 2/3)
+  !! ModelHTTPError: status_code: 429, model_name: DeepSeek-V4-Flash-0731, body: {'message': 'The system is currently experiencing high demand and cannot process your request. Your request exceeds the maximum usage size allowed during peak load. For improved capacity reliability, consider switching to Provisioned Throug
+  .. transient; backing off 40s (attempt 3/3)
+  !! ModelHTTPError: status_code: 429, model_name: DeepSeek-V4-Flash-0731, body: {'message': 'The system is currently experiencing high demand and cannot process your request. Your request exceeds the maximum usage size allowed during peak load. For improved capacity reliability, consider switching to Provisioned Throug
+
+--- T5-prelude-DeepSeek-V4-Flash-0731: status=error wall=1567.6s tool_calls=20 errors=0 resets=0 ---
+
+==============================================================================
+>>> T6-bare-DeepSeek-V4-Flash-0731  [pydantic-ai / synthesis]
+Explain how streaming events flow from a model response to user-facing events. Name the key classes.
+==============================================================================
+  !! UsageLimitExceeded: The next tool call(s) would exceed the tool_calls_limit of 25 (tool_calls=26).
+
+--- T6-bare-DeepSeek-V4-Flash-0731: status=error wall=362.2s tool_calls=25 errors=3 resets=0 ---
+    sandbox error classes: ['MontyRuntimeError', 'MontyRuntimeError', 'MontyRuntimeError']
+
+==============================================================================
+>>> T6-prelude-DeepSeek-V4-Flash-0731  [pydantic-ai / synthesis]
+Explain how streaming events flow from a model response to user-facing events. Name the key classes.
+==============================================================================
+  !! UsageLimitExceeded: The next tool call(s) would exceed the tool_calls_limit of 25 (tool_calls=26).
+
+--- T6-prelude-DeepSeek-V4-Flash-0731: status=error wall=385.1s tool_calls=25 errors=1 resets=0 ---
+    sandbox error classes: ['MontyRuntimeError']
+
+
+==============================================================================
+Saved 12 result rows to ~/p/tmp/openpaper/spikes/monty-deepseek/results.json
+task   arm      model                      status   calls  err    wall  citations
+T1     bare     DeepSeek-V4-Flash-0731     ok          19    0   87.1s  E0/R0/F0/U4
+T1     prelude  DeepSeek-V4-Flash-0731     timeout     18    0  300.0s  E0/R0/F0/U0
+T2     bare     DeepSeek-V4-Flash-0731     ok           4    0   25.8s  E3/R0/F0/U0
+T2     prelude  DeepSeek-V4-Flash-0731     ok           4    0   31.5s  E2/R1/F0/U0
+T3     bare     DeepSeek-V4-Flash-0731     ok          16    0   91.8s  E9/R1/F0/U5
+T3     prelude  DeepSeek-V4-Flash-0731     ok           8    0   28.9s  E7/R0/F2/U2
+T4     bare     DeepSeek-V4-Flash-0731     ok           5    0   14.7s  E8/R2/F3/U0
+T4     prelude  DeepSeek-V4-Flash-0731     ok           6    0   15.2s  E8/R3/F0/U5
+T5     bare     DeepSeek-V4-Flash-0731     error       24    0 1979.2s  E0/R0/F0/U0
+T5     prelude  DeepSeek-V4-Flash-0731     error       20    0 1567.6s  E0/R0/F0/U0
+T6     bare     DeepSeek-V4-Flash-0731     error       25    3  362.2s  E0/R0/F0/U0
+T6     prelude  DeepSeek-V4-Flash-0731     error       25    1  385.1s  E0/R0/F0/U0
