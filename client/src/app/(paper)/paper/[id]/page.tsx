@@ -145,7 +145,6 @@ export default function PaperView() {
     const displayedPaperDataIdRef = useRef<string | null>(null);
     const flashCitationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [explicitSearchTerm, setExplicitSearchTerm] = useState<string | undefined>(undefined);
-    const [isSharing, setIsSharing] = useState(false);
     const [userMessageReferences, setUserMessageReferences] = useState<string[]>([]);
     const [renderedHighlightPositions, setRenderedHighlightPositions] = useState<Map<string, RenderedHighlightPosition>>(new Map());
 
@@ -186,7 +185,9 @@ export default function PaperView() {
             const rsf = hasInitializedRsf.current ? null : initialRsfRef.current;
 
             // Derive the available tools first
-            const hasOverview = paperData.summary_citations && paperData.summary_citations.length > 0;
+            const hasOverview = Boolean(
+                paperData.summary && paperData.summary !== 'None'
+            );
             const newNav = PaperToolset.nav.filter(tool => tool.name !== 'Overview' || hasOverview);
 
             const validTools = newNav.map(tool => tool.name.toLowerCase());
@@ -444,28 +445,6 @@ export default function PaperView() {
         };
     }, []);
 
-    const handleCitationClickFromSummary = useCallback((citationKey: string, messageIndex: number) => {
-        const citationIndex = parseInt(citationKey);
-        setActiveCitationKey(citationKey);
-        setActiveCitationMessageIndex(messageIndex);
-
-        // Look up the citations terms from the citationKey
-        const citationMatch = paperData?.summary_citations?.find(c => c.index === citationIndex);
-        // If the summary citation references a supplementary, flip the displayed
-        // PDF so the highlight lands on the right document.
-        if (
-            citationMatch?.paper_id &&
-            citationMatch.paper_id !== parentPaperId &&
-            citationMatch.paper_id !== displayedPaperId
-        ) {
-            setDisplayedPaperId(citationMatch.paper_id);
-        }
-        setExplicitSearchTerm(citationMatch ? citationMatch.text : citationKey);
-
-        // Clear the highlight after a few seconds
-        setTimeout(() => setActiveCitationKey(null), 3000);
-    }, [paperData?.summary_citations, parentPaperId, displayedPaperId]);
-
     const handleHighlightClick = useCallback((highlight: PaperHighlight) => {
         setActiveHighlight(highlight);
         // Coordinate-backed highlights are already drawn in the right place, so
@@ -705,42 +684,6 @@ export default function PaperView() {
         }
     }, [displayedPaperId, parentPaperId]);
 
-    const handleShare = useCallback(async () => {
-        if (!parentPaperId || !paperData || isSharing) return;
-        setIsSharing(true);
-        try {
-            const response = await fetchFromApi(`/api/paper/share?id=${parentPaperId}`, {
-                method: 'POST',
-            });
-            setPaperData(prev => prev ? { ...prev, share_id: response.share_id } : null);
-            const shareUrl = `${window.location.origin}/paper/share/${response.share_id}`;
-            await navigator.clipboard.writeText(shareUrl);
-            toast.success("Sharing link copied to clipboard!");
-        } catch (error) {
-            console.error('Error sharing paper:', error);
-            toast.error("Failed to share paper.");
-        } finally {
-            setIsSharing(false);
-        }
-    }, [parentPaperId, paperData, isSharing]);
-
-    const handleUnshare = useCallback(async () => {
-        if (!parentPaperId || !paperData || !paperData.share_id || isSharing) return;
-        setIsSharing(true);
-        try {
-            await fetchFromApi(`/api/paper/unshare?id=${parentPaperId}`, {
-                method: 'POST',
-            });
-            setPaperData(prev => prev ? { ...prev, share_id: "" } : null);
-            toast.success("Paper is now private.");
-        } catch (error) {
-            console.error('Error unsharing paper:', error);
-            toast.error("Failed to make paper private.");
-        } finally {
-            setIsSharing(false);
-        }
-    }, [parentPaperId, paperData, isSharing]);
-
     const paperHeader = usePaperHeader();
     const setPaperHeaderContext = paperHeader?.setPaperContext;
     const headerUpdatePaperStatus = paperHeader?.updatePaperStatus;
@@ -828,13 +771,9 @@ export default function PaperView() {
         highlights,
         handleHighlightClick,
         activeHighlight,
-        isSharing,
-        handleShare,
-        handleUnshare,
         id: parentPaperId,
         matchesCurrentCitation,
         flashesCurrentCitation,
-        handleCitationClickFromSummary,
         setRightSideFunction,
         setExplicitSearchTerm,
         handleCitationClick,

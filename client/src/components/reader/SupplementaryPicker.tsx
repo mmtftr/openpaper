@@ -16,10 +16,9 @@ import {
 	PaperUploadJobStatusResponse,
 	SupplementaryMaterialSummary,
 } from "@/lib/schema";
-import { uploadSupplementaryFile } from "@/lib/uploadUtils";
+import { uploadSupplementaryFile, MAX_UPLOAD_SIZE_MB } from "@/lib/uploadUtils";
 import { fetchFromApi } from "@/lib/api";
 
-const SUPPLEMENTARY_MAX_SIZE_MB = 30;
 const SUPPLEMENTARY_POLL_INTERVAL_MS = 2000;
 
 export interface SupplementaryPickerProps {
@@ -94,8 +93,8 @@ export function SupplementaryPicker({
 			toast.error("Invalid file type. Please upload a PDF.");
 			return;
 		}
-		if (file.size > SUPPLEMENTARY_MAX_SIZE_MB * 1024 * 1024) {
-			toast.error(`File size exceeds the ${SUPPLEMENTARY_MAX_SIZE_MB}MB limit.`);
+		if (file.size > MAX_UPLOAD_SIZE_MB * 1024 * 1024) {
+			toast.error(`File size exceeds the ${MAX_UPLOAD_SIZE_MB}MB limit.`);
 			return;
 		}
 

@@ -1,0 +1,12 @@
+# Dev-only overlay: publish postgres to the host so `uvicorn`/`next dev` can
+# run outside docker against the same data. Not part of the default merge —
+# opt in explicitly:
+#
+#   docker compose -f compose.yaml -f compose.override.yaml -f compose.dev.yaml up -d postgres
+#
+# 127.0.0.1-only per ~/p/tmp/caddy/ports.md; 5434 matches the DATABASE_URL
+# host port in server/.env's dev value.
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5434:5432"

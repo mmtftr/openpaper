@@ -591,3 +591,74 @@
 .paper-markdown-reader .milkdown .ProseMirror hr {
 	margin: 1.5em 0 !important;
 }
+
+/* ---------------------------------------------------------------------------
+ * Syntax highlighting (shiki).
+ *
+ * Highlighted output carries BOTH palettes as CSS variables (`defaultColor:
+ * false` / dual themes), so light and dark are a pure CSS swap on the `.dark`
+ * class — no re-highlighting when the theme changes. `.op-code-block` is the
+ * shared chrome for chat code blocks and the repo file viewer; `.op-code-token`
+ * marks tokens rendered from shiki tokens (file viewer) rather than its HTML.
+ * ------------------------------------------------------------------------ */
+.shiki,
+.shiki span {
+	color: var(--shiki-light);
+	background-color: var(--shiki-light-bg);
+}
+.dark .shiki,
+.dark .shiki span {
+	color: var(--shiki-dark);
+	background-color: var(--shiki-dark-bg);
+}
+.op-code-token {
+	color: var(--shiki-light, currentColor);
+}
+.dark .op-code-token {
+	color: var(--shiki-dark, currentColor);
+}
+
+.op-code-block {
+	max-width: 100%;
+	min-width: 0;
+	overflow-x: auto;
+	border-radius: 0.375rem;
+	border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+	font-size: 0.75rem;
+	line-height: 1.6;
+}
+.op-code-block pre,
+.op-code-block.op-code-block-plain {
+	margin: 0;
+	padding: 0.75rem;
+	background-color: transparent;
+	font-size: inherit;
+	line-height: inherit;
+}
+.op-code-block-plain {
+	background-color: color-mix(in srgb, var(--muted) 50%, transparent);
+	white-space: pre;
+}
+/* Line-wrap preference (useCodeWrap): soft-wrap instead of scrolling. */
+.op-code-wrap,
+.op-code-wrap pre,
+.op-code-wrap code,
+.op-code-wrap.op-code-block-plain {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.op-code-wrap {
+	overflow-x: hidden;
+}
+.op-code-block code {
+	background-color: transparent;
+	padding: 0;
+	font-size: inherit;
+	font-weight: inherit;
+}
+/* The typography plugin adds ``-quotes around inline code; code blocks are
+ * rendered by our own component and shouldn't get them. */
+.op-code-block code::before,
+.op-code-block code::after {
+	content: none;
+}

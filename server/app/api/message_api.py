@@ -1,621 +1,215 @@
+"""Chat endpoints.
+
+POST /chat/paper speaks the Vercel AI SDK v6 UIMessage stream protocol:
+the request body is the AI SDK submit payload (`{trigger, id, messages}` —
+the client sends only the NEW user message; server-side history is ground
+truth) plus OpenPaper's custom fields (paper_id, conversation_id, model
+selection). The response streams UIMessage chunks produced by the
+pydantic-ai Vercel adapter. See app/llm/chat/ and AGENTIC_CHAT_REFACTOR.md.
+
+POST /quick-question/code streams the same protocol (text/reasoning parts
+only) for an ephemeral, tool-less question about a selected code range in
+the paper's connected repo — nothing is persisted. See
+app/llm/chat/quick_question.py and REPO_INSPECTION_FEATURE.md.
+
+GET /models lists user-selectable chat models with capability flags.
+"""
+
 import json
 import logging
-import uuid
-from datetime import datetime, timezone
-from typing import AsyncGenerator, List, Literal, Optional, Union
+from typing import Literal, Optional
 
 from app.auth.dependencies import get_required_user
-from app.database.crud.conversation_crud import conversation_crud
-from app.database.crud.message_crud import MessageCreate, message_crud
-from app.database.crud.paper_crud import paper_crud
-from app.database.crud.projects.project_conversation_crud import (
-    project_conversation_crud,
-)
-from app.database.crud.projects.project_crud import project_crud
-from app.database.crud.projects.project_paper_crud import project_paper_crud
 from app.database.database import get_db
-from app.database.models import ConversableType
-from app.database.telemetry import track_event
 from app.llm.base import LLMProvider
-from app.llm.citation_handler import CitationHandler
-from app.llm.operations import operations
-from app.llm.paper_pydantic_agent import split_evidence_block
-from app.schemas.message import EvidenceCollection, ResponseStyle
+from app.llm.chat.quick_question import (
+    MAX_QUESTION_CHARS as MAX_QUICK_QUESTION_CHARS,
+)
+from app.llm.chat.quick_question import QuickQuestionError, run_quick_question
+from app.llm.chat.runtime import ChatRequestError, run_paper_chat
+from app.llm.chat.stream import OpenPaperAdapter
+from app.llm.model_registry import get_registry
 from app.schemas.user import CurrentUser
-from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from pydantic_ai.exceptions import UsageLimitExceeded
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy.orm import Session
-
-load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-logger.setLevel(logging.INFO)
-
-# Create API router with prefix
 message_router = APIRouter()
 
-END_DELIMITER = "END_OF_STREAM"
-
-
-def _ui_message_sse(chunk: dict) -> str:
-    return f"data: {json.dumps(chunk)}\n\n"
-
-
-def _ui_message_done() -> str:
-    return "data: [DONE]\n\n"
-
-
-async def _stream_chat_chunks(
-    chunk_generator: AsyncGenerator[Union[dict, str], None],
-    content_chunks: List[str],
-    evidence_container: dict,
-    include_lifecycle: bool = True,
-    pai_messages_container: Optional[dict] = None,
-) -> AsyncGenerator[str, None]:
-    """Stream chunks using the Vercel AI SDK UIMessage stream protocol."""
-    text_id = "text-1"
-    reasoning_id = "reasoning-1"
-    text_started = False
-    reasoning_started = False
-
-    if include_lifecycle:
-        yield _ui_message_sse({"type": "start"})
-    async for chunk in chunk_generator:
-        if not isinstance(chunk, dict):
-            logger.warning(f"Received unexpected chunk format: {chunk}")
-            continue
-
-        chunk_type = chunk.get("type")
-        chunk_content = chunk.get("content", "")
-
-        if chunk_type == "content":
-            content_chunks.append(chunk_content)
-            try:
-                if not text_started:
-                    text_started = True
-                    yield _ui_message_sse({"type": "text-start", "id": text_id})
-                yield _ui_message_sse(
-                    {
-                        "type": "text-delta",
-                        "id": text_id,
-                        "delta": chunk_content,
-                    }
-                )
-            except (TypeError, ValueError) as json_error:
-                logger.warning(f"Failed to serialize chunk content: {json_error}")
-                safe_content = (
-                    str(chunk_content).encode("utf-8", errors="replace").decode("utf-8")
-                )
-                if not text_started:
-                    text_started = True
-                    yield _ui_message_sse({"type": "text-start", "id": text_id})
-                yield _ui_message_sse(
-                    {"type": "text-delta", "id": text_id, "delta": safe_content}
-                )
-
-        elif chunk_type in ("references", "references_reconciled"):
-            evidence_container["evidence"] = chunk_content
-            try:
-                yield _ui_message_sse(
-                    {
-                        "type": f"data-{chunk_type}",
-                        "data": chunk_content,
-                    }
-                )
-            except (TypeError, ValueError) as json_error:
-                logger.warning(f"Failed to serialize references: {json_error}")
-                yield _ui_message_sse(
-                    {
-                        "type": "error",
-                        "errorText": "Failed to serialize references",
-                    }
-                )
-        elif chunk_type == "status":
-            yield _ui_message_sse(
-                {"type": "data-status", "data": chunk_content, "transient": True}
-            )
-        elif chunk_type == "messages_dump":
-            # Internal sentinel: the agent runtime hands us its serialized
-            # ModelMessage list so we can stash it on the assistant row's
-            # bucket. Not surfaced over the wire.
-            if pai_messages_container is not None:
-                pai_messages_container["dump"] = chunk_content
-        elif chunk_type == "reasoning":
-            if not reasoning_started:
-                reasoning_started = True
-                yield _ui_message_sse(
-                    {"type": "reasoning-start", "id": reasoning_id}
-                )
-            yield _ui_message_sse(
-                {
-                    "type": "reasoning-delta",
-                    "id": reasoning_id,
-                    "delta": str(chunk_content),
-                }
-            )
-
-    if text_started:
-        yield _ui_message_sse({"type": "text-end", "id": text_id})
-    if reasoning_started:
-        yield _ui_message_sse({"type": "reasoning-end", "id": reasoning_id})
-    if include_lifecycle:
-        yield _ui_message_sse({"type": "finish", "finishReason": "stop"})
-        yield _ui_message_done()
+# See https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol
+UI_MESSAGE_STREAM_HEADERS = {"x-vercel-ai-ui-message-stream": "v1"}
 
 
 @message_router.get("/models")
 async def get_available_models() -> dict:
-    models = operations.get_chat_models(
-        exclude=[LLMProvider.GROQ, LLMProvider.CEREBRAS]
-    )
-    default_id: Optional[str] = None
-    default_provider = operations.default_provider.value
-    for entry in models:
-        if entry["provider"] == default_provider:
-            default_id = entry["id"]
-            break
-    if default_id is None and models:
-        default_id = models[0]["id"]
-    return {"models": models, "default": default_id}
+    """User-selectable chat models with capabilities, for the picker."""
+    registry = get_registry()
+    specs = registry.chat_models(exclude=[LLMProvider.GROQ, LLMProvider.CEREBRAS])
+    default_spec = registry.resolve()
+    return {
+        "models": [spec.to_public_dict() for spec in specs],
+        "default": default_spec.id,
+        "default_provider": default_spec.provider.value,
+    }
 
 
-ReasoningEffort = Literal["low", "medium", "high", "xhigh"]
+class PaperChatBody(BaseModel):
+    """OpenPaper's custom fields riding along the AI SDK submit payload."""
 
-
-class MultiPaperChatRequest(BaseModel):
+    paper_id: str
     conversation_id: str
-    user_query: str
-    user_references: Optional[List[str]] = None
-    llm_provider: Optional[LLMProvider] = None
+    llm_provider: Optional[str] = None
     model: Optional[str] = None
-    reasoning_effort: Optional[ReasoningEffort] = None
-    project_id: Optional[str] = None
+    reasoning_effort: Optional[Literal["low", "medium", "high", "xhigh"]] = None
+    context_mode: Optional[
+        Literal["adaptive", "comprehensive", "full", "raw"]
+    ] = None
+    # PDF text selections attached by the user. Bounded: they flow into the
+    # model prompt but are not metered as chat credits.
+    user_references: Optional[list[str]] = Field(
+        default=None, max_length=20
+    )
+
+    @field_validator("user_references")
+    @classmethod
+    def _cap_reference_length(
+        cls, value: Optional[list[str]]
+    ) -> Optional[list[str]]:
+        if value and any(len(ref) > 5000 for ref in value):
+            raise ValueError("Each reference is limited to 5000 characters.")
+        return value
 
 
-@message_router.post("/chat/everything")
-async def chat_message_multipaper(
-    request: MultiPaperChatRequest,
+class QuickQuestionCodeBody(BaseModel):
+    """Inline code question. Ephemeral: no conversation, nothing persisted."""
+
+    paper_id: str
+    question: str = Field(min_length=1, max_length=MAX_QUICK_QUESTION_CHARS)
+    file_path: str
+    start_line: int
+    end_line: int
+    llm_provider: Optional[str] = None
+    model: Optional[str] = None
+    reasoning_effort: Optional[Literal["low", "medium", "high", "xhigh"]] = None
+
+
+@message_router.post("/quick-question/code")
+async def quick_question_code(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
 ) -> StreamingResponse:
-    """
-    Send a chat message and stream the response from the LLM.
+    """Stream a one-shot answer about a selected range of a repo file.
 
-    This searches over the entire corpus of papers and returns a response based on the user's query.
-    The response includes both the content and any relevant evidence gathered.
+    Same wire protocol as /chat/paper (the client uses the identical ai-sdk
+    reader) but text/reasoning parts only — no tools, no citations, and
+    nothing written to conversations or messages.
     """
     try:
+        extras = QuickQuestionCodeBody.model_validate(json.loads(await request.body()))
+    except (ValidationError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
-        async def response_generator():
-            try:
-                content_chunks = []
-                start_time = datetime.now(timezone.utc)
-                evidence_container = {"evidence": None}
-                evidence_collection: Optional[EvidenceCollection] = None
-                yield _ui_message_sse({"type": "start"})
-
-                # Ensure conversation is valid
-                if request.project_id:
-                    project = project_crud.get(
-                        db, id=request.project_id, user=current_user
-                    )
-
-                    if not project:
-                        raise ValueError("Project not found.")
-
-                    conversation = project_conversation_crud.get_by_conversation_id(
-                        db,
-                        project_id=uuid.UUID(request.project_id),
-                        conversation_id=uuid.UUID(request.conversation_id),
-                        user=current_user,
-                    )
-                else:
-                    conversation = conversation_crud.get(
-                        db, request.conversation_id, user=current_user
-                    )
-
-                # Multi-paper conversation must either be of type EVERYTHING or PROJECT. If it is a PROJECT conversation, naturally we need a `project_id`.
-
-                if not conversation:
-                    raise HTTPException(
-                        status_code=404, detail="Conversation not found."
-                    )
-
-                if (
-                    conversation.conversable_type != ConversableType.EVERYTHING
-                    and not request.project_id
-                ):
-                    raise ValueError("Conversation is not of type EVERYTHING.")
-
-                if (
-                    request.project_id
-                    and conversation.conversable_type != ConversableType.PROJECT
-                ):
-                    raise ValueError("Conversation is not of type PROJECT.")
-
-                async for chunk in operations.gather_evidence(
-                    conversation_id=request.conversation_id,
-                    question=request.user_query,
-                    current_user=current_user,
-                    llm_provider=LLMProvider.CEREBRAS,
-                    user_references=request.user_references,
-                    db=db,
-                    project_id=request.project_id,
-                ):
-                    # Parse the chunk as a dictionary
-                    if isinstance(chunk, dict):
-                        chunk_type = chunk.get("type")
-                        chunk_content = chunk.get("content", "")
-
-                        if chunk_type == "evidence_gathered":
-                            # Use the EvidenceCollection directly (preserves is_compacted and citation_index)
-                            assert isinstance(
-                                chunk_content, EvidenceCollection
-                            ), "Chunk content must be an EvidenceCollection"
-                            evidence_collection = chunk_content
-                        elif chunk_type == "status":
-                            yield _ui_message_sse(
-                                {
-                                    "type": "data-status",
-                                    "data": chunk_content,
-                                    "transient": True,
-                                }
-                            )
-                        else:
-                            logger.debug(f"received chunks: {chunk}")
-
-                if (
-                    evidence_collection is None
-                    or len(evidence_collection.evidence) == 0
-                ):
-                    yield _ui_message_sse({"type": "text-start", "id": "text-1"})
-                    yield _ui_message_sse(
-                        {
-                            "type": "text-delta",
-                            "id": "text-1",
-                            "delta": "It looks like I couldn't find any relevant papers for your question. Please try rephrasing your question. If you think this is an error, please contact support.",
-                        }
-                    )
-                    yield _ui_message_sse({"type": "text-end", "id": "text-1"})
-                    yield _ui_message_sse({"type": "finish", "finishReason": "stop"})
-                    yield _ui_message_done()
-                    return
-
-                yield _ui_message_sse(
-                    {
-                        "type": "data-status",
-                        "data": "Generating response...",
-                        "transient": True,
-                    }
-                )
-
-                if request.project_id:
-                    all_papers = project_paper_crud.get_all_papers_by_project_id(
-                        db, project_id=uuid.UUID(request.project_id), user=current_user
-                    )
-                else:
-                    all_papers = paper_crud.get_all_available_papers(
-                        db,
-                        user=current_user,
-                    )
-
-                chat_generator = operations.chat_with_papers(
-                    question=request.user_query,
-                    llm_provider=request.llm_provider,
-                    model=request.model,
-                    reasoning_effort=request.reasoning_effort,
-                    user_references=request.user_references,
-                    evidence_gathered=evidence_collection,
-                    conversation_id=request.conversation_id,
-                    current_user=current_user,
-                    all_papers=all_papers,
-                    db=db,
-                )
-                async for stream_chunk in _stream_chat_chunks(
-                    chunk_generator=chat_generator,
-                    content_chunks=content_chunks,
-                    evidence_container=evidence_container,
-                    include_lifecycle=False,
-                ):
-                    yield stream_chunk
-                yield _ui_message_sse({"type": "finish", "finishReason": "stop"})
-                yield _ui_message_done()
-
-                evidence = evidence_container["evidence"]
-
-                # Save the complete message to the database
-                full_content = "".join(content_chunks)
-
-                formatted_references = (
-                    CitationHandler.convert_references_to_dict(
-                        references=request.user_references
-                    )
-                    if request.user_references
-                    else None
-                )
-
-                # Save user message
-                message_crud.create(
-                    db,
-                    obj_in=MessageCreate(
-                        conversation_id=uuid.UUID(request.conversation_id),
-                        role="user",
-                        content=request.user_query,
-                        references=formatted_references,
-                    ),
-                    user=current_user,
-                )
-
-                # Save assistant message with both content and evidence
-                message_crud.create(
-                    db,
-                    obj_in=MessageCreate(
-                        conversation_id=uuid.UUID(request.conversation_id),
-                        role="assistant",
-                        content=full_content,
-                        references=evidence if evidence else None,
-                    ),
-                    user=current_user,
-                )
-
-                # Rename the conversation based on the chat history
-                operations.rename_conversation(
-                    db=db, conversation_id=request.conversation_id, user=current_user
-                )
-
-                # Track chat message event
-                track_event(
-                    "did_chat_message",
-                    properties={
-                        "has_user_references": bool(request.user_references),
-                        "has_evidence": bool(evidence),
-                        "llm_provider": (
-                            request.llm_provider.value
-                            if request.llm_provider
-                            else "default"
-                        ),
-                        "time_taken": (
-                            datetime.now(timezone.utc) - start_time
-                        ).total_seconds(),
-                        "type": conversation.conversable_type,
-                        "project_id": request.project_id,
-                    },
-                    user_id=str(current_user.id),
-                    db=db,
-                )
-
-            except Exception as e:
-
-                # Track error event
-                track_event(
-                    "everything_chat_message_error",
-                    properties={
-                        "error": str(e),
-                        "type": "everything",
-                        "conversation_id": str(request.conversation_id),
-                    },
-                    user_id=str(current_user.id),
-                    db=db,
-                )
-
-                logger.error(f"Error in streaming response: {e}", exc_info=True)
-                error_text = (
-                    "The paper agent needed too many retrieval steps for this turn. "
-                    "Try a narrower question or switch to Full context mode."
-                    if isinstance(e, UsageLimitExceeded)
-                    else str(e)
-                )
-                yield _ui_message_sse({"type": "error", "errorText": error_text})
-                yield _ui_message_done()
-
-        return StreamingResponse(
-            response_generator(),
-            media_type="text/event-stream",
-            headers={"x-vercel-ai-ui-message-stream": "v1"},
+    try:
+        stream = run_quick_question(
+            db=db,
+            current_user=current_user,
+            accept=request.headers.get("accept"),
+            paper_id=extras.paper_id,
+            question=extras.question,
+            file_path=extras.file_path,
+            start_line=extras.start_line,
+            end_line=extras.end_line,
+            provider=extras.llm_provider,
+            model=extras.model,
+            reasoning_effort=extras.reasoning_effort,
         )
+        # Force validation now so pre-stream failures surface as proper HTTP
+        # errors instead of a 200 with a broken SSE body.
+        first_chunk = await stream.__anext__()
+    except QuickQuestionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+    except StopAsyncIteration:
+        raise HTTPException(status_code=500, detail="Empty quick-question stream.")
 
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        logger.error(f"Error processing chat message: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+    async def sse():
+        # Same disconnect handling as chat: Starlette's cancellation can lag
+        # far behind the client abort while the model keeps generating on
+        # our dime, so poll the ASGI state on every chunk.
+        try:
+            yield first_chunk
+            async for chunk in stream:
+                if await request.is_disconnected():
+                    logger.info("Client disconnected; stopping quick-question stream")
+                    break
+                yield chunk
+        finally:
+            await stream.aclose()
 
-
-# Add this new model for the chat request
-ContextMode = Literal["adaptive", "comprehensive", "full", "raw"]
-
-
-class ChatMessageRequest(BaseModel):
-    paper_id: str
-    conversation_id: str
-    user_query: str
-    user_references: Optional[List[str]] = None
-    style: Optional[ResponseStyle] = ResponseStyle.NORMAL
-    llm_provider: Optional[LLMProvider] = None
-    model: Optional[str] = None
-    reasoning_effort: Optional[ReasoningEffort] = None
-    # Context mode selects how much of the paper is pre-loaded vs. fetched via
-    # tools. None = legacy whole-PDF chat (the path before slice 3).
-    context_mode: Optional[ContextMode] = None
+    return StreamingResponse(
+        sse(),
+        media_type="text/event-stream",
+        headers=UI_MESSAGE_STREAM_HEADERS,
+    )
 
 
 @message_router.post("/chat/paper")
-async def chat_message_stream(
-    request: ChatMessageRequest,
+async def chat_paper(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
 ) -> StreamingResponse:
-    """
-    Send a chat message and stream the response from the LLM
-
-    The response style can be:
-    - normal: Standard balanced response
-    - concise: Short and to the point
-    - detailed: Comprehensive and thorough
-    """
+    body = await request.body()
     try:
+        run_input = OpenPaperAdapter.build_run_input(body)
+        extras = PaperChatBody.model_validate(json.loads(body))
+    except (ValidationError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
-        async def response_generator():
-            try:
-                content_chunks = []
-                start_time = datetime.now(timezone.utc)
-                evidence_container = {"evidence": None}
-                pai_messages_container: dict = {}
-
-                if request.context_mode:
-                    chat_generator = operations.chat_with_paper_agentic(
-                        paper_id=request.paper_id,
-                        conversation_id=request.conversation_id,
-                        question=request.user_query,
-                        current_user=current_user,
-                        context_mode=request.context_mode,
-                        llm_provider=request.llm_provider,
-                        model=request.model,
-                        reasoning_effort=request.reasoning_effort,
-                        user_references=request.user_references,
-                        response_style=request.style,
-                        db=db,
-                    )
-                else:
-                    chat_generator = operations.chat_with_paper(
-                        paper_id=request.paper_id,
-                        conversation_id=request.conversation_id,
-                        question=request.user_query,
-                        current_user=current_user,
-                        llm_provider=request.llm_provider,
-                        model=request.model,
-                        reasoning_effort=request.reasoning_effort,
-                        user_references=request.user_references,
-                        response_style=request.style,
-                        db=db,
-                    )
-
-                async for chunk in _stream_chat_chunks(
-                    chunk_generator=chat_generator,
-                    content_chunks=content_chunks,
-                    evidence_container=evidence_container,
-                    pai_messages_container=pai_messages_container,
-                ):
-                    yield chunk
-
-                evidence = evidence_container["evidence"]
-                pai_dump = pai_messages_container.get("dump")
-
-                # Save the complete message to the database. The pydantic-ai
-                # agentic flow streams the trailing `---EVIDENCE---` block
-                # inline; strip it from the persisted content since the
-                # citations are already saved structurally on `references`.
-                full_content, _ = split_evidence_block("".join(content_chunks))
-
-                formatted_references = (
-                    CitationHandler.convert_references_to_dict(
-                        references=request.user_references
-                    )
-                    if request.user_references
-                    else None
-                )
-
-                # Save user message
-                message_crud.create(
-                    db,
-                    obj_in=MessageCreate(
-                        conversation_id=uuid.UUID(request.conversation_id),
-                        role="user",
-                        content=request.user_query,
-                        references=formatted_references,
-                    ),
-                    user=current_user,
-                )
-
-                # Save assistant message with content, evidence, and the
-                # pydantic-ai message dump (so the next turn can replay the
-                # same prefix and keep prompt cache warm).
-                message_crud.create(
-                    db,
-                    obj_in=MessageCreate(
-                        conversation_id=uuid.UUID(request.conversation_id),
-                        role="assistant",
-                        content=full_content,
-                        references=evidence if evidence else None,
-                        bucket={"pai_messages": pai_dump} if pai_dump else None,
-                    ),
-                    user=current_user,
-                )
-
-                # First-message title: rename_conversation is idempotent —
-                # later messages no-op once a title exists. It runs the FAST
-                # model, which can hit the provider's content filter (e.g.
-                # Azure's jailbreak prompt shield returning a 400). By this
-                # point the answer — and the stream's finish/[DONE] lifecycle —
-                # has already gone to the client, so a failure here must stay
-                # non-fatal: never let it bubble into the `error` chunk below,
-                # or the client would discard the answer the user already saw.
-                try:
-                    operations.rename_conversation(
-                        db=db,
-                        conversation_id=request.conversation_id,
-                        user=current_user,
-                    )
-                except Exception as title_error:
-                    logger.warning(
-                        "Conversation title generation failed (non-fatal): %s",
-                        title_error,
-                    )
-
-                # Track chat message event
-                track_event(
-                    "did_chat_message",
-                    properties={
-                        "response_style": (
-                            request.style.value if request.style else "normal"
-                        ),
-                        "has_user_references": bool(request.user_references),
-                        "has_evidence": bool(evidence),
-                        "llm_provider": (
-                            request.llm_provider.value
-                            if request.llm_provider
-                            else "default"
-                        ),
-                        "time_taken": (
-                            datetime.now(timezone.utc) - start_time
-                        ).total_seconds(),
-                        "paper_id": str(request.paper_id),
-                        "type": "paper",
-                    },
-                    user_id=str(current_user.id),
-                    db=db,
-                )
-
-            except Exception as e:
-
-                # Track error event
-                track_event(
-                    "chat_message_error",
-                    properties={
-                        "error": str(e),
-                        "paper_id": str(request.paper_id),
-                        "conversation_id": str(request.conversation_id),
-                    },
-                    user_id=str(current_user.id),
-                    db=db,
-                )
-
-                logger.error(f"Error in streaming response: {e}", exc_info=True)
-                yield _ui_message_sse({"type": "error", "errorText": str(e)})
-                yield _ui_message_done()
-
-        return StreamingResponse(
-            response_generator(),
-            media_type="text/event-stream",
-            headers={"x-vercel-ai-ui-message-stream": "v1"},
+    try:
+        stream = run_paper_chat(
+            db=db,
+            current_user=current_user,
+            run_input=run_input,
+            accept=request.headers.get("accept"),
+            paper_id=extras.paper_id,
+            conversation_id=extras.conversation_id,
+            provider=extras.llm_provider,
+            model=extras.model,
+            reasoning_effort=extras.reasoning_effort,
+            context_mode=extras.context_mode,
+            user_references=extras.user_references,
         )
+        # Validation happens before the first chunk: force it now so
+        # pre-stream failures surface as proper HTTP errors instead of a
+        # broken SSE stream.
+        first_chunk = await stream.__anext__()
+    except ChatRequestError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+    except StopAsyncIteration:
+        raise HTTPException(status_code=500, detail="Empty chat stream.")
 
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        logger.error(f"Error processing chat message: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+    async def sse():
+        # Explicitly close the inner generator on disconnect so its
+        # `finally` (partial-turn persistence) runs promptly. Starlette's
+        # task cancellation on client disconnect can lag far behind the
+        # abort (the model keeps generating on the server's dime), so also
+        # poll the ASGI disconnect state on every chunk and bail early.
+        try:
+            yield first_chunk
+            async for chunk in stream:
+                if await request.is_disconnected():
+                    logger.info("Client disconnected; stopping chat stream")
+                    break
+                yield chunk
+        finally:
+            await stream.aclose()
+
+    return StreamingResponse(
+        sse(),
+        media_type="text/event-stream",
+        headers=UI_MESSAGE_STREAM_HEADERS,
+    )

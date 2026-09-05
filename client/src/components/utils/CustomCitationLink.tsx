@@ -1,4 +1,5 @@
 import { Citation, ReferenceCitation } from "@/lib/schema";
+import { codeCitationLabel } from "@/lib/chatMessages";
 import { HTMLAttributes, ReactNode, createElement, Children } from "react";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { PaperItem } from "@/lib/schema";
@@ -70,7 +71,14 @@ function CitationLink({
             </HoverCardTrigger>
             <HoverCardContent className="w-80 p-2 pt-3 shadow-md bg-accent" sideOffset={0}>
                 {paper && <p className="text-sm font-bold text-accent-foreground">{paper.title}</p>}
-                <p className="text-sm text-accent-foreground">{'reference' in matchingCitation ? matchingCitation.reference : matchingCitation.text}</p>
+                {/* Code citations quote a file, not a page — name it so the
+                    hover preview isn't just a wall of flattened source. */}
+                {'file' in matchingCitation && matchingCitation.file && (
+                    <p className="mb-1 font-mono text-xs text-accent-foreground/70">
+                        {codeCitationLabel(matchingCitation)}
+                    </p>
+                )}
+                <p className={`text-sm text-accent-foreground ${'file' in matchingCitation && matchingCitation.file ? 'font-mono text-xs line-clamp-6' : ''}`}>{'reference' in matchingCitation ? matchingCitation.reference : matchingCitation.text}</p>
             </HoverCardContent>
         </HoverCard>
     );

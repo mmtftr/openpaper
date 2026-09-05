@@ -11,7 +11,6 @@ from app.database.crud.audio_overview_crud import (
     audio_overview_job_crud,
 )
 from app.database.crud.paper_crud import paper_crud
-from app.database.crud.projects.project_crud import project_crud
 from app.database.database import SessionLocal
 from app.database.models import ConversableType, JobStatus
 from app.database.telemetry import track_event
@@ -102,30 +101,10 @@ async def generate_audio_overview(
                 db=db,
             )
         elif project_id:
-            project = project_crud.get(db, id=str(project_id), user=user)
-
-            if not project:
-                raise ValueError(f"Project with ID {project_id} not found")
-            conversable_title = (
-                f"{project.title} - {project.description}" or "Untitled Project"
-            )
-
-            audio_overview_job_crud.update_status_message(
-                db,
-                job_id=audio_overview_job_id,
-                status_message="Searching and analyzing papers",
-                current_user=user,
-            )
-
-            logger.info(f"Generating narrative summary for project {project_id}")
-
-            narrative_summary = await operations.create_multi_paper_narrative_summary(
-                project_id=str(project_id),
-                length=length,
-                current_user=user,
-                additional_instructions=additional_instructions,
-                db=db,
-            )
+            # Multi-paper (project) audio overviews were removed with the
+            # evidence-gathering pipeline. To be reimplemented on the
+            # unified agent runtime.
+            raise ValueError("Project audio overviews are not supported.")
 
         if not narrative_summary or not narrative_summary.summary:
             raise ValueError("Failed to generate narrative summary")

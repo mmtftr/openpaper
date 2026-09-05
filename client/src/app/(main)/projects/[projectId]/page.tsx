@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, ArrowLeft, ArrowRight, BookOpen, Info, Library, Loader2, MessageCircle, Pencil, PlusCircle, Search, Send, Sparkles, UploadCloud } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowRight, BookOpen, Info, Library, Loader2, Pencil, PlusCircle, Search, Sparkles, UploadCloud } from "lucide-react";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { fetchFromApi } from "@/lib/api";
@@ -60,14 +60,12 @@ import {
 	BreadcrumbPage,
 	BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { useSubscription, isPaperUploadAtLimit, isChatCreditAtLimit } from "@/hooks/useSubscription";
-import { useProject, useProjectPapers, useProjectConversations } from "@/hooks/useProjects";
+import { useSubscription, isPaperUploadAtLimit } from "@/hooks/useSubscription";
+import { useProject, useProjectPapers } from "@/hooks/useProjects";
 import { toast } from "sonner";
-import ConversationCard from "@/components/ConversationCard";
 import Artifacts from "@/components/Artifacts";
 import { ProjectCollaborators } from "@/components/ProjectCollaborators";
 import ProjectPageSkeleton from "@/components/ProjectPageSkeleton";
-import { ConversationListSkeleton } from "@/components/ConversationListSkeleton";
 import { PaperListSkeleton } from "@/components/PaperListSkeleton";
 
 // Client-side paper limits per project
@@ -80,7 +78,6 @@ export default function ProjectPage() {
 	const projectId = params.projectId as string;
 	const { project, isLoading, error: projectError, refetch: refetchProject } = useProject(projectId);
 	const { papers, isLoading: isPapersLoading, refetch: refetchPapers } = useProjectPapers(projectId);
-	const { conversations, isLoading: isConversationsLoading, refetch: refetchConversations } = useProjectConversations(projectId);
 	const [hasCollaborators, setHasCollaborators] = useState<boolean>(false);
 	const [error, setError] = useState<string | null>(null);
 	const [uploadError, setUploadError] = useState<string | null>(null);
@@ -88,8 +85,6 @@ export default function ProjectPage() {
 	const [isUrlDialogOpen, setIsUrlDialogOpen] = useState(false);
 	const [pdfUrl, setPdfUrl] = useState("");
 	const [isUploading, setIsUploading] = useState(false);
-	const [newQuery, setNewQuery] = useState("");
-	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [showEditAlert, setShowEditAlert] = useState(false);
 	const [currentTitle, setCurrentTitle] = useState("");
 	const [currentDescription, setCurrentDescription] = useState("");
@@ -100,10 +95,7 @@ export default function ProjectPage() {
 	const [showAllOtherPapers, setShowAllOtherPapers] = useState(false);
 	const [paperSearchQuery, setPaperSearchQuery] = useState("");
 	const [paperSortBy, setPaperSortBy] = useState<"date_added" | "publish_date" | "title">("date_added");
-	const [conversationSearchQuery, setConversationSearchQuery] = useState("");
 	const { subscription } = useSubscription();
-
-	const chatDisabled = isChatCreditAtLimit(subscription);
 
 	// Paper limit checks
 	const currentPaperCount = papers?.length || 0;
@@ -133,39 +125,6 @@ export default function ProjectPage() {
 		});
 		return result;
 	}, [papers, paperSearchQuery, paperSortBy]);
-
-	const filteredConversations = useMemo(() => {
-		if (!conversations) return [];
-		if (!conversationSearchQuery.trim()) return conversations;
-		const q = conversationSearchQuery.toLowerCase();
-		return conversations.filter(c => c.title?.toLowerCase().includes(q));
-	}, [conversations, conversationSearchQuery]);
-
-	useEffect(() => {
-		const CHAT_CREDIT_TOAST_KEY = "chat_credit_limit_toast_shown";
-		if (chatDisabled && !sessionStorage.getItem(CHAT_CREDIT_TOAST_KEY)) {
-			toast.error("Nice! You've used your chat credits for the week. Upgrade your plan to continue chatting.", {
-				action: {
-					label: "Upgrade",
-					onClick: () => router.push("/pricing"),
-				},
-			});
-			sessionStorage.setItem(CHAT_CREDIT_TOAST_KEY, "true");
-		}
-	}, [chatDisabled, router]);
-
-
-	const handleDeleteConversation = async (conversationId: string) => {
-		try {
-			await fetchFromApi(`/api/conversation/${conversationId}`, {
-				method: "DELETE",
-			});
-			refetchConversations();
-		} catch (err) {
-			setError("Failed to delete conversation. Please try again.");
-			console.error(err);
-		}
-	};
 
 	const handleFileSelect = async (files: File[]) => {
 		if (isAtPaperHardLimit) {
@@ -247,36 +206,6 @@ export default function ProjectPage() {
 		setPdfUrl("");
 	};
 
-	const handleNewQuery = async () => {
-		if (!newQuery.trim()) return;
-
-		setIsSubmitting(true);
-		try {
-			const newConversation = await fetchFromApi(`/api/projects/conversations/${projectId}`, {
-				method: "POST",
-				body: JSON.stringify({ title: "New Conversation" }),
-			});
-			localStorage.setItem(`pending-query-${newConversation.id}`, newQuery);
-			router.push(`/projects/${projectId}/conversations/${newConversation.id}`);
-		} catch (err) {
-			setError("Failed to create a new conversation. Please try again.");
-			console.error(err);
-			setIsSubmitting(false);
-		}
-	};
-
-	const handleNewQuerySubmit = async (e: React.FormEvent) => {
-		e.preventDefault();
-		handleNewQuery();
-	};
-
-	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-		if (e.key === 'Enter' && !e.shiftKey) {
-			e.preventDefault();
-			handleNewQuery();
-		}
-	};
-
 	const handleUpdateProject = async () => {
 		if (!project) return;
 		try {
@@ -321,12 +250,11 @@ export default function ProjectPage() {
 	}
 
 	// Show full skeleton only on initial load when we have no data yet
-	// If we already have papers/conversations, keep showing them during refetch
-	if ((isPapersLoading || isConversationsLoading) && !papers?.length && !conversations?.length) {
+	if (isPapersLoading && !papers?.length) {
 		return <ProjectPageSkeleton />;
 	}
 
-	const isEmpty = !isPapersLoading && !isConversationsLoading && (!papers || (papers.length === 0 && (!conversations || conversations.length === 0)));
+	const isEmpty = !isPapersLoading && (!papers || papers.length === 0);
 
 	if (isEmpty) {
 		return (
@@ -551,131 +479,8 @@ export default function ProjectPage() {
 
 
 			<div className="flex flex-col lg:flex-row gap-6 -mx-4">
-				{/* Left side - Conversations */}
+				{/* Left side - Artifacts */}
 				<div className="w-full lg:w-2/3 px-4">
-					{/* Conversation Input */}
-					{project?.role !== 'viewer' && (
-						<>
-							{papers.length > 0 ? (
-								<div className="mb-6">
-									<form onSubmit={handleNewQuerySubmit} className="relative">
-										<Textarea
-											placeholder={chatDisabled ? "Nice! You have used your chat credits for the week. Upgrade your plan to use more." : "Ask a question about your papers, analyze findings, or explore new ideas..."}
-											value={newQuery}
-											onChange={(e) => {
-												setNewQuery(e.target.value)
-											}}
-											onKeyDown={handleKeyDown}
-											className="min-h-[80px] resize-none pr-12 border-none dark:border-none focus:border-blue-400 focus:ring-transparent bg-secondary dark:bg-accent text-primary"
-											disabled={chatDisabled || isSubmitting}
-										/>
-										<Button
-											type="submit"
-											disabled={!newQuery.trim() || chatDisabled || isSubmitting}
-											size="sm"
-											className="absolute bottom-3 right-3 h-8 w-8 p-0 bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
-										>
-											{isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-										</Button>
-									</form>
-								</div>
-							) : (
-								<div className="mb-6 text-center p-8 border-dashed border-2 border-gray-300 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800/50">
-									<div className="p-4 bg-gray-100 dark:bg-gray-700/50 rounded-full w-16 h-16 mx-auto mb-4 flex items-center justify-center">
-										<MessageCircle className="w-8 h-8 text-gray-400 dark:text-gray-500" />
-									</div>
-									<h3 className="text-lg font-semibold text-gray-600 dark:text-gray-300 mb-2">Ready to Start Conversations</h3>
-									<p className="text-gray-500 dark:text-gray-400">Add papers to your project to begin discussing and analyzing them.</p>
-								</div>
-							)}
-						</>
-					)}
-
-
-
-					{/* Conversations List */}
-					<div>
-						{isConversationsLoading ? (
-							<>
-								<div className="flex justify-between items-center mb-4">
-									<h2 className="text-2xl font-bold">Chats</h2>
-								</div>
-								<ConversationListSkeleton count={3} />
-							</>
-						) : conversations.length > 0 ? (
-							<>
-								<div className="flex justify-between items-center mb-4">
-									<h2 className="text-2xl font-bold">Chats</h2>
-									{conversations.length > 3 && (
-										<div className="relative">
-											<Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-											<Input
-												placeholder="Search chats..."
-												value={conversationSearchQuery}
-												onChange={(e) => setConversationSearchQuery(e.target.value)}
-												className="pl-9 h-9 w-48"
-											/>
-										</div>
-									)}
-								</div>
-								{conversationSearchQuery.trim() ? (
-									filteredConversations.length > 0 ? (
-										filteredConversations.map((convo, index) => (
-											<ConversationCard
-												key={index}
-												convo={convo}
-												showAvatar={hasCollaborators}
-												href={`/projects/${projectId}/conversations/${convo.id}`}
-												onDelete={handleDeleteConversation} />
-										))
-									) : (
-										<div className="text-center py-8 text-muted-foreground">
-											<Search className="h-8 w-8 mx-auto mb-2 opacity-50" />
-											<p className="text-sm">No chats matching &ldquo;{conversationSearchQuery}&rdquo;</p>
-										</div>
-									)
-								) : (
-									<>
-										{conversations.slice(0, 3).map((convo, index) => (
-											<ConversationCard
-												key={index}
-												convo={convo}
-												showAvatar={hasCollaborators}
-												href={`/projects/${projectId}/conversations/${convo.id}`}
-												onDelete={handleDeleteConversation} />
-										))}
-										{conversations.length > 3 && (
-											<div className="mt-4 text-left">
-												<Link href={`/projects/${projectId}/past`}>
-													View {conversations.length - 3} more
-													<ArrowRight className="inline-block ml-1 h-4 w-4" />
-												</Link>
-											</div>
-										)}
-									</>
-								)}
-							</>
-						) : (
-							<div className="text-center p-12 rounded-xl">
-								<div className="p-4 bg-blue-100 dark:bg-blue-900/30 rounded-full w-16 h-16 mx-auto mb-4 flex items-center justify-center">
-									<MessageCircle className="w-8 h-8 text-blue-400" />
-								</div>
-								<h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
-									{papers.length > 0
-										? "Start a conversation"
-										: "Add papers to start"}
-								</h3>
-								<p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">
-									{papers.length > 0
-										? "Ask a question about your papers to analyze findings, compare methodologies, or explore connections."
-										: "Add papers to your project to begin exploring and discussing them."
-									}
-								</p>
-							</div>
-						)}
-					</div>
-
-					{/* Artifacts Section */}
 					<Artifacts projectId={projectId} papers={papers} currentUserRole={project.role} />
 				</div>
 

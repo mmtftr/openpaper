@@ -3,6 +3,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { Button } from "@/components/ui/button";
 import { UploadCloud } from 'lucide-react';
+import { MAX_UPLOAD_SIZE_MB } from '@/lib/uploadUtils';
 
 const MAX_PAPERS_TO_UPLOAD = 10;
 
@@ -14,7 +15,7 @@ interface PdfDropzoneProps {
     maxPapers?: number;
 }
 
-export function PdfDropzone({ onFileSelect, onUrlClick, maxSizeMb = 30, disabled = false, maxPapers = MAX_PAPERS_TO_UPLOAD }: PdfDropzoneProps) {
+export function PdfDropzone({ onFileSelect, onUrlClick, maxSizeMb = MAX_UPLOAD_SIZE_MB, disabled = false, maxPapers = MAX_PAPERS_TO_UPLOAD }: PdfDropzoneProps) {
     const [isDragging, setIsDragging] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);

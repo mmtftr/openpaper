@@ -8,6 +8,8 @@ import Markdown, { Components } from 'react-markdown';
 import { PluggableList } from 'unified';
 import { Copy, Check, Download } from 'lucide-react';
 
+import { codeMarkdownComponents } from '@/components/code/CodeBlock';
+
 
 // Define a simple CSS-in-JS for the blinking cursor animation
 const cursorStyle = `
@@ -167,6 +169,20 @@ export function CopyableTable({ children, className, ...props }: React.TableHTML
     );
 }
 
+// Blank lines inside a fenced code block are NOT safe split points: cutting
+// there leaves an unterminated fence in the stable half (rendered as a code
+// block) and the rest as prose, so a streaming code block visibly falls apart.
+// Walk back to the last blank line that sits outside any open fence.
+function lastStableSplitIndex(content: string): number {
+    let index = content.lastIndexOf('\n\n');
+    while (index !== -1) {
+        const fences = content.slice(0, index).match(/^\s*```/gm);
+        if (!fences || fences.length % 2 === 0) return index;
+        index = content.lastIndexOf('\n\n', index - 1);
+    }
+    return -1;
+}
+
 interface AnimatedMarkdownProps {
     content: string;
     remarkPlugins?: PluggableList;
@@ -178,9 +194,11 @@ interface AnimatedMarkdownProps {
 }
 
 
-// Default components with copyable table
+// Default components: copyable tables + syntax-highlighted fenced code.
+// (Callers can still override either through the `components` prop.)
 const defaultComponents: Components = {
     table: CopyableTable,
+    ...codeMarkdownComponents,
 };
 
 export function AnimatedMarkdown({
@@ -210,8 +228,9 @@ export function AnimatedMarkdown({
             return;
         }
 
-        // Heuristic: A "stable" block is a chunk of markdown ending in a double newline.
-        const lastStableIndex = content.lastIndexOf('\n\n');
+        // Heuristic: A "stable" block is a chunk of markdown ending in a double
+        // newline — as long as that newline isn't inside an open code fence.
+        const lastStableIndex = lastStableSplitIndex(content);
 
         let newStableContent = '';
         let newLiveContentTarget = content;

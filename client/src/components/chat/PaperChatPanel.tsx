@@ -22,20 +22,41 @@ import {
     BookOpenIcon,
     BrainIcon,
     CheckIcon,
+    ChevronDownIcon,
+    CircleStopIcon,
     CornerDownRightIcon,
     CpuIcon,
     LockIcon,
     MessageSquarePlusIcon,
     MessagesSquareIcon,
+    RefreshCwIcon,
     Trash2Icon,
+    WrenchIcon,
 } from "lucide-react";
 
-import { ChatMessage, CreditUsage, Reference } from "@/lib/schema";
-import { fetchFromApi, fetchStreamFromApi } from "@/lib/api";
+import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
+
+import { CreditUsage } from "@/lib/schema";
+import { API_BASE_URL, fetchFromApi } from "@/lib/api";
 import {
-    readOpenPaperUIMessageStream,
-    stripEvidenceBlock,
-} from "@/lib/uiMessageStream";
+    ChatUIMessage,
+    citationsFromMessage,
+    interruptedMetadata,
+    isCodeCitation,
+    isTruncatedAssistantMessage,
+    normalizeChatError,
+    parseRetryStatus,
+    pendingToolLabel,
+    renderBlocks,
+    retryTargetFromMessages,
+    RetryStatus,
+    textFromMessage,
+    toolIsPending,
+    toolLabel,
+    toolOutputFiles,
+    ToolPartView,
+} from "@/lib/chatMessages";
 import { setPaperChatStreaming } from "@/lib/paperDocEvents";
 import { useAuth } from "@/lib/auth";
 import {
@@ -74,6 +95,11 @@ import {
     HoverCardContent,
     HoverCardTrigger,
 } from "@/components/ui/hover-card";
+import {
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 import {
@@ -115,6 +141,15 @@ import { ChatHistorySkeleton } from "@/components/ChatHistorySkeleton";
 import { ChatMessageActions } from "@/components/ChatMessageActions";
 import { AnimatedMarkdown, CopyableTable } from "@/components/AnimatedMarkdown";
 import CustomCitationLink from "@/components/utils/CustomCitationLink";
+import { codeMarkdownComponents } from "@/components/code/CodeBlock";
+import { CodeCitationItem } from "@/components/code/CodeCitationItem";
+import { CodeViewerProvider } from "@/components/code/CodeViewerProvider";
+import {
+    MAX_USER_REFERENCES,
+    truncateReference,
+} from "@/lib/userReferences";
+import { RepoConnectPopover } from "@/components/code/RepoConnectPopover";
+import { RepoFileChips } from "@/components/code/RepoFileChips";
 import { Citation, PaperData } from "@/lib/schema";
 
 interface PaperChatPanelProps {
@@ -193,17 +228,6 @@ const SELECTED_MODEL_LS_KEY = "openpaper:paper-chat-model";
 const REASONING_EFFORT_LS_KEY = "openpaper:paper-reasoning-effort";
 const REASONING_EFFORT_VALUES: ReasoningEffort[] = ["low", "medium", "high", "xhigh"];
 
-interface ChatRequestBody {
-    user_query: string;
-    conversation_id: string | null;
-    paper_id: string;
-    user_references: string[];
-    model?: string;
-    llm_provider?: string;
-    reasoning_effort?: ReasoningEffort;
-    context_mode?: ContextMode;
-}
-
 interface ConversationSummary {
     id: string;
     title: string | null;
@@ -213,11 +237,40 @@ interface ConversationSummary {
 const conversationStorageKey = (paperId: string) =>
     `openpaper:active-conversation:${paperId}`;
 
+/** Non-default send behaviour — currently only used by the retry path. */
+interface SubmitMessageOptions {
+    /** Attach these references instead of the ones staged in the composer. */
+    references?: string[];
+    /** Leave the composer text and staged references untouched. */
+    keepComposer?: boolean;
+}
+
+/**
+ * How long a "retrying…" indicator may stand without a follow-up chunk. The
+ * server's `recovered` marker is transient and can be dropped under load; the
+ * indicator must not outlive the turn when that happens.
+ */
+const RETRY_STATUS_GRACE_MS = 10_000;
+
+/**
+ * One name for a turn that errored, live or reloaded — the same failure must
+ * not read as two different things either side of a refresh. "Stopped" is
+ * reserved for turns that were deliberately interrupted.
+ */
+const FAILED_TURN_TITLE = "Inference failed";
+
 interface ModelOption {
     id: string;
     name: string;
     provider: string;
+    supports_reasoning_effort?: boolean;
+    supports_vision?: boolean;
 }
+
+// The same model id can exist under two providers (e.g. gpt-5.5 on Azure
+// AND on the codex proxy), so selection is keyed by provider too.
+const modelKey = (m: Pick<ModelOption, "id" | "provider">) =>
+    `${m.provider}::${m.id}`;
 
 // Server default for /api/conversation/{id}?page_size=10. Used to infer
 // "no more pages" when a fetch returns fewer than this.
@@ -256,39 +309,12 @@ export function PaperChatPanel({
         []
     );
     const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
-    const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [currentMessage, setCurrentMessage] = useState("");
     const [hasMoreMessages, setHasMoreMessages] = useState(true);
     const [isLoadingMoreMessages, setIsLoadingMoreMessages] = useState(false);
     const [pageNumberConversationHistory, setPageNumberConversationHistory] =
         useState(1);
     const [isFetchingHistory, setIsFetchingHistory] = useState(true);
-
-    const [isStreaming, setIsStreaming] = useState(false);
-
-    // Broadcast to PaperDocEditor so it can poll for agent-driven writes
-    // landing on the user's main doc. Module-level pub-sub keyed by paperId.
-    useEffect(() => {
-        setPaperChatStreaming(id, isStreaming);
-    }, [id, isStreaming]);
-    useEffect(() => {
-        return () => {
-            setPaperChatStreaming(id, false);
-        };
-    }, [id]);
-
-    const [streamingText, setStreamingText] = useState("");
-    const [streamingReasoning, setStreamingReasoning] = useState("");
-    const [streamingReferences, setStreamingReferences] = useState<
-        Reference | undefined
-    >(undefined);
-    const [streamingSourcesOpen, setStreamingSourcesOpen] = useState(false);
-    // Last status event received from the agentic loop ("Searching for X",
-    // "Reading section Y"). Cleared once the answer starts streaming.
-    const [streamingStatus, setStreamingStatus] = useState<string | null>(null);
-    const [errorState, setErrorState] = useState<{
-        failedUserMessage: string;
-    } | null>(null);
     const [pendingStarterQuestion, setPendingStarterQuestion] = useState<
         string | null
     >(null);
@@ -338,8 +364,6 @@ export function PaperChatPanel({
         return stored ?? "adaptive";
     });
     useEffect(() => {
-        // If the persisted choice doesn't match this paper's parser, fall
-        // back to the first valid mode for this parser.
         if (
             !availableContextModes.some((m) => m.id === contextMode) &&
             availableContextModes[0]
@@ -374,26 +398,139 @@ export function PaperChatPanel({
         return DEFAULT_STARTERS;
     }, [paperData?.starter_questions]);
 
-    const transformReferencesToFormat = useCallback((references: string[]) => {
-        const citations = references.map((ref, index) => ({
-            key: `${index + 1}`,
-            reference: ref,
-        }));
-        return { citations };
-    }, []);
+    // ---- useChat wiring ------------------------------------------------
+    //
+    // The transport sends ONLY the newest user message; server-side history
+    // is ground truth. Dynamic body fields (model, context mode, references)
+    // are read from a ref at request time so the transport can stay stable.
+    const requestExtrasRef = useRef<{
+        paper_id: string;
+        conversation_id: string | null;
+        model?: string;
+        llm_provider?: string;
+        reasoning_effort?: ReasoningEffort;
+        context_mode?: ContextMode;
+        user_references?: string[];
+    }>({ paper_id: id, conversation_id: null });
+
+    const transport = useMemo(
+        () =>
+            new DefaultChatTransport<ChatUIMessage>({
+                api: `${API_BASE_URL}/api/message/chat/paper`,
+                credentials: "include",
+                prepareSendMessagesRequest: ({ id: chatId, messages, trigger, messageId }) => ({
+                    body: {
+                        trigger,
+                        id: chatId,
+                        messageId,
+                        messages: messages.slice(-1),
+                        ...requestExtrasRef.current,
+                    },
+                }),
+            }),
+        []
+    );
+
+    const chatId = conversationId ?? "pending";
+
+    // A turn that ended badly WITHOUT the SDK raising: the stream closed on a
+    // clean EOF mid-answer, so `status` is "ready" and `error` is undefined.
+    // Keyed by the assistant message id so it disappears with that message.
+    const [truncatedTurn, setTruncatedTurn] = useState<{
+        messageId: string;
+        message: string;
+    } | null>(null);
+    // Server-side auto-retry of a failing provider call, streamed as transient
+    // `data-retry-status` parts (delivered to onData only, never persisted).
+    const [retryStatus, setRetryStatus] = useState<RetryStatus | null>(null);
+
+    const {
+        messages,
+        setMessages,
+        sendMessage,
+        stop,
+        status,
+        error,
+        clearError,
+    } = useChat<ChatUIMessage>({
+        id: chatId,
+        transport,
+        onData: (dataPart) => {
+            if (dataPart.type !== "data-retry-status") return;
+            const parsed = parseRetryStatus(dataPart.data);
+            if (!parsed) return;
+            setRetryStatus(parsed.state === "retrying" ? parsed : null);
+        },
+        onFinish: ({ message, isAbort, isDisconnect, isError, finishReason }) => {
+            refetchSubscription().catch((err) =>
+                console.error("Error refetching subscription:", err)
+            );
+            // An abort is the user's own stop button; isError/isDisconnect
+            // already set `error`, which the error UI renders. (A server
+            // `error` chunk always lands here as isError — the SDK throws on
+            // it, so the `finish` chunk that would carry finishReason "error"
+            // is never processed.) What's left is the silent case: the stream
+            // closed on a clean EOF, with no terminal chunk at all.
+            if (isAbort || isError || isDisconnect) return;
+            const truncated =
+                finishReason == null && isTruncatedAssistantMessage(message);
+            setTruncatedTurn(
+                truncated
+                    ? {
+                          messageId: message.id,
+                          message:
+                              "Connection lost mid-response — the answer stopped early.",
+                      }
+                    : null
+            );
+        },
+    });
+
+    const isStreaming = status === "submitted" || status === "streaming";
+
+    // The retry indicator belongs to one in-flight turn only.
+    useEffect(() => {
+        if (status === "ready" || status === "error") setRetryStatus(null);
+    }, [status]);
+
+    // Belt and braces: the "recovered" marker is a transient chunk and can be
+    // dropped server-side, which would otherwise pin "Retrying…" under a
+    // happily streaming answer for the rest of the turn. Each new retry chunk
+    // is a fresh object, so this timer restarts on every update.
+    useEffect(() => {
+        if (!retryStatus) return;
+        const timer = setTimeout(
+            () => setRetryStatus(null),
+            (retryStatus.delayMs ?? 0) + RETRY_STATUS_GRACE_MS
+        );
+        return () => clearTimeout(timer);
+    }, [retryStatus]);
+
+    // Broadcast to PaperDocEditor so it can poll for agent-driven writes
+    // landing on the user's main doc. Module-level pub-sub keyed by paperId.
+    useEffect(() => {
+        setPaperChatStreaming(id, isStreaming);
+    }, [id, isStreaming]);
+    useEffect(() => {
+        return () => {
+            setPaperChatStreaming(id, false);
+        };
+    }, [id]);
 
     const initialLoadStartedRef = useRef(false);
-    const abortControllerRef = useRef<AbortController | null>(null);
+    const activeConversationRef = useRef<string | null>(null);
+    activeConversationRef.current = conversationId;
 
-    // Reset the chat surface whenever the conversation rotates (e.g., switching
-    // papers). The auto-fetch effect re-arms once initialLoadStartedRef flips
-    // back to false.
+    // Reset the chat surface whenever the conversation rotates. useChat is
+    // keyed by conversation id, so its message state resets on its own; the
+    // paging state is ours to reset.
     useEffect(() => {
         initialLoadStartedRef.current = false;
-        setMessages([]);
         setPageNumberConversationHistory(1);
         setHasMoreMessages(true);
         setIsFetchingHistory(true);
+        setTruncatedTurn(null);
+        setRetryStatus(null);
     }, [conversationId]);
 
     const fetchPage = useCallback(
@@ -403,14 +540,12 @@ export function PaperChatPanel({
                 `/api/conversation/${conversationId}?page=${page}`,
                 { method: "GET" }
             );
-            const fetched = (response.messages || []).map(
-                (msg: ChatMessage) => ({
-                    role: msg.role,
-                    content: msg.content,
-                    id: msg.id,
-                    references: msg.references || {},
-                })
-            );
+            // The user may have switched conversations while this request
+            // was in flight — useChat's setMessages targets whatever chat
+            // is CURRENT, so a stale response would leak another
+            // conversation's history into this one.
+            if (activeConversationRef.current !== conversationId) return 0;
+            const fetched: ChatUIMessage[] = response.messages || [];
             if (fetched.length === 0) {
                 setHasMoreMessages(false);
                 return 0;
@@ -418,11 +553,16 @@ export function PaperChatPanel({
             if (fetched.length < HISTORY_PAGE_SIZE) {
                 setHasMoreMessages(false);
             }
-            setMessages((prev) => [...fetched, ...prev]);
+            // Offset pagination drifts when new turns land between page
+            // loads — dedupe by id so overlap never duplicates messages.
+            setMessages((prev) => {
+                const seen = new Set(prev.map((m) => m.id));
+                return [...fetched.filter((m) => !seen.has(m.id)), ...prev];
+            });
             setPageNumberConversationHistory((p) => p + 1);
             return fetched.length;
         },
-        [conversationId]
+        [conversationId, setMessages]
     );
 
     useEffect(() => {
@@ -510,10 +650,20 @@ export function PaperChatPanel({
         }
     }, [id]);
 
-    const handleNewChat = useCallback(async () => {
-        if (isStreaming) {
-            abortControllerRef.current?.abort();
+    // After the first turn the server auto-generates a title; refetch the
+    // list when a stream completes for an untitled conversation.
+    const activeConversationTitle = conversations.find(
+        (c) => c.id === conversationId
+    )?.title;
+    useEffect(() => {
+        if (status === "ready" && messages.length > 0 && !activeConversationTitle) {
+            refreshConversations();
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [status]);
+
+    const handleNewChat = useCallback(async () => {
+        if (isStreaming) stop();
         try {
             const created = await fetchFromApi(
                 `/api/conversation/paper/${id}`,
@@ -530,15 +680,15 @@ export function PaperChatPanel({
             console.error("Error creating new conversation:", err);
             toast.error("Could not start a new chat.");
         }
-    }, [id, isStreaming]);
+    }, [id, isStreaming, stop]);
 
     const handleSelectConversation = useCallback(
         (next: string) => {
             if (next === conversationId) return;
-            if (isStreaming) abortControllerRef.current?.abort();
+            if (isStreaming) stop();
             setConversationId(next);
         },
-        [conversationId, isStreaming]
+        [conversationId, isStreaming, stop]
     );
 
     const handleConfirmDelete = useCallback(async () => {
@@ -610,20 +760,25 @@ export function PaperChatPanel({
                     : [];
                 if (models.length === 0) return;
                 setAvailableModels(models);
-                const defaultId: string | undefined = response.default;
-                const fallback =
-                    defaultId &&
-                    models.some((m: ModelOption) => m.id === defaultId)
-                        ? defaultId
-                        : models[0].id;
+                const defaultModel = models.find(
+                    (m) =>
+                        m.id === response.default &&
+                        (!response.default_provider ||
+                            m.provider === response.default_provider)
+                );
+                const fallback = modelKey(defaultModel ?? models[0]);
                 // Honor the persisted choice if it's still offered; otherwise
                 // fall back. This keeps the picker stable across reloads
                 // instead of snapping back to the server default each time.
-                setSelectedModel((current) =>
-                    current && models.some((m) => m.id === current)
-                        ? current
-                        : fallback
-                );
+                // (Legacy stored values are bare model ids — upgrade them to
+                // the provider-qualified key.)
+                setSelectedModel((current) => {
+                    if (current && models.some((m) => modelKey(m) === current)) {
+                        return current;
+                    }
+                    const legacy = models.find((m) => m.id === current);
+                    return legacy ? modelKey(legacy) : fallback;
+                });
             } catch (err) {
                 console.error("Error fetching available models:", err);
             }
@@ -678,6 +833,25 @@ export function PaperChatPanel({
         });
     }, [subscription]);
 
+    const selectedModelOption = useMemo(
+        () => availableModels.find((m) => modelKey(m) === selectedModel),
+        [availableModels, selectedModel]
+    );
+    const supportsReasoningEffort =
+        selectedModelOption?.supports_reasoning_effort ?? false;
+
+    // Same provider/model/effort the chat request sends, handed to the code
+    // viewer so an inline quick question is answered by the model the user
+    // picked here.
+    const codeQuestionModel = useMemo(
+        () => ({
+            model: selectedModelOption?.id ?? null,
+            llmProvider: selectedModelOption?.provider ?? null,
+            reasoningEffort: supportsReasoningEffort ? reasoningEffort : null,
+        }),
+        [selectedModelOption, supportsReasoningEffort, reasoningEffort]
+    );
+
     const reasoningEffortLabel = useMemo(() => {
         const opt = REASONING_EFFORT_OPTIONS.find(
             (o) => o.id === reasoningEffort
@@ -686,149 +860,67 @@ export function PaperChatPanel({
     }, [reasoningEffort]);
 
     const submitMessage = useCallback(
-        async (textOverride?: string) => {
+        (textOverride?: string, options?: SubmitMessageOptions) => {
             const text = (textOverride ?? currentMessage).trim();
-            if (!text || isStreaming) return;
-            if (!conversationId) {
-                // Conversation not provisioned yet — surface a soft error
-                // rather than firing a request the server will reject.
-                setErrorState({ failedUserMessage: text });
-                return;
-            }
+            if (!text || isStreaming || !conversationId) return false;
 
-            setErrorState(null);
+            clearError();
+            setTruncatedTurn(null);
+            setRetryStatus(null);
 
-            const userMessage: ChatMessage = {
-                role: "user",
-                content: text,
-                references: transformReferencesToFormat(userMessageReferences),
-            };
-            setMessages((prev) => [...prev, userMessage]);
-
-            const failedUserMessage = text;
-            setCurrentMessage("");
-            setUserMessageReferences([]);
-
-            setIsStreaming(true);
-            setStreamingText("");
-            setStreamingReasoning("");
-            setStreamingReferences(undefined);
-            setStreamingSourcesOpen(false);
-
-            const requestBody: ChatRequestBody = {
-                user_query: text,
-                conversation_id: conversationId,
+            // A retry carries the ORIGINAL turn's references; the staged list
+            // belongs to whatever the user is composing right now.
+            const references = options?.references
+                ? [...options.references]
+                : [...userMessageReferences];
+            requestExtrasRef.current = {
                 paper_id: id,
-                user_references: userMessageReferences,
+                conversation_id: conversationId,
+                context_mode: contextMode,
+                ...(selectedModelOption
+                    ? {
+                          model: selectedModelOption.id,
+                          // Disambiguates model ids shared across providers —
+                          // the picker knows which provider this id came from.
+                          llm_provider: selectedModelOption.provider,
+                      }
+                    : {}),
+                ...(supportsReasoningEffort
+                    ? { reasoning_effort: reasoningEffort }
+                    : {}),
+                ...(references.length ? { user_references: references } : {}),
             };
-            if (selectedModel) {
-                requestBody.model = selectedModel;
-                // Disambiguates model ids shared across providers (e.g. the
-                // same gpt-5.5 id under Azure vs. a same-family proxy
-                // provider) - the picker already knows which provider this
-                // id came from.
-                const provider = availableModels.find(
-                    (m) => m.id === selectedModel
-                )?.provider;
-                if (provider) requestBody.llm_provider = provider;
+
+            // The data-citations part mirrors what the server persists on the
+            // user row, so the live message and the reloaded one look alike.
+            sendMessage({
+                parts: [
+                    { type: "text", text },
+                    ...(references.length
+                        ? [
+                              {
+                                  type: "data-citations" as const,
+                                  data: {
+                                      citations: references.map(
+                                          (ref, index) => ({
+                                              key: `${index + 1}`,
+                                              reference: ref,
+                                          })
+                                      ),
+                                  },
+                              },
+                          ]
+                        : []),
+                ],
+            });
+
+            // A retry re-sends a past turn: the composer and the staged
+            // references are the user's current draft and must survive it.
+            if (!options?.keepComposer) {
+                setCurrentMessage("");
+                setUserMessageReferences([]);
             }
-            requestBody.reasoning_effort = reasoningEffort;
-            requestBody.context_mode = contextMode;
-
-            const controller = new AbortController();
-            abortControllerRef.current = controller;
-            let accumulated = "";
-            let reasoning = "";
-            let references: Reference | undefined;
-
-            try {
-                const stream = await fetchStreamFromApi(
-                    "/api/message/chat/paper",
-                    {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(requestBody),
-                        signal: controller.signal,
-                    }
-                );
-
-                await readOpenPaperUIMessageStream(stream, {
-                    onText: (delta) => {
-                        accumulated += delta;
-                        setStreamingText((prev) => prev + delta);
-                        setStreamingStatus(null);
-                    },
-                    onReasoning: (delta) => {
-                        reasoning += delta;
-                        setStreamingReasoning((prev) => prev + delta);
-                    },
-                    onReferences: (nextReferences) => {
-                        references = nextReferences;
-                        setStreamingReferences(nextReferences);
-                    },
-                    onStatus: setStreamingStatus,
-                });
-
-                if (accumulated) {
-                    const finalMessage: ChatMessage = {
-                        role: "assistant",
-                        content: stripEvidenceBlock(accumulated),
-                        references,
-                        reasoning: reasoning || undefined,
-                    };
-                    setMessages((prev) => [...prev, finalMessage]);
-                }
-                // After the first message the server auto-generates a title;
-                // refetch so the picker shows it instead of "Chat N".
-                const activeBeforeStream = conversations.find(
-                    (c) => c.id === conversationId
-                );
-                if (!activeBeforeStream?.title) {
-                    refreshConversations();
-                }
-                try {
-                    await refetchSubscription();
-                } catch (err) {
-                    console.error("Error refetching subscription:", err);
-                }
-            } catch (error) {
-                const aborted =
-                    controller.signal.aborted ||
-                    (error instanceof DOMException &&
-                        error.name === "AbortError");
-
-                if (accumulated) {
-                    // We already streamed a (partial) answer. A late failure —
-                    // an abort, or an auxiliary/post-stream step such as
-                    // citation reconciliation or title generation hitting the
-                    // provider's content filter — must never discard what the
-                    // user already saw. Finalize the streamed message instead
-                    // of dropping the whole turn into the error state.
-                    const finalizedMessage: ChatMessage = {
-                        role: "assistant",
-                        content: stripEvidenceBlock(accumulated),
-                        references,
-                        reasoning: reasoning || undefined,
-                    };
-                    setMessages((prev) => [...prev, finalizedMessage]);
-                    if (!aborted) {
-                        console.error(
-                            "Stream ended with an error after partial content was received:",
-                            error
-                        );
-                    }
-                } else if (!aborted) {
-                    // Nothing streamed yet — surface the retryable error box.
-                    console.error("Error during streaming:", error);
-                    setErrorState({ failedUserMessage });
-                }
-            } finally {
-                if (abortControllerRef.current === controller) {
-                    abortControllerRef.current = null;
-                }
-                setIsStreaming(false);
-                setStreamingStatus(null);
-            }
+            return true;
         },
         [
             currentMessage,
@@ -837,11 +929,12 @@ export function PaperChatPanel({
             id,
             userMessageReferences,
             selectedModel,
-            availableModels,
+            selectedModelOption,
+            supportsReasoningEffort,
             reasoningEffort,
             contextMode,
-            transformReferencesToFormat,
-            refetchSubscription,
+            clearError,
+            sendMessage,
             setUserMessageReferences,
         ]
     );
@@ -854,25 +947,72 @@ export function PaperChatPanel({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [pendingStarterQuestion]);
 
-    const stopStreaming = useCallback(() => {
-        abortControllerRef.current?.abort();
-    }, []);
-
+    // `isStreaming` comes from the last render, so two clicks landing in one
+    // frame would both pass that check. This flag flips synchronously.
+    const retryInFlightRef = useRef(false);
     useEffect(() => {
-        return () => {
-            abortControllerRef.current?.abort();
-        };
-    }, []);
+        retryInFlightRef.current = false;
+    }, [status]);
+
+    /**
+     * Re-ask the last question after a failed turn.
+     *
+     * The failed assistant row and the user row are dropped locally, then the
+     * same text AND the same references are sent as a brand new message: the
+     * server reuses its dangling user row and clears the partial assistant
+     * row, while reusing the old message id here would be rejected as a
+     * duplicate. Never `regenerate()` — the endpoint only accepts the
+     * `submit-message` trigger.
+     */
+    const handleRetryLastTurn = useCallback(() => {
+        if (retryInFlightRef.current || isStreaming || !conversationId) return;
+        const target = retryTargetFromMessages(messages);
+        if (!target) return;
+        retryInFlightRef.current = true;
+        setTruncatedTurn(null);
+        setRetryStatus(null);
+        setMessages((prev) => prev.slice(0, target.keep));
+        const sent = submitMessage(target.text, {
+            references: target.references,
+            keepComposer: true,
+        });
+        // Nothing was sent (the guards inside disagreed) — don't leave the
+        // button locked until the next status change.
+        if (!sent) retryInFlightRef.current = false;
+    }, [
+        isStreaming,
+        conversationId,
+        messages,
+        setMessages,
+        submitMessage,
+    ]);
 
     const handlePromptSubmit = (msg: PromptInputMessage, e: FormEvent) => {
         e.preventDefault();
         submitMessage(msg.text);
     };
 
+    // Code selections from the repo viewer land in the same pending-reference
+    // list as PDF text selections (see PdfReader's handleAskAi) and travel out
+    // through the same `user_references` field.
+    const attachReference = useCallback(
+        (raw: string) => {
+            const reference = truncateReference(raw);
+            if (userMessageReferences.includes(reference)) return;
+            if (userMessageReferences.length >= MAX_USER_REFERENCES) {
+                toast.error(
+                    `You can attach up to ${MAX_USER_REFERENCES} references to a message.`
+                );
+                return;
+            }
+            setUserMessageReferences((prev) =>
+                prev.includes(reference) ? prev : [...prev, reference]
+            );
+        },
+        [userMessageReferences, setUserMessageReferences]
+    );
+
     const isCreditMaxed = (creditUsage?.usagePercentage ?? 0) >= 100;
-    const status: "ready" | "submitted" | "streaming" = isStreaming
-        ? "streaming"
-        : "ready";
 
     const isGated =
         subscription !== null &&
@@ -880,10 +1020,6 @@ export function PaperChatPanel({
         subscription.plan !== undefined &&
         subscription.plan !== "researcher";
 
-    const selectedModelOption = useMemo(
-        () => availableModels.find((m) => m.id === selectedModel),
-        [availableModels, selectedModel]
-    );
     const modelLabel = selectedModelOption?.name ?? "Model";
 
     const modelsByProvider = useMemo(() => {
@@ -908,7 +1044,130 @@ export function PaperChatPanel({
         index: number
     ) => c.title?.trim() || `Chat ${index + 1}`;
 
+    const lastMessage = messages[messages.length - 1];
+
+    // A user message with nothing after it, once the chat has settled, is a
+    // turn that never produced an answer (the request died before the stream
+    // opened, or the page was reloaded onto a dangling row). Debounced so the
+    // ordinary send transition — user row appended a frame before the status
+    // flips to "submitted" — can't flash it.
+    const [danglingUserTurn, setDanglingUserTurn] = useState(false);
+    const lastMessageId = lastMessage?.id;
+    const lastMessageRole = lastMessage?.role;
+    useEffect(() => {
+        if (
+            status !== "ready" ||
+            isFetchingHistory ||
+            lastMessageRole !== "user"
+        ) {
+            setDanglingUserTurn(false);
+            return;
+        }
+        const timer = setTimeout(() => setDanglingUserTurn(true), 600);
+        return () => clearTimeout(timer);
+    }, [status, isFetchingHistory, lastMessageRole, lastMessageId]);
+
+    // Error UX, case (b): the turn failed before any assistant content
+    // arrived, so the failure belongs to the user's own message — offer
+    // retry/edit there, with the server's actual error text.
+    const userTurnFailure = useMemo(() => {
+        if (isStreaming || lastMessage?.role !== "user") return null;
+        const text = textFromMessage(lastMessage);
+        if (!text) return null;
+        // Carried so "Edit" puts the original references back in the composer
+        // instead of silently dropping them.
+        const references = citationsFromMessage(lastMessage).map(
+            (citation) => citation.reference
+        );
+        if (error) {
+            const { headline, detail } = normalizeChatError(error);
+            return { text, references, headline, detail };
+        }
+        if (danglingUserTurn) {
+            return {
+                text,
+                references,
+                headline: "This message never got a response.",
+                detail: "",
+            };
+        }
+        return null;
+    }, [isStreaming, lastMessage, error, danglingUserTurn]);
+
+    // Error UX, case (a): the note that belongs under an assistant turn —
+    // live (`error` / a silently truncated stream) or reloaded from history
+    // (`metadata.interrupted`). Retry is offered on the last turn only.
+    const noticeForMessage = useCallback(
+        (message: ChatUIMessage, isLast: boolean): TurnNotice | null => {
+            if (message.role !== "assistant") return null;
+            if (isLast && !isStreaming) {
+                if (error) {
+                    const { headline, detail } = normalizeChatError(error);
+                    return {
+                        tone: "error",
+                        title: FAILED_TURN_TITLE,
+                        headline,
+                        detail,
+                        canRetry: true,
+                    };
+                }
+                if (truncatedTurn?.messageId === message.id) {
+                    return {
+                        tone: "error",
+                        title: FAILED_TURN_TITLE,
+                        headline: truncatedTurn.message,
+                        detail: "",
+                        canRetry: true,
+                    };
+                }
+            }
+            const interrupted = interruptedMetadata(message);
+            if (!interrupted) return null;
+            // No error text means nothing went wrong: the turn was stopped
+            // (the user's stop button, a closed tab). The server deliberately
+            // KEEPS such a row, so retrying it would append a duplicate
+            // question — show a neutral note with no retry instead.
+            if (!interrupted.errorText) {
+                return {
+                    tone: "muted",
+                    title: "Stopped",
+                    headline: "This answer was stopped before it finished.",
+                    detail: "",
+                    canRetry: false,
+                };
+            }
+            const { headline, detail } = normalizeChatError(
+                interrupted.errorText
+            );
+            return {
+                tone: "error",
+                // Same wording as the live failure above: one turn, one name.
+                title: FAILED_TURN_TITLE,
+                headline,
+                detail,
+                // Retrying a turn buried in history would rewrite everything
+                // after it — out of scope; the failure is still shown.
+                canRetry: isLast && !isStreaming,
+            };
+        },
+        [error, isStreaming, truncatedTurn]
+    );
+
+    const showThinkingPlaceholder =
+        status === "submitted" ||
+        (status === "streaming" &&
+            (retryStatus !== null ||
+                (lastMessage?.role === "assistant" &&
+                    renderBlocks(lastMessage).length === 0)));
+
     return (
+        // Everything below can open the repo code viewer (citations, tool
+        // chips, the repo-connect popover) through this one provider.
+        <CodeViewerProvider
+            paperId={id}
+            onAttachReference={attachReference}
+            chatModel={codeQuestionModel}
+        >
         <div className={cn("flex flex-col", heightClass, "min-h-0")}>
             <div className="flex items-center justify-between gap-1 px-2 py-1.5 border-b border-border/40">
                 <div className="flex items-center gap-1">
@@ -985,6 +1244,7 @@ export function PaperChatPanel({
                             )}
                         </DropdownMenuContent>
                     </DropdownMenu>
+                    <RepoConnectPopover paperId={id} />
                 </div>
                 {headerSlot}
             </div>
@@ -1016,7 +1276,8 @@ export function PaperChatPanel({
                 <ConversationContent className="flex flex-col gap-6 px-3 py-4">
                     {hasMoreMessages &&
                         messages.length > 0 &&
-                        !isFetchingHistory && (
+                        !isFetchingHistory &&
+                        status === "ready" && (
                             <LoadEarlier
                                 isLoading={isLoadingMoreMessages}
                                 onLoad={async () => {
@@ -1045,79 +1306,106 @@ export function PaperChatPanel({
                             description="Ask anything about this paper, or pick one of the suggested prompts to begin."
                         />
                     ) : (
-                        messages.map((msg, index) => (
-                            <PaperMessage
-                                key={`${msg.id || index}-${index}`}
-                                message={msg}
-                                index={index}
-                                user={user}
-                                handleCitationClick={handleCitationClick}
-                                matchesCurrentCitation={matchesCurrentCitation}
-                                flashesCurrentCitation={flashesCurrentCitation}
-                                onJumpToReference={setExplicitSearchTerm}
-                            />
-                        ))
+                        messages.map((msg, index) => {
+                            const isLast = index === messages.length - 1;
+                            const notice = noticeForMessage(msg, isLast);
+                            return (
+                                <PaperMessage
+                                    key={msg.id || index}
+                                    message={msg}
+                                    index={index}
+                                    isStreamingMessage={
+                                        isStreaming &&
+                                        isLast &&
+                                        msg.role === "assistant"
+                                    }
+                                    user={user}
+                                    handleCitationClick={handleCitationClick}
+                                    matchesCurrentCitation={matchesCurrentCitation}
+                                    flashesCurrentCitation={flashesCurrentCitation}
+                                    onJumpToReference={setExplicitSearchTerm}
+                                    turnNotice={
+                                        notice ? (
+                                            <MessageTurnNotice
+                                                notice={notice}
+                                                onRetry={handleRetryLastTurn}
+                                                retryDisabled={isStreaming}
+                                            />
+                                        ) : undefined
+                                    }
+                                />
+                            );
+                        })
                     )}
 
-                    {errorState && !isStreaming && (
+                    {showThinkingPlaceholder && (
                         <Message from="assistant">
                             <MessageContent>
-                                <div className="text-destructive text-sm space-y-2">
-                                    <p>
-                                        Something went wrong while answering.
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                    <Loader size={14} />
+                                    <span>
+                                        {retryStatus
+                                            ? `Retrying (attempt ${
+                                                  retryStatus.attempt ?? 2
+                                              }/${retryStatus.maxAttempts ?? 3})…`
+                                            : pendingToolLabel(
+                                                  lastMessage?.role ===
+                                                      "assistant"
+                                                      ? lastMessage
+                                                      : undefined
+                                              ) ?? "Thinking…"}
+                                    </span>
+                                </div>
+                                {retryStatus?.error && (
+                                    <p className="mt-1 text-xs text-muted-foreground/80 break-words">
+                                        {retryStatus.error}
                                     </p>
+                                )}
+                            </MessageContent>
+                        </Message>
+                    )}
+
+                    {userTurnFailure && (
+                        <Message from="assistant">
+                            <MessageContent>
+                                <div className="text-sm space-y-2">
+                                    <div className="flex items-start gap-1.5 text-destructive">
+                                        <AlertTriangleIcon className="size-3.5 mt-0.5 shrink-0" />
+                                        <span className="break-words">
+                                            {userTurnFailure.headline}
+                                        </span>
+                                    </div>
+                                    {userTurnFailure.detail &&
+                                        userTurnFailure.detail !==
+                                            userTurnFailure.headline && (
+                                            <ErrorDetails
+                                                detail={userTurnFailure.detail}
+                                            />
+                                        )}
                                     <div className="flex gap-2">
                                         <Button
                                             variant="default"
                                             size="sm"
-                                            onClick={() => {
-                                                const failed =
-                                                    errorState.failedUserMessage;
-                                                const lastUserIndex = messages.findLastIndex(
-                                                    (m) => m.role === "user"
-                                                );
-                                                if (
-                                                    lastUserIndex !== -1 &&
-                                                    messages[lastUserIndex]
-                                                        ?.content === failed
-                                                ) {
-                                                    setMessages((prev) =>
-                                                        prev.slice(
-                                                            0,
-                                                            lastUserIndex
-                                                        )
-                                                    );
-                                                }
-                                                setErrorState(null);
-                                                submitMessage(failed);
-                                            }}
+                                            disabled={isStreaming}
+                                            onClick={handleRetryLastTurn}
                                         >
+                                            <RefreshCwIcon className="size-3.5" />
                                             Retry
                                         </Button>
                                         <Button
                                             variant="ghost"
                                             size="sm"
                                             onClick={() => {
-                                                const lastUserIndex = messages.findLastIndex(
-                                                    (m) => m.role === "user"
+                                                setMessages((prev) =>
+                                                    prev.slice(0, -1)
                                                 );
-                                                if (
-                                                    lastUserIndex !== -1 &&
-                                                    messages[lastUserIndex]
-                                                        ?.content ===
-                                                        errorState.failedUserMessage
-                                                ) {
-                                                    setMessages((prev) =>
-                                                        prev.slice(
-                                                            0,
-                                                            lastUserIndex
-                                                        )
-                                                    );
-                                                }
                                                 setCurrentMessage(
-                                                    errorState.failedUserMessage
+                                                    userTurnFailure.text
                                                 );
-                                                setErrorState(null);
+                                                setUserMessageReferences(
+                                                    userTurnFailure.references
+                                                );
+                                                clearError();
                                             }}
                                         >
                                             Edit
@@ -1127,70 +1415,6 @@ export function PaperChatPanel({
                             </MessageContent>
                         </Message>
                     )}
-
-                    {isStreaming && (() => {
-                        const streamingIndex = messages.length;
-                        const onStreamingCitationClick = (
-                            key: string,
-                            msgIdx: number,
-                            paperId?: string
-                        ) => {
-                            handleCitationClick(key, msgIdx, paperId);
-                            if (msgIdx === streamingIndex)
-                                setStreamingSourcesOpen(true);
-                        };
-                        return (
-                            <Message from="assistant">
-                                <MessageContent className="!text-foreground">
-                                    {streamingReasoning && (
-                                        <Reasoning isStreaming={isStreaming}>
-                                            <ReasoningTrigger />
-                                            <ReasoningContent>
-                                                {streamingReasoning}
-                                            </ReasoningContent>
-                                        </Reasoning>
-                                    )}
-                                    {streamingText.length > 0 ? (
-                                        <AnimatedMarkdown
-                                            content={stripEvidenceBlock(streamingText)}
-                                            className="prose-sm"
-                                            components={citationComponents(
-                                                onStreamingCitationClick,
-                                                streamingIndex,
-                                                streamingReferences?.citations || []
-                                            )}
-                                        />
-                                    ) : (
-                                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                            <Loader size={14} />
-                                            <span>{streamingStatus ?? "Thinking…"}</span>
-                                        </div>
-                                    )}
-                                </MessageContent>
-                                {streamingReferences?.citations &&
-                                    streamingReferences.citations.length > 0 && (
-                                        <div className="mt-2">
-                                            <PaperSources
-                                                citations={
-                                                    streamingReferences.citations
-                                                }
-                                                messageIndex={streamingIndex}
-                                                handleCitationClick={
-                                                    onStreamingCitationClick
-                                                }
-                                                matchesCurrentCitation={
-                                                    matchesCurrentCitation
-                                                }
-                                                open={streamingSourcesOpen}
-                                                onOpenChange={
-                                                    setStreamingSourcesOpen
-                                                }
-                                            />
-                                        </div>
-                                    )}
-                            </Message>
-                        );
-                    })()}
                 </ConversationContent>
                 <ConversationScrollButton />
             </Conversation>
@@ -1307,7 +1531,7 @@ export function PaperChatPanel({
                                                         </DropdownMenuLabel>
                                                         {items.map((m) => (
                                                             <DropdownMenuItem
-                                                                key={m.id}
+                                                                key={modelKey(m)}
                                                                 onClick={() => {
                                                                     window.location.href =
                                                                         "/pricing";
@@ -1348,10 +1572,10 @@ export function PaperChatPanel({
                                                     </DropdownMenuLabel>
                                                     {items.map((m) => (
                                                         <DropdownMenuItem
-                                                            key={m.id}
+                                                            key={modelKey(m)}
                                                             onClick={() =>
                                                                 setSelectedModel(
-                                                                    m.id
+                                                                    modelKey(m)
                                                                 )
                                                             }
                                                             className="flex items-center justify-between"
@@ -1359,7 +1583,7 @@ export function PaperChatPanel({
                                                             <span className="truncate">
                                                                 {m.name}
                                                             </span>
-                                                            {m.id ===
+                                                            {modelKey(m) ===
                                                                 selectedModel && (
                                                                 <CheckIcon className="h-3.5 w-3.5 text-green-500 shrink-0" />
                                                             )}
@@ -1372,46 +1596,48 @@ export function PaperChatPanel({
                                 </DropdownMenuContent>
                             </DropdownMenu>
 
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-                                        disabled={isStreaming}
-                                        aria-label={`Reasoning effort: ${reasoningEffortLabel}`}
-                                    >
-                                        <BrainIcon className="h-3.5 w-3.5" />
-                                        <span className="truncate max-w-[7rem]">
-                                            {reasoningEffortLabel}
-                                        </span>
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent
-                                    align="start"
-                                    className="w-44"
-                                >
-                                    <DropdownMenuLabel className="text-xs text-muted-foreground">
-                                        Reasoning effort
-                                    </DropdownMenuLabel>
-                                    <DropdownMenuSeparator />
-                                    {REASONING_EFFORT_OPTIONS.map((opt) => (
-                                        <DropdownMenuItem
-                                            key={opt.id}
-                                            onClick={() =>
-                                                setReasoningEffort(opt.id)
-                                            }
-                                            className="flex items-center justify-between"
+                            {supportsReasoningEffort && (
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                                            disabled={isStreaming}
+                                            aria-label={`Reasoning effort: ${reasoningEffortLabel}`}
                                         >
-                                            <span>{opt.label}</span>
-                                            {opt.id === reasoningEffort && (
-                                                <CheckIcon className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                                            )}
-                                        </DropdownMenuItem>
-                                    ))}
-                                </DropdownMenuContent>
-                            </DropdownMenu>
+                                            <BrainIcon className="h-3.5 w-3.5" />
+                                            <span className="truncate max-w-[7rem]">
+                                                {reasoningEffortLabel}
+                                            </span>
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent
+                                        align="start"
+                                        className="w-44"
+                                    >
+                                        <DropdownMenuLabel className="text-xs text-muted-foreground">
+                                            Reasoning effort
+                                        </DropdownMenuLabel>
+                                        <DropdownMenuSeparator />
+                                        {REASONING_EFFORT_OPTIONS.map((opt) => (
+                                            <DropdownMenuItem
+                                                key={opt.id}
+                                                onClick={() =>
+                                                    setReasoningEffort(opt.id)
+                                                }
+                                                className="flex items-center justify-between"
+                                            >
+                                                <span>{opt.label}</span>
+                                                {opt.id === reasoningEffort && (
+                                                    <CheckIcon className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                                                )}
+                                            </DropdownMenuItem>
+                                        ))}
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            )}
 
                             {availableContextModes.length > 1 && (
                                 <DropdownMenu>
@@ -1469,7 +1695,11 @@ export function PaperChatPanel({
                             )}
                         </PromptInputTools>
                         <PromptInputSubmit
-                            status={status}
+                            status={
+                                isStreaming
+                                    ? "streaming"
+                                    : ("ready" as const)
+                            }
                             type={isStreaming ? "button" : "submit"}
                             aria-label={
                                 isStreaming
@@ -1480,7 +1710,7 @@ export function PaperChatPanel({
                                 isStreaming
                                     ? (e) => {
                                           e.preventDefault();
-                                          stopStreaming();
+                                          stop();
                                       }
                                     : undefined
                             }
@@ -1536,6 +1766,7 @@ export function PaperChatPanel({
                 )}
             </div>
         </div>
+        </CodeViewerProvider>
     );
 }
 
@@ -1582,24 +1813,133 @@ function LoadEarlier({ isLoading, onLoad }: LoadEarlierProps) {
     );
 }
 
+/**
+ * The note under an assistant turn that didn't complete normally.
+ *
+ * `tone` separates the two very different cases: "error" is a failure the
+ * user did not ask for (destructive styling, retry offered), "muted" is a
+ * deliberate stop (neutral styling, never retried — the server keeps the
+ * stopped row, so re-sending would duplicate the question).
+ */
+interface TurnNotice {
+    tone: "error" | "muted";
+    /** Short label for what happened. */
+    title: string;
+    /** One-line, human-readable cause. */
+    headline: string;
+    /** Full raw error text for the disclosure; empty when there is no more. */
+    detail: string;
+    canRetry: boolean;
+}
+
+interface ErrorDetailsProps {
+    detail: string;
+}
+
+/** Collapsed dump of the raw error, styled like the tool-failure output. */
+function ErrorDetails({ detail }: ErrorDetailsProps) {
+    const [open, setOpen] = useState(false);
+    return (
+        <Collapsible open={open} onOpenChange={setOpen}>
+            <CollapsibleTrigger asChild>
+                <button
+                    type="button"
+                    className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                >
+                    <span>Details</span>
+                    <ChevronDownIcon
+                        className={cn(
+                            "size-3 shrink-0 transition-transform",
+                            open && "rotate-180"
+                        )}
+                    />
+                </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+                <pre className="mt-1 whitespace-pre-wrap break-words max-h-40 overflow-y-auto rounded bg-destructive/10 p-1.5 text-[11px] font-mono text-muted-foreground">
+                    {detail}
+                </pre>
+            </CollapsibleContent>
+        </Collapsible>
+    );
+}
+
+interface MessageTurnNoticeProps {
+    notice: TurnNotice;
+    onRetry: () => void;
+    retryDisabled?: boolean;
+}
+
+/**
+ * The note attached to an assistant turn that didn't finish — live (the
+ * stream errored or died) or reloaded (`metadata.interrupted`). A failure
+ * shows the server's own error text with the untrimmed version one click
+ * away and a retry on the last turn; a deliberate stop is a quiet line.
+ */
+function MessageTurnNotice({
+    notice,
+    onRetry,
+    retryDisabled,
+}: MessageTurnNoticeProps) {
+    const isError = notice.tone === "error";
+    return (
+        <div
+            className={cn(
+                "mt-2 rounded-md border px-2.5 py-2 space-y-1.5",
+                isError
+                    ? "border-destructive/40 bg-destructive/5"
+                    : "border-border/60 bg-muted/40"
+            )}
+        >
+            <div
+                className={cn(
+                    "flex items-start gap-1.5",
+                    isError ? "text-destructive" : "text-muted-foreground"
+                )}
+            >
+                {isError ? (
+                    <AlertTriangleIcon className="size-3.5 mt-0.5 shrink-0" />
+                ) : (
+                    <CircleStopIcon className="size-3.5 mt-0.5 shrink-0" />
+                )}
+                <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium">{notice.title}</p>
+                    <p className="text-xs break-words">{notice.headline}</p>
+                </div>
+            </div>
+            {notice.detail && notice.detail !== notice.headline && (
+                <ErrorDetails detail={notice.detail} />
+            )}
+            {notice.canRetry && (
+                <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1.5 text-xs"
+                    disabled={retryDisabled}
+                    onClick={onRetry}
+                >
+                    <RefreshCwIcon className="size-3.5" />
+                    Retry
+                </Button>
+            )}
+        </div>
+    );
+}
+
 function citationComponents(
-    handleCitationClick: (key: string, messageIndex: number, paperId?: string) => void,
+    handleCitationClick: (key: string, messageIndex: number) => void,
     messageIndex: number,
     citations: Citation[]
 ): Components {
     // CustomCitationLink calls handleCitationClick(key, messageIndex) without a
-    // paper_id (it's a shared component used in non-chat surfaces too). We
-    // resolve the matching citation's paper_id from the citations array here so
-    // it reaches the page's handler — which uses it to flip the displayed PDF
-    // when the citation refers to a supplementary.
-    const onClickWithPaperId = (key: string, msgIdx: number) => {
-        const match = citations.find((c) => String(c.key) === key);
-        handleCitationClick(key, msgIdx, match?.paper_id);
-    };
+    // paper_id (it's a shared component used in non-chat surfaces too); the
+    // caller's handler resolves the citation — including whether it's a code
+    // citation, which routes to the code viewer instead of the PDF.
     const inject = (props: object) => (
         <CustomCitationLink
             {...(props as Record<string, unknown>)}
-            handleCitationClick={onClickWithPaperId}
+            handleCitationClick={handleCitationClick}
             messageIndex={messageIndex}
             citations={citations}
         />
@@ -1610,30 +1950,124 @@ function citationComponents(
         div: inject,
         td: inject,
         table: CopyableTable,
+        ...codeMarkdownComponents,
     } as Components;
 }
 
+interface ToolActivityProps {
+    part: ToolPartView;
+}
+
+// Compact row for one agent tool call: pretty label + expandable
+// input/output details. Pending calls show a spinner.
+function ToolActivity({ part }: ToolActivityProps) {
+    const [open, setOpen] = useState(false);
+    const pending = toolIsPending(part);
+    const failed = part.state === "output-error";
+    // Repo files the sandbox touched, when the result still carries them (a
+    // truncated result has no `files` — the chips just don't render).
+    const touchedFiles = useMemo(
+        () => (part.type === "tool-run_python" ? toolOutputFiles(part) : []),
+        [part]
+    );
+
+    const outputPreview = useMemo(() => {
+        if (part.output === undefined || part.output === null) return null;
+        const record =
+            typeof part.output === "object"
+                ? (part.output as Record<string, unknown>)
+                : null;
+        if (record?.truncated && typeof record.preview === "string") {
+            return record.preview;
+        }
+        try {
+            return JSON.stringify(part.output, null, 2);
+        } catch {
+            return String(part.output);
+        }
+    }, [part.output]);
+
+    return (
+        <Collapsible open={open} onOpenChange={setOpen}>
+            <CollapsibleTrigger asChild>
+                <button
+                    type="button"
+                    className={cn(
+                        "flex max-w-full min-w-0 items-center gap-1.5 text-xs rounded px-1.5 py-0.5 transition-colors",
+                        failed
+                            ? "text-destructive hover:bg-destructive/10"
+                            : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                    )}
+                >
+                    {pending ? (
+                        <Loader size={12} />
+                    ) : (
+                        <WrenchIcon className="size-3 shrink-0" />
+                    )}
+                    <span className="truncate">{toolLabel(part)}</span>
+                    {failed && <span className="shrink-0">(failed)</span>}
+                    <ChevronDownIcon
+                        className={cn(
+                            "size-3 shrink-0 transition-transform",
+                            open && "rotate-180"
+                        )}
+                    />
+                </button>
+            </CollapsibleTrigger>
+            <RepoFileChips files={touchedFiles} />
+            <CollapsibleContent>
+                <div className="ml-4 mt-1 mb-1 space-y-1 text-[11px] font-mono text-muted-foreground">
+                    {part.input !== undefined && (
+                        <pre className="whitespace-pre-wrap break-words max-h-40 overflow-y-auto rounded bg-muted/40 p-1.5">
+                            {JSON.stringify(part.input, null, 2)}
+                        </pre>
+                    )}
+                    {failed && part.errorText && (
+                        <pre className="whitespace-pre-wrap break-words max-h-40 overflow-y-auto rounded bg-destructive/10 p-1.5">
+                            {part.errorText}
+                        </pre>
+                    )}
+                    {!failed && outputPreview && (
+                        <pre className="whitespace-pre-wrap break-words max-h-40 overflow-y-auto rounded bg-muted/40 p-1.5">
+                            {outputPreview}
+                        </pre>
+                    )}
+                </div>
+            </CollapsibleContent>
+        </Collapsible>
+    );
+}
+
 interface PaperMessageProps {
-    message: ChatMessage;
+    message: ChatUIMessage;
     index: number;
+    isStreamingMessage: boolean;
     user: ReturnType<typeof useAuth>["user"];
     handleCitationClick: (key: string, messageIndex: number, paperId?: string) => void;
     matchesCurrentCitation: (key: string, messageIndex: number) => boolean;
     flashesCurrentCitation?: (key: string, messageIndex: number) => boolean;
     onJumpToReference: (text: string) => void;
+    /** Failure/stopped note for this turn, rendered under the assistant bubble. */
+    turnNotice?: React.ReactNode;
 }
 
 function PaperMessage({
     message,
     index,
+    isStreamingMessage,
     user,
     handleCitationClick,
     matchesCurrentCitation,
     flashesCurrentCitation,
     onJumpToReference,
+    turnNotice,
 }: PaperMessageProps) {
-    const citations = message.references?.citations ?? [];
+    const citations = useMemo(
+        () => citationsFromMessage(message),
+        [message]
+    );
     const isUser = message.role === "user";
+    const blocks = useMemo(() => renderBlocks(message), [message]);
 
     const [sourcesOpen, setSourcesOpen] = useState(false);
     const hasFlash = flashesCurrentCitation
@@ -1645,85 +2079,184 @@ function PaperMessage({
         if (hasFlash) setSourcesOpen(true);
     }, [hasFlash]);
 
+    // Code citation whose snippet the sources list should scroll to, and the
+    // key currently emphasized after that jump.
+    const [pendingCodeScroll, setPendingCodeScroll] = useState<string | null>(
+        null
+    );
+    const [focusedCodeKey, setFocusedCodeKey] = useState<string | null>(null);
+
+    // One entry point for every citation click (inline marker or sources row).
+    // Code citations jump to their inline snippet in the sources list — the
+    // same open-sources-and-scroll-to-`citation-{key}-{index}` move PDF
+    // citations make, minus the document search, which has nothing to find.
     const onCitationClick = useCallback(
-        (key: string, msgIdx: number, paperId?: string) => {
-            handleCitationClick(key, msgIdx, paperId);
+        (key: string, msgIdx: number) => {
+            const citation = citations.find((c) => String(c.key) === key);
+            if (citation && isCodeCitation(citation)) {
+                if (msgIdx === index) {
+                    setSourcesOpen(true);
+                    setPendingCodeScroll(key);
+                    setFocusedCodeKey(key);
+                }
+                return;
+            }
+            handleCitationClick(key, msgIdx, citation?.paper_id);
             if (msgIdx === index) setSourcesOpen(true);
         },
-        [handleCitationClick, index]
+        [citations, handleCitationClick, index]
     );
+
+    // Scroll after the sources disclosure has mounted its content.
+    useEffect(() => {
+        if (!pendingCodeScroll || !sourcesOpen) return;
+        const frame = requestAnimationFrame(() => {
+            document
+                .getElementById(`citation-${pendingCodeScroll}-${index}`)
+                ?.scrollIntoView({ behavior: "smooth", block: "center" });
+            setPendingCodeScroll(null);
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [pendingCodeScroll, sourcesOpen, index]);
+
+    // Emphasis is a flash, not a mode.
+    useEffect(() => {
+        if (!focusedCodeKey) return;
+        const timer = setTimeout(() => setFocusedCodeKey(null), 2500);
+        return () => clearTimeout(timer);
+    }, [focusedCodeKey]);
+
+    const markdownComponents = useMemo(
+        () => citationComponents(onCitationClick, index, citations),
+        [onCitationClick, index, citations]
+    );
+
+    if (isUser) {
+        return (
+            <div data-message-index={index}>
+                <Message from="user">
+                    {user && (
+                        <Avatar className="size-6 shrink-0 ring-1 ring-border">
+                            <AvatarImage
+                                src={user.picture}
+                                alt={user.name || user.email}
+                            />
+                            <AvatarFallback
+                                className={cn(
+                                    "text-[10px]",
+                                    getAlphaHashToBackgroundColor(
+                                        user.name || user.email
+                                    )
+                                )}
+                            >
+                                {getInitials(user.name || user.email)}
+                            </AvatarFallback>
+                        </Avatar>
+                    )}
+                    {citations.length > 0 && (
+                        <div className="ml-auto flex flex-col items-end gap-1">
+                            {citations.map((c, i) => (
+                                <button
+                                    key={`${c.key}-${i}`}
+                                    type="button"
+                                    onClick={() =>
+                                        onJumpToReference(c.reference)
+                                    }
+                                    className="group flex items-start gap-1 max-w-[260px] rounded-md border-l-2 border-primary/60 bg-muted/40 px-2 py-1 text-left hover:bg-muted/70 transition-colors"
+                                    title="Jump to this section in the PDF"
+                                >
+                                    <CornerDownRightIcon className="size-3 mt-0.5 shrink-0 text-muted-foreground" />
+                                    <span className="text-xs text-muted-foreground line-clamp-2 leading-snug group-hover:text-foreground">
+                                        {c.reference}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                    <MessageContent>
+                        <div className="prose dark:prose-invert prose-sm !max-w-none whitespace-pre-wrap">
+                            {textFromMessage(message)}
+                        </div>
+                    </MessageContent>
+                </Message>
+            </div>
+        );
+    }
+
+    // A turn that ended before producing anything renders as the note alone —
+    // an empty assistant bubble above it is just noise.
+    if (blocks.length === 0 && turnNotice) {
+        return <div data-message-index={index}>{turnNotice}</div>;
+    }
 
     return (
         <div data-message-index={index}>
-            <Message from={message.role}>
-                {isUser && user && (
-                    <Avatar className="size-6 shrink-0 ring-1 ring-border">
-                        <AvatarImage
-                            src={user.picture}
-                            alt={user.name || user.email}
-                        />
-                        <AvatarFallback
-                            className={cn(
-                                "text-[10px]",
-                                getAlphaHashToBackgroundColor(
-                                    user.name || user.email
-                                )
-                            )}
-                        >
-                            {getInitials(user.name || user.email)}
-                        </AvatarFallback>
-                    </Avatar>
-                )}
-                {isUser && citations.length > 0 && (
-                    <div className="ml-auto flex flex-col items-end gap-1">
-                        {citations.map((c, i) => (
-                            <button
-                                key={`${c.key}-${i}`}
-                                type="button"
-                                onClick={() => onJumpToReference(c.reference)}
-                                className="group flex items-start gap-1 max-w-[260px] rounded-md border-l-2 border-primary/60 bg-muted/40 px-2 py-1 text-left hover:bg-muted/70 transition-colors"
-                                title="Jump to this section in the PDF"
+            <Message from="assistant">
+                <MessageContent className={isStreamingMessage ? "!text-foreground" : undefined}>
+                    {blocks.map((block, blockIndex) => {
+                        if (block.kind === "reasoning") {
+                            return (
+                                <Reasoning
+                                    key={`reasoning-${blockIndex}`}
+                                    isStreaming={
+                                        isStreamingMessage && block.streaming
+                                    }
+                                    defaultOpen={false}
+                                >
+                                    <ReasoningTrigger />
+                                    <ReasoningContent>
+                                        {block.text}
+                                    </ReasoningContent>
+                                </Reasoning>
+                            );
+                        }
+                        if (block.kind === "tool") {
+                            return (
+                                <ToolActivity
+                                    key={`tool-${block.part.toolCallId ?? blockIndex}`}
+                                    part={block.part}
+                                />
+                            );
+                        }
+                        // Text: animated for the live message, static markdown
+                        // for history.
+                        return isStreamingMessage ? (
+                            <AnimatedMarkdown
+                                key={`text-${blockIndex}`}
+                                content={block.text}
+                                className="prose-sm"
+                                components={markdownComponents}
+                            />
+                        ) : (
+                            <div
+                                key={`text-${blockIndex}`}
+                                className="prose dark:prose-invert prose-sm !max-w-none"
                             >
-                                <CornerDownRightIcon className="size-3 mt-0.5 shrink-0 text-muted-foreground" />
-                                <span className="text-xs text-muted-foreground line-clamp-2 leading-snug group-hover:text-foreground">
-                                    {c.reference}
-                                </span>
-                            </button>
-                        ))}
-                    </div>
-                )}
-                <MessageContent>
-                    {!isUser && message.reasoning && (
-                        <Reasoning isStreaming={false} defaultOpen={false}>
-                            <ReasoningTrigger />
-                            <ReasoningContent>
-                                {message.reasoning}
-                            </ReasoningContent>
-                        </Reasoning>
-                    )}
-                    <div className="prose dark:prose-invert prose-sm !max-w-none">
-                        <Markdown
-                            remarkPlugins={[
-                                [remarkMath, { singleDollarTextMath: false }],
-                                remarkGfm,
-                            ]}
-                            rehypePlugins={[rehypeKatex]}
-                            components={citationComponents(
-                                onCitationClick,
-                                index,
-                                citations
-                            )}
-                        >
-                            {message.content}
-                        </Markdown>
-                    </div>
+                                <Markdown
+                                    remarkPlugins={[
+                                        [
+                                            remarkMath,
+                                            { singleDollarTextMath: false },
+                                        ],
+                                        remarkGfm,
+                                    ]}
+                                    rehypePlugins={[rehypeKatex]}
+                                    components={markdownComponents}
+                                >
+                                    {block.text}
+                                </Markdown>
+                            </div>
+                        );
+                    })}
                 </MessageContent>
             </Message>
-            {!isUser && citations.length > 0 && (
+            {turnNotice}
+            {citations.length > 0 && (
                 <div className="mt-2 ml-0">
                     <PaperSources
                         citations={citations}
                         messageIndex={index}
+                        focusedCodeKey={focusedCodeKey}
                         handleCitationClick={onCitationClick}
                         matchesCurrentCitation={matchesCurrentCitation}
                         flashesCurrentCitation={flashesCurrentCitation}
@@ -1731,8 +2264,11 @@ function PaperMessage({
                         onOpenChange={setSourcesOpen}
                         rightSlot={
                             <ChatMessageActions
-                                message={message.content}
-                                references={message.references}
+                                message={blocks
+                                    .filter((b) => b.kind === "text")
+                                    .map((b) => (b.kind === "text" ? b.text : ""))
+                                    .join("\n\n")}
+                                references={{ citations }}
                             />
                         }
                     />
@@ -1745,7 +2281,9 @@ function PaperMessage({
 interface PaperSourcesProps {
     citations: Citation[];
     messageIndex: number;
-    handleCitationClick: (key: string, messageIndex: number, paperId?: string) => void;
+    /** Code citation to emphasize after a jump from its inline marker. */
+    focusedCodeKey?: string | null;
+    handleCitationClick: (key: string, messageIndex: number) => void;
     matchesCurrentCitation: (key: string, messageIndex: number) => boolean;
     flashesCurrentCitation?: (key: string, messageIndex: number) => boolean;
     rightSlot?: React.ReactNode;
@@ -1756,6 +2294,7 @@ interface PaperSourcesProps {
 function PaperSources({
     citations,
     messageIndex,
+    focusedCodeKey,
     handleCitationClick,
     matchesCurrentCitation,
     flashesCurrentCitation,
@@ -1775,6 +2314,21 @@ function PaperSources({
             <SourcesContent className="!w-full !mt-1.5 !gap-0">
                 <ul className="list-none p-0 m-0">
                     {citations.map((citation, refIndex) => {
+                        // Code citations point at the repo snapshot, not the
+                        // PDF — they get their own row and their own click
+                        // target (the code viewer).
+                        if (isCodeCitation(citation)) {
+                            return (
+                                <CodeCitationItem
+                                    key={`${citation.key}-${refIndex}`}
+                                    citation={citation}
+                                    messageIndex={messageIndex}
+                                    focused={
+                                        focusedCodeKey === String(citation.key)
+                                    }
+                                />
+                            );
+                        }
                         const active = matchesCurrentCitation(
                             citation.key,
                             messageIndex
@@ -1795,8 +2349,7 @@ function PaperSources({
                                 onClick={() =>
                                     handleCitationClick(
                                         citation.key,
-                                        messageIndex,
-                                        citation.paper_id
+                                        messageIndex
                                     )
                                 }
                                 onKeyDown={(e) => {
@@ -1804,8 +2357,7 @@ function PaperSources({
                                         e.preventDefault();
                                         handleCitationClick(
                                             citation.key,
-                                            messageIndex,
-                                            citation.paper_id
+                                            messageIndex
                                         );
                                     }
                                 }}

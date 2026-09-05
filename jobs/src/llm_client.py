@@ -287,8 +287,7 @@ class PaperOperations(AsyncLLMClient):
         instance = model.model_validate(response_json)
 
         if model == SummaryAndCitations:
-            n_citations = len(getattr(instance, "summary_citations", []))
-            status_callback(f"Compiled with {n_citations} citations")
+            status_callback("Compiled paper summary")
         elif model == InstitutionsKeywords:
             keywords = getattr(instance, "keywords", [])
             institutions = getattr(instance, "institutions", [])
@@ -467,9 +466,6 @@ class PaperOperations(AsyncLLMClient):
                     institutions=getattr(institutions_keywords, "institutions", []),
                     keywords=getattr(institutions_keywords, "keywords", []),
                     summary=getattr(summary_and_citations, "summary", ""),
-                    summary_citations=getattr(
-                        summary_and_citations, "summary_citations", []
-                    ),
                     highlights=getattr(highlights, "highlights", []),
                     publish_date=getattr(
                         title_authors_abstract, "publish_date", None

@@ -5,7 +5,7 @@ import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, Iterator, List, Optional, Sequence, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 import anthropic
 import openai
@@ -233,30 +233,6 @@ class BaseLLMProvider(ABC):
                 serialized JSON (callers parse with `output_type.model_validate_json`).
         """
         pass
-
-    @abstractmethod
-    def send_message_stream(
-        self,
-        model: str,
-        message: MessageParam,
-        history: List[Message],
-        system_prompt: str,
-        file: FileContent | None = None,
-        **kwargs,
-    ) -> Iterator[StreamChunk]:
-        """Send a streaming message.
-
-        Recognized kwargs:
-        - `reasoning_effort`: low/medium/high/xhigh; ignored by providers
-          without a native reasoning knob.
-        - `tool_call_results`: list of ToolCallResult to reconstruct as proper
-          assistant-tool_calls / tool-result messages in the request, so the
-          streaming final-answer turn after an agentic loop sees the same
-          shape as the non-streaming planning turns. Without this, callers
-          had to inject tool results as plain text into the user message.
-        """
-        pass
-
     @abstractmethod
     def get_default_model(self) -> str:
         """Get the default model for this provider"""
@@ -409,51 +385,6 @@ class GeminiProvider(BaseLLMProvider):
             thinking=thinking,
             tool_calls=tool_calls,
         )
-
-    def send_message_stream(
-        self,
-        model: str,
-        message: MessageParam,
-        history: List[Message],
-        system_prompt: str,
-        file: FileContent | None = None,
-        **kwargs,
-    ) -> Iterator[StreamChunk]:
-        """Send streaming message to Gemini"""
-        # Gemini doesn't expose a comparable reasoning-effort knob; drop it
-        # so it doesn't reach the SDK as an unrecognized kwarg.
-        kwargs.pop("reasoning_effort", None)
-        tool_call_results = kwargs.pop("tool_call_results", None)
-
-        config = GenerateContentConfig(
-            system_instruction=system_prompt,
-        )
-
-        # Start with file content for caching if present
-        contents = self._prepare_gemini_messages(
-            history=history,
-            new_message=message,
-            file=file,
-            tool_call_results=tool_call_results,
-        )
-
-        response_stream = self.client.models.generate_content_stream(
-            model=model,
-            contents=contents,
-            config=config,
-            **kwargs,
-        )
-
-        for chunk in response_stream:
-            yield StreamChunk(
-                text=chunk.text if chunk.text else "",
-                model=model,
-                provider=LLMProvider.GEMINI,
-                is_done=False,
-            )
-            if chunk.usage_metadata:
-                logger.debug(f"Gemini usage stats: {chunk.usage_metadata}")
-
     def _prepare_gemini_messages(
         self,
         history: List[Message],
@@ -727,54 +658,6 @@ class OpenAIProvider(BaseLLMProvider):
             provider=LLMProvider.OPENAI,
             tool_calls=tool_calls,
         )
-
-    def send_message_stream(
-        self,
-        model: str,
-        message: MessageParam,
-        history: List[Message],
-        system_prompt: str,
-        file: FileContent | None = None,
-        **kwargs,
-    ) -> Iterator[StreamChunk]:
-        """Send streaming message to OpenAI"""
-        tool_call_results = kwargs.pop("tool_call_results", None)
-        messages = self._prepare_openai_messages(
-            history,
-            message,
-            system_prompt,
-            file,
-            tool_call_results=tool_call_results,
-        )
-
-        # Map our generic reasoning effort levels to OpenAI's chat completions
-        # API. xhigh has no native equivalent, so it falls through to high.
-        # Only attached for the canonical OpenAI provider — OpenAI-compatible
-        # endpoints (Groq/Cerebras) reject unknown kwargs.
-        reasoning_effort = kwargs.pop("reasoning_effort", None)
-        if reasoning_effort and self._models_env_var == "OPENAI_MODELS":
-            mapped = "high" if reasoning_effort == "xhigh" else reasoning_effort
-            kwargs["reasoning_effort"] = mapped
-
-        stream = self.client.chat.completions.create(
-            model=model,
-            messages=messages,
-            stream=True,
-            stream_options={"include_usage": True},
-            **kwargs,
-        )
-
-        for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta.content:
-                yield StreamChunk(
-                    text=chunk.choices[0].delta.content,
-                    model=model,
-                    provider=LLMProvider.OPENAI,
-                    is_done=chunk.choices[0].finish_reason is not None,
-                )
-            elif chunk.usage:
-                logger.debug(f"OpenAI usage stats: {chunk.usage}")
-
     def _convert_message_content(
         self, content: MessageParam, system_instructions: Optional[str] = None
     ) -> Any:
@@ -976,17 +859,25 @@ class OpenAIProvider(BaseLLMProvider):
         tool_call_results: Optional[List[ToolCallResult]],
         output_type: type[BaseModel],
     ) -> LLMResponse:
-        from app.llm._pai_compat import make_openai_chat_model
+        from app.llm._pai_compat import (
+            LEGACY_HTTP_TIMEOUT,
+            LEGACY_MAX_RETRIES,
+            make_openai_chat_model,
+        )
 
         # Forward our existing OpenAI-compatible config (Azure, Groq, Cerebras,
         # standard OpenAI) into the pydantic_ai model.
         client_base_url = (
             str(self._client.base_url) if self._client.base_url else None
         )
+        # Non-chat, non-streaming, no RetryingModel above it: keep the SDK's
+        # historical transport behavior instead of the chat-path budget.
         pai_model = make_openai_chat_model(
             model,
             api_key=self.api_key,
             base_url=None if self.is_azure else client_base_url,
+            max_retries=LEGACY_MAX_RETRIES,
+            timeout=LEGACY_HTTP_TIMEOUT,
         )
         return _run_structured_via_pai(
             pai_model,
@@ -1138,58 +1029,6 @@ class AnthropicProvider(BaseLLMProvider):
     # Levels accepted by Anthropic's output_config.effort. low/medium/high/
     # xhigh all map straight through; our UI doesn't expose `max`.
     _SUPPORTED_EFFORT = {"low", "medium", "high", "xhigh", "max"}
-
-    def send_message_stream(
-        self,
-        model: str,
-        message: MessageParam,
-        history: List[Message],
-        system_prompt: str,
-        file: FileContent | None = None,
-        **kwargs,
-    ) -> Iterator[StreamChunk]:
-        reasoning_effort = kwargs.pop("reasoning_effort", None)
-        tool_call_results = kwargs.pop("tool_call_results", None)
-        params: Dict[str, Any] = {
-            "model": model,
-            "max_tokens": kwargs.pop("max_tokens", self.DEFAULT_MAX_TOKENS_STREAM),
-        }
-
-        if system_prompt:
-            params["system"] = [
-                {
-                    "type": "text",
-                    "text": system_prompt,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ]
-
-        params["messages"] = self._prepare_anthropic_messages(
-            history=history,
-            new_message=message,
-            file=file,
-            tool_call_results=tool_call_results,
-        )
-
-        if reasoning_effort and reasoning_effort in self._SUPPORTED_EFFORT:
-            params["output_config"] = {"effort": reasoning_effort}
-
-        params.update(kwargs)
-
-        with self._client.messages.stream(**params) as stream:
-            for text in stream.text_stream:
-                yield StreamChunk(
-                    text=text,
-                    model=model,
-                    provider=LLMProvider.ANTHROPIC,
-                    is_done=False,
-                )
-            # Surface usage after the stream completes; helpful for verifying
-            # cache hits via cache_read_input_tokens.
-            final = stream.get_final_message()
-            if final.usage:
-                logger.debug(f"Anthropic usage stats: {final.usage}")
-
     def get_default_model(self) -> str:
         return self._default_model
 

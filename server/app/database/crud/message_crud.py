@@ -25,7 +25,9 @@ class MessageBase(BaseModel):
 
 
 class MessageCreate(MessageBase):
-    pass
+    # Optional preallocated row id — the chat runtime allocates the
+    # assistant id up front so the streamed UIMessage id matches the row.
+    id: Optional[UUID] = None
 
 
 class MessageUpdate(BaseModel):
@@ -42,6 +44,8 @@ class MessageCRUD(CRUDBase[Message, MessageCreate, MessageUpdate]):
         self, db: Session, *, obj_in: MessageCreate, user: CurrentUser
     ) -> Message:
         """Create a new message with auto-incrementing sequence number"""
+        from app.database.crud.sanitization import sanitize_for_postgres
+
         # Get the next sequence number for this conversation
         max_sequence = (
             db.query(func.max(Message.sequence))
@@ -53,14 +57,37 @@ class MessageCRUD(CRUDBase[Message, MessageCreate, MessageUpdate]):
         )
         next_sequence = (max_sequence or 0) + 1
 
-        # Convert Pydantic model to dict and add sequence
-        obj_in_data = obj_in.model_dump(exclude_unset=True)
+        # Convert Pydantic model to dict and add sequence. Sanitize NUL
+        # characters (this override bypasses CRUDBase.create, which does the
+        # same) — model output and tool dumps can carry \x00 from OCR text,
+        # and postgres rejects it.
+        obj_in_data = sanitize_for_postgres(obj_in.model_dump(exclude_unset=True))
         db_obj = Message(**obj_in_data, sequence=next_sequence, user_id=user.id)
 
         db.add(db_obj)
         db.commit()
         db.refresh(db_obj)
         return db_obj
+
+    def get_all_conversation_messages(
+        self,
+        db: Session,
+        *,
+        conversation_id: UUID,
+        current_user: CurrentUser,
+    ) -> list[Message]:
+        """Full conversation, chronological. For model-history loading —
+        NEVER use the paginated variant for that (it silently truncates
+        context to the newest page)."""
+        return (
+            db.query(Message)
+            .filter(
+                Message.conversation_id == conversation_id,
+                Message.user_id == current_user.id,
+            )
+            .order_by(Message.sequence)
+            .all()
+        )
 
     def get_conversation_messages(
         self,

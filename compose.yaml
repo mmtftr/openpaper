@@ -91,6 +91,11 @@ services:
       ADMIN_EMAILS: ${ADMIN_EMAILS:-admin@local.openpaper}
       SECURE_COOKIES: "false"
       SESSION_COOKIE_DOMAIN: ""
+      MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-50}
+      # Ingested companion-repo snapshots. On a single-host deploy this
+      # volume IS the durability for them — if it is lost, re-connecting a
+      # repo re-ingests idempotently.
+      REPO_STORAGE_DIR: /var/lib/openpaper/repos
     # When BASE_HOSTNAME is the host's LAN/Tailscale name (anything other
     # than `localhost`), containers can't resolve it on their own — map it
     # to the docker host gateway so callbacks/webhooks issued from inside
@@ -98,6 +103,8 @@ services:
     # BASE_HOSTNAME=localhost (existing /etc/hosts entry takes precedence).
     extra_hosts:
       - "${BASE_HOSTNAME:-localhost}:host-gateway"
+    volumes:
+      - repo-snapshots:/var/lib/openpaper/repos
     command: >
       /bin/sh -c "python app/scripts/run_migrations.py &&
       gunicorn -c gunicorn.config.py app.main:app"
@@ -222,9 +229,11 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://${BASE_HOSTNAME:-localhost}:12001}
         NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
+        NEXT_PUBLIC_MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-50}
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://${BASE_HOSTNAME:-localhost}:12001}
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
+      NEXT_PUBLIC_MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-50}
     ports:
       - "127.0.0.1:12000:3000"
     depends_on:
@@ -236,3 +245,4 @@ volumes:
   rabbitmq-data:
   redis-data:
   minio-data:
+  repo-snapshots:

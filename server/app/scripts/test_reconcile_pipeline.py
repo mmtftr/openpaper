@@ -22,7 +22,7 @@ from app.database.database import SessionLocal
 from app.database.models import Paper
 from app.llm.citation_normalizer import find_in_pdf_text
 from app.llm.operations import operations
-from app.llm.paper_agentic_operations import _reconcile_one_via_llm
+from app.llm.chat.citations import _reconcile_one_via_llm
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)

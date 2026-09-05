@@ -1,5 +1,6 @@
 import io
 import logging
+import os
 from datetime import datetime
 from typing import Tuple
 
@@ -9,7 +10,7 @@ from PyPDF2 import PdfReader
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-MAX_UPLOAD_SIZE_MB = 30
+MAX_UPLOAD_SIZE_MB = int(os.environ.get("MAX_UPLOAD_SIZE_MB", "50"))
 DOCUMENT_PAGE_LIMIT = 800
 
 

@@ -66,12 +66,8 @@ export function HomeSearch() {
         const items: SelectableItem[] = [];
         filteredProjects.forEach((p) => items.push({ type: "project", id: p.id }));
         papers.forEach((p) => items.push({ type: "paper", id: p.id }));
-        // Always include "Ask knowledge base" option when there's a query
-        if (query.trim()) {
-            items.push({ type: "ask" });
-        }
         return items;
-    }, [filteredProjects, papers, query]);
+    }, [filteredProjects, papers]);
 
     const hasResults = papers.length > 0 || filteredProjects.length > 0;
 
@@ -188,12 +184,6 @@ export function HomeSearch() {
         }
     }, [router]);
 
-    const handleAskKnowledgeBase = useCallback(() => {
-        setIsOpen(false);
-        router.push(`/understand?q=${encodeURIComponent(query)}`);
-        setQuery("");
-    }, [router, query]);
-
     const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
         if (!isOpen || selectableItems.length === 0) return;
 
@@ -213,16 +203,12 @@ export function HomeSearch() {
             case "Enter":
                 e.preventDefault();
                 const selected = selectableItems[selectedIndex];
-                if (selected) {
-                    if (selected.type === "ask") {
-                        handleAskKnowledgeBase();
-                    } else {
-                        handleSelect(selected.type, selected.id);
-                    }
+                if (selected && selected.type !== "ask") {
+                    handleSelect(selected.type, selected.id);
                 }
                 break;
         }
-    }, [isOpen, selectableItems, selectedIndex, handleSelect, handleAskKnowledgeBase]);
+    }, [isOpen, selectableItems, selectedIndex, handleSelect]);
 
     return (
         <div ref={containerRef} className="relative w-full max-w-2xl mx-auto px-4">
@@ -379,50 +365,12 @@ export function HomeSearch() {
                                     })}
                                 </div>
                             )}
-                            {/* Ask knowledge base option */}
-                            <div className="p-2 border-t">
-                                {(() => {
-                                    const askIndex = filteredProjects.length + papers.length;
-                                    return (
-                                        <button
-                                            data-index={askIndex}
-                                            onClick={handleAskKnowledgeBase}
-                                            onMouseEnter={() => setSelectedIndex(askIndex)}
-                                            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors ${selectedIndex === askIndex ? "bg-accent" : "hover:bg-accent"}`}
-                                        >
-                                            <Search className="h-4 w-4 text-primary flex-shrink-0" />
-                                            <div className="min-w-0 flex-1">
-                                                <p className="font-medium">Ask your knowledge base</p>
-                                                <p className="text-sm text-muted-foreground truncate">
-                                                    &quot;{query}&quot;
-                                                </p>
-                                            </div>
-                                        </button>
-                                    );
-                                })()}
-                            </div>
                         </div>
                     ) : hasSearched ? (
                         <div className="py-6 px-4">
-                            <p className="text-center text-muted-foreground mb-4">
+                            <p className="text-center text-muted-foreground">
                                 No results found for &quot;{query}&quot;
                             </p>
-                            <button
-                                onClick={() => {
-                                    setIsOpen(false);
-                                    router.push(`/understand?q=${encodeURIComponent(query)}`);
-                                    setQuery("");
-                                }}
-                                className="w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-primary/5 hover:bg-primary/10 border border-primary/20 text-left transition-colors"
-                            >
-                                <Search className="h-5 w-5 text-primary flex-shrink-0" />
-                                <div className="min-w-0 flex-1">
-                                    <p className="font-medium text-foreground">Ask your knowledge base</p>
-                                    <p className="text-sm text-muted-foreground truncate">
-                                        &quot;{query}&quot;
-                                    </p>
-                                </div>
-                            </button>
                         </div>
                     ) : null}
                 </div>

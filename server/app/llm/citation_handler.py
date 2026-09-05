@@ -5,6 +5,25 @@ from app.schemas.message import CitationIndex, OriginalSnippet
 from app.schemas.responses import ResponseCitation
 
 
+def _parse_line_range(value: str) -> tuple[Optional[int], Optional[int]]:
+    """`lines=142-156` / `lines=142` / `L142-L156` → (start, end).
+
+    Returns (None, None) when nothing usable is present — a malformed range
+    must not poison an otherwise-valid citation.
+    """
+    text = str(value or "").strip().replace("L", "").replace("l", "")
+    match = re.match(r"^(\d+)\s*(?:[-–:]\s*(\d+))?$", text)
+    if not match:
+        return None, None
+    start = int(match.group(1))
+    if start < 1:
+        return None, None
+    end = int(match.group(2)) if match.group(2) else start
+    if end < start:
+        end = start
+    return start, end
+
+
 class CitationHandler:
     """Handles citation formatting and reference management"""
 
@@ -69,6 +88,14 @@ class CitationHandler:
 
             @cite[3|page=2|paper_id=abc-123]
             "Evidence from a supplementary paper"
+
+        Code citations (companion-repo inspection) use `file=` plus an
+        optional `lines=A-B` range, parsed into `start_line` / `end_line`.
+        They carry no `page`; verification is host-side against the ingested
+        snapshot:
+
+            @cite[4|file=pipeline/run.py|lines=42-57]
+            the exact code lines
         """
         citations = []
         lines = evidence_text.strip().split("\n")
@@ -78,8 +105,9 @@ class CitationHandler:
         for line in lines:
             line = line.strip()
             if line.startswith("@cite["):
-                # If we have a previous citation pending, save it
-                if current_citation is not None:
+                # If we have a previous citation pending, save it (drop
+                # empty-bodied citations, matching the end-of-block rule)
+                if current_citation is not None and current_text_lines:
                     current_citation["reference"] = " ".join(current_text_lines).strip()
                     citations.append(current_citation)
 
@@ -109,6 +137,18 @@ class CitationHandler:
                                 pass
                         elif k == "paper_id" and v:
                             current_citation["paper_id"] = v
+                        elif k == "file" and v:
+                            # Repo-relative path into the ingested snapshot.
+                            # Tolerate the `/repo/` prefix the model sees.
+                            path = v.strip().strip('"').strip("'")
+                            if path.startswith("/repo/"):
+                                path = path[len("/repo/") :]
+                            current_citation["file"] = path.lstrip("/")
+                        elif k == "lines" and v:
+                            start, end = _parse_line_range(v)
+                            if start is not None:
+                                current_citation["start_line"] = start
+                                current_citation["end_line"] = end
                     current_text_lines = []
             elif current_citation is not None and line:
                 # Accumulate lines for the current citation

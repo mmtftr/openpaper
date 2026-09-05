@@ -7,8 +7,6 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from app.database.crud.conversation_crud import ConversationCreate, conversation_crud
-from app.database.crud.message_crud import MessageCreate, message_crud
 from app.database.crud.paper_crud import PaperUpdate, paper_crud
 from app.database.crud.paper_upload_crud import paper_upload_job_crud
 from app.database.crud.projects.project_data_table_crud import (
@@ -20,12 +18,11 @@ from app.database.crud.projects.project_data_table_crud import (
 )
 from app.database.crud.projects.project_paper_crud import project_paper_crud
 from app.database.database import get_db
-from app.database.models import ConversableType, Conversation, JobStatus
+from app.database.models import JobStatus
 from app.database.telemetry import track_event
 from app.helpers.email import send_data_table_complete_email
 from app.helpers.paper_search import get_doi
 from app.helpers.s3 import s3_service
-from app.llm.citation_handler import CitationHandler
 from app.llm.operations import operations
 from app.schemas.responses import DataTableResult, PaperMetadataExtraction
 from app.schemas.user import CurrentUser
@@ -239,7 +236,6 @@ async def handle_paper_processing_webhook(
                     authors=metadata.authors,
                     abstract=metadata.abstract,
                     summary="",
-                    summary_citations=[],
                     keywords=metadata.keywords,
                     institutions=metadata.institutions,
                     publish_date=publish_date,
@@ -290,42 +286,10 @@ async def handle_paper_processing_webhook(
                         )
                         # Don't fail the whole process for annotation errors
 
-                if metadata.summary and paper:
-                    try:
-                        conversation_data = ConversationCreate(
-                            conversable_type=ConversableType.PAPER,
-                            conversable_id=uuid.UUID(str(paper.id)),
-                        )
-
-                        conversation: Conversation | None = conversation_crud.create(
-                            db, obj_in=conversation_data, user=job_user
-                        )
-
-                        if conversation:
-                            # Add the summary as the first message in the conversation, from the AI
-
-                            citations_dict = (
-                                CitationHandler.convert_response_citation_to_paper_citation(
-                                    metadata.summary_citations
-                                )
-                            )
-
-                            message_crud.create(
-                                db,
-                                obj_in=MessageCreate(
-                                    conversation_id=uuid.UUID(str(conversation.id)),
-                                    role="assistant",
-                                    content=metadata.summary,
-                                    references=citations_dict,
-                                ),
-                                user=job_user,
-                            )
-                    except Exception as e:
-                        logger.error(
-                            f"Error creating conversation/message for job {job_id}: {str(e)}",
-                            exc_info=True,
-                        )
-                        # Don't fail the whole process for conversation/message errors
+            # The summary used to be seeded into a fresh conversation as a
+            # fake first assistant message (with its own citation map). That
+            # was removed with the chat refactor — the summary lives in the
+            # Overview tab and chat starts empty.
 
             # Post-processing: attempt to get DOI
             doi = get_doi(metadata.title, metadata.authors)

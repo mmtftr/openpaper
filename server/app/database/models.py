@@ -668,6 +668,49 @@ class PaperImage(Base):
     paper = relationship("Paper", back_populates="paper_images")
 
 
+class RepoStatus(str, Enum):
+    PENDING = "pending"
+    INGESTING = "ingesting"
+    READY = "ready"
+    ERROR = "error"
+
+
+class PaperRepo(Base):
+    """A paper's companion GitHub repository, ingested into a local snapshot.
+
+    One repo per paper (UNIQUE paper_id). The snapshot itself lives on disk
+    under `{REPO_STORAGE_DIR}/{paper_id}/{commit_sha}/` — this row is the
+    index into it plus the ingestion state machine
+    (`pending` → `ingesting` → `ready` | `error`).
+    """
+
+    __tablename__ = "paper_repos"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    paper_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("papers.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+
+    owner = Column(String, nullable=False)
+    repo = Column(String, nullable=False)
+    # Resolved default branch; the SHA is what everything is pinned to.
+    ref = Column(String, nullable=True)
+    commit_sha = Column(String, nullable=True)
+
+    status = Column(String, nullable=False, default=RepoStatus.PENDING.value)
+    error = Column(Text, nullable=True)
+
+    file_count = Column(Integer, nullable=True)
+    total_bytes = Column(BigInteger, nullable=True)
+    # `{paper_id}/{commit_sha}` under REPO_STORAGE_DIR.
+    storage_prefix = Column(String, nullable=True)
+
+    paper = relationship("Paper")
+
+
 class DocumentKind(str, Enum):
     MAIN = "main"  # the paper's main writeup; exactly one per (paper_id, user_id)
     NOTE = "note"  # any other doc, paper-scoped or root-level (slice 3)

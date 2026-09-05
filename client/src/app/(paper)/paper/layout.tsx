@@ -8,7 +8,6 @@ import { AuthProvider } from "@/lib/auth";
 
 import { Toaster } from "@/components/ui/sonner";
 import { AnalyticsProvider, ThemeProvider } from "@/lib/providers";
-import { SharePaperButton } from '@/components/SharePaperButton';
 
 import { SidebarController } from "@/components/utils/SidebarAutoCollapse";
 import Image from "next/image";
@@ -107,7 +106,6 @@ export default function RootLayout({
 												<ManageProjectsButton />
 												<HeaderPaperStatusButton />
 												<CitePaperButton />
-												<SharePaperButton />
 											</div>
 											{/* Mobile menu */}
 											<MobilePaperMenu />

@@ -17,7 +17,6 @@ export interface PaperData {
     abstract: string;
     publish_date: string;
     summary: string;
-    summary_citations?: ReferenceCitation[];
     institutions: string[];
     keywords: string[];
     starter_questions: string[];
@@ -113,6 +112,16 @@ export interface Citation {
     // "normalizer" | "llm" — set when the quote text was rewritten from the
     // OCR form to a pymupdf-grounded form for highlighter compatibility.
     matched_via?: string;
+    // ---- Code citations (repo inspection) ------------------------------
+    // Present INSTEAD of `page`: the quote came from the paper's connected
+    // repo snapshot, not the PDF. The PDF highlight path must skip these.
+    file?: string;
+    start_line?: number | null;
+    end_line?: number | null;
+    // SHA-pinned GitHub permalink; only attached once the quote verified.
+    github_url?: string | null;
+    // false when the quoted snippet couldn't be found at the claimed lines.
+    verified?: boolean;
 }
 
 export interface Conversation {

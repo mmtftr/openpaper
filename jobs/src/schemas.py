@@ -64,10 +64,8 @@ class InstitutionsKeywords(BaseModel):
 
 
 class SummaryAndCitations(BaseModel):
-    """Schema for summary and citations extraction."""
-    summary_citations: List[ResponseCitation] = Field(
-        description="List of citations supporting the summary. Include direct quotes or paraphrases with the citation index. The index should match the inline citations used in the summary. Only include citations that are directly relevant to the summary content. Use sequential numbering starting from 1."
-    )
+    """Schema for summary extraction. (Citations were removed with the chat
+    refactor; the class name is kept to avoid churn at call sites.)"""
     summary: str = Field(
         description="""
             Generate a concise summary of the research paper (< 200 words) that captures the essential contribution for readers with basic domain knowledge. Break each of the sections up for clarity. Separate sections with blank lines to ensure proper paragraph breaks in markdown. Do not use literal `\n` characters for line breaks. Do not use separate headings for each section.
@@ -78,11 +76,8 @@ class SummaryAndCitations(BaseModel):
             2. **Methodology**: What methods, datasets, or techniques were used?
             3. **Findings**: What were the main results? What are the implications? Include specific metrics when available.
 
-            ## Citation Requirements:
-            - Use inline citations [^1], [^2] to support factual claims, especially numerical results. The citation index should match the corresponding entry in the `summary_citations` field.
-            - Use sequential numbering starting from [^1]
-
             ## Quality Standards:
+            - Do NOT include inline citation markers like [^1] — write plain prose.
             - Write in clear, accessible language while maintaining technical accuracy
             - Focus on the paper's primary contribution—omit secondary findings
             - Present findings objectively, including limitations when relevant
@@ -161,19 +156,10 @@ Format guidelines:
 - Use clear headings, bullet points, and tables for organization
 - Include relevant data points and metrics when available
 - Use plain language while preserving technical accuracy
-- Include inline citations to support claims that refer to the paper's content. This is especially important for claims about the findings, methodology, and results.
-
-Citation guidelines:
-- Use [^1], [^2], [^6, ^7] etc. for citations in the summary
-- Always increase the index of the citation sequentially, starting from 1
-- You will separately provide a list of citations in the `summary_citations` field with the raw text and index
+- Do NOT include inline citation markers like [^1] — write plain prose.
 
 The summary should be accessible to readers with basic domain knowledge while maintaining scientific integrity.
                          """,
-    )
-    summary_citations: List[ResponseCitation] = Field(
-        default=[],
-        description="List of citations that are relevant to the summary. These should be direct quotes or paraphrases from the paper that support the summary provided. Remember to include the citation index (e.g., [^1], [^2]) in the summary.",
     )
     publish_date: Optional[str] = Field(
         default=None, description="Publishing date of the paper in YYYY-MM-DD format"

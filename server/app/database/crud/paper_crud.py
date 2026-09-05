@@ -39,7 +39,6 @@ class PaperBase(BaseModel):
     institutions: Optional[List[str]] = None
     keywords: Optional[List[str]] = None
     summary: Optional[str] = None
-    summary_citations: Optional[List[ResponseCitation]] = None
     starter_questions: Optional[List[str]] = None
     publish_date: Optional[str] = None
     raw_content: Optional[str] = None
@@ -731,7 +730,6 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
             institutions=original_paper.institutions,  # type: ignore
             keywords=original_paper.keywords,  # type: ignore
             summary=str(original_paper.summary),
-            summary_citations=None,  # type: ignore
             starter_questions=original_paper.starter_questions,  # type: ignore
             publish_date=str(original_paper.publish_date) if original_paper.publish_date else None,  # type: ignore
             raw_content=original_paper.raw_content,  # type: ignore

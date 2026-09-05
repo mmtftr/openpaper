@@ -73,19 +73,10 @@ Format guidelines:
 - Use clear headings, bullet points, and tables for organization
 - Include relevant data points and metrics when available
 - Use plain language while preserving technical accuracy
-- Include inline citations to support claims that refer to the paper's content. This is especially important for claims about the findings, methodology, and results.
-
-Citation guidelines:
-- Use [^1], [^2], [^6, ^7] etc. for citations in the summary
-- Always increase the index of the citation sequentially, starting from 1
-- You will separately provide a list of citations in the `summary_citations` field with the raw text and index
+- Do NOT include inline citation markers like [^1] — write plain prose.
 
 The summary should be accessible to readers with basic domain knowledge while maintaining scientific integrity.
                          """,
-    )
-    summary_citations: List[ResponseCitation] = Field(
-        default=[],
-        description="List of citations that are relevant to the summary. These should be direct quotes or paraphrases from the paper that support the summary provided. Remember to include the citation index (e.g., [^1], [^2]) in the summary.",
     )
     publish_date: Optional[str] = Field(
         default=None, description="Publishing date of the paper in YYYY-MM-DD format"

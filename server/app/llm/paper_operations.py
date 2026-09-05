@@ -1,24 +1,12 @@
 import logging
-import re
-import uuid
-from typing import AsyncGenerator, Literal, Optional, Sequence, Union
+from typing import Literal, Optional
 
 from app.database.crud.paper_crud import paper_crud
-from app.database.models import Paper
-from app.llm.base import BaseLLMClient, ModelType
-from app.llm.citation_handler import CitationHandler
+from app.llm.base import BaseLLMClient
 from app.llm.json_parser import JSONParser
-from app.llm.prompts import (
-    ANSWER_PAPER_QUESTION_SYSTEM_PROMPT,
-    ANSWER_PAPER_QUESTION_USER_MESSAGE,
-    CONCISE_MODE_INSTRUCTIONS,
-    DETAILED_MODE_INSTRUCTIONS,
-    GENERATE_NARRATIVE_SUMMARY,
-    NORMAL_MODE_INSTRUCTIONS,
-)
-from app.llm.provider import FileContent, LLMProvider, TextContent
+from app.llm.prompts import GENERATE_NARRATIVE_SUMMARY
+from app.llm.provider import FileContent, TextContent
 from app.llm.utils import retry_llm_operation
-from app.schemas.message import ResponseStyle
 from app.schemas.responses import AudioOverviewForLLM
 from app.schemas.user import CurrentUser
 from fastapi import Depends
@@ -26,7 +14,6 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-from app.database.crud.message_crud import message_crud
 from app.database.database import get_db
 from app.helpers.s3 import s3_service
 
@@ -97,150 +84,3 @@ class PaperOperations(BaseLLMClient):
             logger.error(f"Error parsing LLM response: {e}", exc_info=True)
             raise ValueError(f"Invalid response from LLM: {str(e)}")
 
-    async def chat_with_paper(
-        self,
-        paper_id: str,
-        conversation_id: str,
-        question: str,
-        current_user: CurrentUser,
-        llm_provider: Optional[LLMProvider] = None,
-        user_references: Optional[Sequence[str]] = None,
-        response_style: Optional[str] = "normal",
-        model_type: ModelType = ModelType.DEFAULT,
-        model: Optional[str] = None,
-        reasoning_effort: Optional[str] = None,
-        db: Session = Depends(get_db),
-    ) -> AsyncGenerator[Union[str, dict], None]:
-        """
-        Chat with the paper using the specified model
-        """
-
-        user_citations = (
-            CitationHandler.convert_references_to_citations(user_references)
-            if user_references
-            else None
-        )
-
-        paper: Paper = paper_crud.get(db, id=paper_id)
-
-        if not paper:
-            raise ValueError(f"Paper with ID {paper_id} not found.")
-
-        casted_conversation_id = uuid.UUID(conversation_id)
-
-        conversation_history = message_crud.get_conversation_messages(
-            db, conversation_id=casted_conversation_id, current_user=current_user
-        )
-
-        additional_instructions = ""
-
-        if response_style == ResponseStyle.DETAILED:
-            additional_instructions = DETAILED_MODE_INSTRUCTIONS
-        elif response_style == ResponseStyle.CONCISE:
-            additional_instructions = CONCISE_MODE_INSTRUCTIONS
-        else:
-            additional_instructions = NORMAL_MODE_INSTRUCTIONS
-
-        formatted_system_prompt = ANSWER_PAPER_QUESTION_SYSTEM_PROMPT.format(
-            additional_instructions=additional_instructions,
-        )
-
-        formatted_prompt = ANSWER_PAPER_QUESTION_USER_MESSAGE.format(
-            question=f"{question}\n\n{user_citations}" if user_citations else question,
-        )
-
-        evidence_buffer: list[str] = []
-        text_buffer: str = ""
-        in_evidence_section = False
-
-        START_DELIMITER = "---EVIDENCE---"
-        END_DELIMITER = "---END-EVIDENCE---"
-
-        pdf_bytes = s3_service.get_object_bytes(str(paper.s3_object_key))
-
-        message_content = [
-            TextContent(text=formatted_prompt),
-        ]
-
-        # Chat with the paper using the LLM
-        for chunk in self.send_message_stream(
-            message=message_content,
-            file=FileContent(
-                data=pdf_bytes,
-                mime_type="application/pdf",
-                filename=f"{paper.title or 'paper'}.pdf",
-                text_fallback=str(paper.raw_content) if paper.raw_content else None,
-            ),
-            system_prompt=formatted_system_prompt,
-            history=conversation_history,
-            provider=llm_provider,
-            model_type=model_type,
-            model=model,
-            reasoning_effort=reasoning_effort,
-        ):
-            text = chunk.text
-
-            logger.debug(f"Received chunk: {text}")
-
-            if not text:
-                continue
-
-            text_buffer += text
-
-            # Check for start delimiter
-            if not in_evidence_section and START_DELIMITER in text_buffer:
-                in_evidence_section = True
-                # Split at delimiter and yield any content that came before
-                pre_evidence = text_buffer.split(START_DELIMITER)[0]
-                if pre_evidence:
-                    yield {"type": "content", "content": pre_evidence}
-                # Start the evidence buffer
-                evidence_buffer = [text_buffer.split(START_DELIMITER)[1]]
-                # Clear the text buffer
-                text_buffer = ""
-                continue
-
-            reconstructed_buffer = "".join(evidence_buffer + [text_buffer]).strip()
-
-            if in_evidence_section and END_DELIMITER in reconstructed_buffer:
-                # Find the position of the delimiter in the reconstructed buffer
-                delimiter_pos = reconstructed_buffer.find(END_DELIMITER)
-                evidence_part = reconstructed_buffer[:delimiter_pos]
-                remaining = reconstructed_buffer[delimiter_pos + len(END_DELIMITER) :]
-
-                # Parse the complete evidence block
-                structured_evidence = CitationHandler.parse_evidence_block(
-                    evidence_part
-                )
-
-                # Yield both raw and structured evidence
-                yield {
-                    "type": "references",
-                    "content": {
-                        "citations": structured_evidence,
-                    },
-                }
-
-                # Reset buffers and state
-                in_evidence_section = False
-                evidence_buffer = []
-                text_buffer = remaining
-
-                # Yield any remaining content after evidence section
-                if remaining:
-                    yield {"type": "content", "content": remaining}
-                continue
-
-            # Handle normal streaming
-            if in_evidence_section:
-                evidence_buffer.append(text)
-                text_buffer = ""
-            else:
-                # Keep a reasonable buffer size for detecting delimiters
-                if len(text_buffer) > len(START_DELIMITER) * 2:
-                    to_yield = text_buffer[: -len(START_DELIMITER)]
-                    yield {"type": "content", "content": to_yield}
-                    text_buffer = text_buffer[-len(START_DELIMITER) :]
-
-        if text_buffer:
-            yield {"type": "content", "content": text_buffer}

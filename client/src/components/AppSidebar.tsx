@@ -75,12 +75,6 @@ const items = [
         requiresAuth: true,
     },
     {
-        title: "Ask",
-        url: "/understand",
-        icon: TelescopeIcon,
-        requiresAuth: true,
-    },
-    {
         title: "Discover",
         url: "/discover",
         icon: Compass,
@@ -282,7 +276,6 @@ export function AppSidebar() {
     const { user, logout } = useAuth();
     const [allPapers, setAllPapers] = useState<PaperItem[]>([]);
     const [projects, setProjects] = useState<Project[]>([]);
-    const [everythingConversations, setEverythingConversations] = useState<Conversation[]>([]);
     const { darkMode, toggleDarkMode } = useIsDarkMode();
     const { subscription, loading: subscriptionLoading } = useSubscription();
     const [dismissedWarning, setDismissedWarning] = useState<string | null>(null);
@@ -291,15 +284,13 @@ export function AppSidebar() {
     useEffect(() => {
         if (!user) {
             setAllPapers([]);
-            setEverythingConversations([]);
             return;
         }
 
         const fetchData = async () => {
             try {
-                const [papersResponse, conversationsResponse, projectsResponse] = await Promise.all([
+                const [papersResponse, projectsResponse] = await Promise.all([
                     fetchFromApi("/api/paper/active"),
-                    fetchFromApi("/api/conversation/everything"),
                     fetchFromApi("/api/projects"),
                 ]);
 
@@ -311,12 +302,10 @@ export function AppSidebar() {
                 } else {
                     setAllPapers([]);
                 }
-                setEverythingConversations(conversationsResponse || []);
                 setProjects(projectsResponse || []);
             } catch (error) {
                 console.error("Error fetching sidebar data:", error);
                 setAllPapers([]);
-                setEverythingConversations([]);
                 setProjects([]);
             }
         };
@@ -422,21 +411,6 @@ export function AppSidebar() {
                                             viewAllUrl="/papers"
                                             viewAllText="View all papers"
                                             defaultOpen={true}
-                                        />
-                                    )
-                                }
-                                if (item.title === "Ask") {
-                                    return (
-                                        <CollapsibleSidebarMenu
-                                            key={item.title}
-                                            title={item.title}
-                                            icon={item.icon}
-                                            url={item.url}
-                                            items={everythingConversations}
-                                            getItemUrl={(convo) => `/understand?id=${convo.id}`}
-                                            viewAllUrl="/understand/past"
-                                            viewAllText="View all chats"
-                                            defaultOpen={false}
                                         />
                                     )
                                 }

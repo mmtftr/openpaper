@@ -639,10 +639,6 @@ async def get_pdf(
         logger.exception("Error updating enriched data for paper %s", id, exc_info=True)
 
     paper_data["file_url"] = signed_url
-    paper_data["summary_citations"] = [  # type: ignore
-        ResponseCitation.model_validate(citation).model_dump()
-        for citation in paper.summary_citations or []
-    ]
 
     paper_data["summary"] = paper_crud.get_summary_replace_image_placeholders(
         db, paper_id=id, current_user=current_user
@@ -780,10 +776,6 @@ async def get_shared_pdf(
     highlights = highlight_crud.get_public_highlights_data_by_paper_id(db, share_id=id)
 
     paper_data["file_url"] = signed_url
-    paper_data["summary_citations"] = [  # type: ignore
-        ResponseCitation.model_validate(citation).model_dump()
-        for citation in paper.summary_citations or []
-    ]
     paper_data["summary"] = (
         paper_crud.get_summary_replace_image_placeholders_shared_paper(
             db, paper_id=str(paper.id)
@@ -862,6 +854,12 @@ async def delete_pdf(
         if s3_object_key:
             s3_service.delete_file(str(s3_object_key))
             logger.info(f"Deleted S3 object: {s3_object_key}")
+
+        # The paper_repos row goes with the paper (FK CASCADE), but the
+        # ingested snapshot lives on a volume — drop it here.
+        from app.llm.repo import storage as repo_storage
+
+        repo_storage.delete_paper_snapshots(id)
 
         return JSONResponse(status_code=200, content={"message": "Document deleted"})
     except Exception as e:

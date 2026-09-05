@@ -2,21 +2,17 @@ import logging
 import os
 import time
 from enum import Enum
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, List, Optional
 
 from app.database.models import Message
 from app.database.telemetry import track_event
 from app.llm.provider import (
     AnthropicProvider,
     BaseLLMProvider,
-    FileContent,
     GeminiProvider,
     LLMProvider,
     LLMResponse,
-    MessageParam,
-    ModelOption,
     OpenAIProvider,
-    StreamChunk,
     ToolCallResult,
 )
 from app.llm.utils import retry_llm_operation
@@ -313,38 +309,6 @@ class BaseLLMClient:
                 f"Error generating content with {target_provider.value}/{model}: {e}"
             )
             raise
-
-    def send_message_stream(
-        self,
-        message: MessageParam,
-        history: List[Message],
-        system_prompt: str,
-        file: FileContent | None = None,
-        model_type: ModelType = ModelType.DEFAULT,
-        provider: Optional[LLMProvider] = None,
-        model: Optional[str] = None,
-        reasoning_effort: Optional[str] = None,
-        **kwargs,
-    ) -> Iterator[StreamChunk]:
-        """Send a message and stream the response.
-
-        If `model` is provided, resolves to whichever provider owns that id
-        and routes the call there; `model_type` and `provider` are ignored.
-
-        `reasoning_effort` (low/medium/high/xhigh) is forwarded so each
-        provider can translate it to its native reasoning knob.
-        """
-        if reasoning_effort:
-            kwargs["reasoning_effort"] = reasoning_effort
-        if model:
-            resolved_provider, resolved_model = self.resolve_model(model)
-            return self._get_provider(resolved_provider).send_message_stream(
-                resolved_model, message, history, system_prompt, file, **kwargs
-            )
-        chosen_model = self._get_model_for_type(model_type, provider)
-        return self._get_provider(provider).send_message_stream(
-            chosen_model, message, history, system_prompt, file, **kwargs
-        )
 
     # Convenience properties for backward compatibility
     @property

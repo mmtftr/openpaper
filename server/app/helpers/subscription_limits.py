@@ -381,6 +381,43 @@ def can_user_run_discover_search(
     return True, None
 
 
+def can_user_chat(db: Session, user: CurrentUser) -> tuple[bool, Optional[str]]:
+    """
+    Check if a user can send a chat message based on their weekly credit
+    limit. Server-side counterpart of the client's credit gating.
+
+    Returns:
+        tuple: (can_chat: bool, error_message: Optional[str])
+    """
+    plan = get_user_subscription_plan(db, user)
+    limits = get_effective_limits(db, user)
+
+    credits_allowed = limits[CHAT_CREDITS_KEY]
+    if credits_allowed == float("inf"):
+        return True, None
+
+    credits_used = get_user_chat_credits_used_this_week(db, user)
+    if credits_used >= credits_allowed:
+        track_event(
+            "action_blocked_limit_reached",
+            user_id=str(user.id),
+            properties={
+                "credits_used": credits_used,
+                "credits_allowed": credits_allowed,
+                "type": "chat_credits",
+                "plan": plan.value,
+            },
+            db=db,
+        )
+        return (
+            False,
+            "You've used your chat credits for the week. Upgrade your plan "
+            "to continue chatting.",
+        )
+
+    return True, None
+
+
 def get_user_chat_credits_used_this_week(db: Session, user: CurrentUser) -> int:
     """
     Get the number of chat credits used by the user today.

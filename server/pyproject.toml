@@ -41,14 +41,22 @@ dependencies = [
     "stripe>=12.3.0",
     "pypdf2>=3.0.1",
     "exa-py>=1.0.0",
-    "logfire[fastapi,httpx,sqlalchemy,celery,system-metrics]>=3.0.0",
+    "logfire[celery,fastapi,httpx,sqlalchemy,system-metrics]==4.41.0",
     "opentelemetry-instrumentation-google-genai>=0.2b0",
     "pydantic-ai==1.89.1",
+    "pydantic-monty==0.0.21",
+    "regex>=2026.4.4",
 ]
 
 [project.scripts]
 # openpaper = "app.main"
 start = "app:start"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
 
 [tool.mypy]
 plugins = [

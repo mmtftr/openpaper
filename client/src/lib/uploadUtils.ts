@@ -1,6 +1,8 @@
 import { fetchFromApi } from "@/lib/api"
 import { MinimalJob, PdfUploadResponse } from "@/lib/schema"
 
+export const MAX_UPLOAD_SIZE_MB = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_SIZE_MB) || 50;
+
 /**
  * Fetches a PDF from a URL client-side and returns it as a File object.
  * Extracts filename from content-disposition header or URL path,
