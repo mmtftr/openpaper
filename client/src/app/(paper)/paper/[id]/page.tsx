@@ -112,14 +112,13 @@ export default function PaperView() {
         setSelectedText,
         tooltipPosition,
         setTooltipPosition,
-        setIsAnnotating,
-        isAnnotating,
         isHighlightInteraction,
         setIsHighlightInteraction,
         activeHighlight,
         setActiveHighlight,
         addHighlight,
         removeHighlight,
+        recolorHighlight,
         fetchHighlights
     } = useHighlighterHighlights(parentPaperId);
 
@@ -132,9 +131,6 @@ export default function PaperView() {
         refreshAnnotations,
     } = useAnnotations(parentPaperId);
 
-    const [annotationCardsVisible, setAnnotationCardsVisible] = useState(false);
-    /** When Annotations side panel is open, compose first note / reply here instead of margin cards */
-    const [composeHighlightId, setComposeHighlightId] = useState<string | null>(null);
     const [activeCitationKey, setActiveCitationKey] = useState<string | null>(null);
     const [activeCitationMessageIndex, setActiveCitationMessageIndex] = useState<number | null>(null);
     const [flashCitation, setFlashCitation] = useState<{ key: string; messageIndex: number } | null>(null);
@@ -233,50 +229,16 @@ export default function PaperView() {
     const isMobile = useIsMobile();
     const [mobileView, setMobileView] = useState<'reader' | 'markdown' | 'panel'>('reader');
 
-    const showAnnotationCards = annotationCardsVisible;
     const isReadMode = rightSideFunction === 'Read';
-
-    /** Auto-narrow side panel while annotating with a margin card visible.
-     *  Skip when the annotation is routed to the Annotations side panel (no margin card). */
-    const ANNOTATE_MIN_PDF_WIDTH = 70; // %
-    const preAnnotateWidthRef = useRef<number | null>(null);
-    // The margin-card layer is never mounted while the Annotations tab is open.
-    const annotationGoesToSidePanel = annotationsPanelActive;
-    useEffect(() => {
-        // A bare highlight only gets a margin card while it's the compose target.
-        const shouldWiden = isAnnotating && composeHighlightId !== null && !isReadMode && !annotationGoesToSidePanel;
-        if (shouldWiden && preAnnotateWidthRef.current === null) {
-            // Turn on annotation card visibility so the new card is seen
-            if (!annotationCardsVisible) {
-                setAnnotationCardsVisible(true);
-            }
-            preAnnotateWidthRef.current = leftPanelWidth;
-            if (leftPanelWidth < ANNOTATE_MIN_PDF_WIDTH) {
-                setLeftPanelWidth(ANNOTATE_MIN_PDF_WIDTH);
-            }
-        } else if (!shouldWiden && preAnnotateWidthRef.current !== null) {
-            setLeftPanelWidth(preAnnotateWidthRef.current);
-            preAnnotateWidthRef.current = null;
-        }
-    // leftPanelWidth, annotationCardsVisible intentionally excluded — only read on transition
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isAnnotating, composeHighlightId, isReadMode, annotationGoesToSidePanel]);
 
     /** Tracks the last non-Read panel so we can restore it when exiting focus mode. */
     const lastNonReadFunctionRef = useRef<string>('Chat');
     const prevRightSideRef = useRef(rightSideFunction);
-    /** Tracks annotation card visibility before entering Read mode so it can be restored on exit. */
-    const preReadAnnotationCardsRef = useRef<boolean>(false);
     useEffect(() => {
-        if (rightSideFunction === 'Read' && prevRightSideRef.current !== 'Read') {
-            preReadAnnotationCardsRef.current = annotationCardsVisible;
-        }
         if (prevRightSideRef.current !== 'Read') {
             lastNonReadFunctionRef.current = prevRightSideRef.current;
         }
         prevRightSideRef.current = rightSideFunction;
-    // annotationCardsVisible intentionally excluded — only read on transition into Read mode
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [rightSideFunction]);
 
     const handleToggleReadMode = useCallback(() => {
@@ -284,29 +246,10 @@ export default function PaperView() {
             const target = lastNonReadFunctionRef.current;
             const validTools = toolset.nav.map(t => t.name);
             setRightSideFunction(validTools.includes(target) ? target : 'Chat');
-            setAnnotationCardsVisible(preReadAnnotationCardsRef.current);
         } else {
             setRightSideFunction('Read');
         }
     }, [isReadMode, toolset.nav]);
-
-    const prevMobileViewRef = useRef<'reader' | 'markdown' | 'panel'>(mobileView);
-    const mobileReaderInitialHideRef = useRef(false);
-    useEffect(() => {
-        if (!isMobile) {
-            prevMobileViewRef.current = mobileView;
-            return;
-        }
-        const prev = prevMobileViewRef.current;
-        if (mobileView === 'reader' && prev === 'panel') {
-            setAnnotationCardsVisible(false);
-        }
-        if (mobileView === 'reader' && !mobileReaderInitialHideRef.current) {
-            mobileReaderInitialHideRef.current = true;
-            setAnnotationCardsVisible(false);
-        }
-        prevMobileViewRef.current = mobileView;
-    }, [isMobile, mobileView]);
 
     useEffect(() => {
         if (jobId) {
@@ -725,43 +668,31 @@ export default function PaperView() {
         }
     }, [parentPaperId, paperData, headerUpdatePaperStatus]);
 
-    const onAnnotateViaSidePanel = useCallback((payload: { highlightId: string }) => {
-        setComposeHighlightId(payload.highlightId);
-    }, []);
-
-    /** Selection-toolbar actions jump to the tab where the action continues. */
-    const onNoteStarted = useCallback((highlightId: string) => {
-        setRightSideFunction('Annotations');
-        setComposeHighlightId(highlightId);
-    }, []);
-
     const onAskStarted = useCallback(() => {
         setRightSideFunction('Chat');
-    }, []);
+        // On mobile the panel is a separate view; switching to it would unmount
+        // the reader and lose the page, so just confirm where the quote went.
+        if (isMobile) toast.success('Added to chat');
+    }, [isMobile]);
 
-    const onComposeHighlightDismiss = useCallback(
-        (cancelledHighlightId?: string | null) => {
-            setComposeHighlightId(null);
-            setIsAnnotating(false);
-            // End PDF "selected" emphasis when compose closes — otherwise activeHighlightStore
-            // stays set and the paragraph keeps the active (0.4) tint after Save.
-            setActiveHighlight(null);
-            if (cancelledHighlightId == null || cancelledHighlightId === '') return;
-            if (annotations.some((a) => a.highlight_id === cancelledHighlightId)) return;
-            const h = highlights.find((x) => x.id === cancelledHighlightId);
-            if (h) removeHighlight(h);
-        },
-        [annotations, highlights, removeHighlight, setActiveHighlight]
-    );
-
-    // Leaving the Annotations tab abandons an open composer, same as Cancel.
-    useEffect(() => {
-        if (rightSideFunction === 'Annotations') return;
-        if (composeHighlightId) onComposeHighlightDismiss(composeHighlightId);
-        else setIsAnnotating(false);
-    // Only on tab change — the dismiss handler's identity churns with every highlight update.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [rightSideFunction]);
+    /** "Open in Annotations" from a highlight's note popover. */
+    const onOpenThread = useCallback((highlight: PaperHighlight) => {
+        setRightSideFunction('Annotations');
+        setActiveHighlight(highlight);
+        if (isMobile) setMobileView('panel');
+        // Once the panel has rendered, put keyboard focus on the thread.
+        requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+                if (!highlight.id) return;
+                document
+                    .querySelector<HTMLElement>(
+                        `[data-annotation-sidebar-row][data-thread-id="${CSS.escape(highlight.id)}"]`
+                    )
+                    // Scrolls it into view too, even if it was already the active thread.
+                    ?.focus();
+            })
+        );
+    }, [isMobile, setActiveHighlight]);
 
     if (loading) return <PaperViewSkeleton />;
 
@@ -796,8 +727,6 @@ export default function PaperView() {
         userMessageReferences,
         setUserMessageReferences,
         renderedHighlightPositions,
-        composeHighlightId,
-        onComposeHighlightDismiss,
         addAnnotation,
         updateAnnotation,
         removeAnnotation,
@@ -820,6 +749,7 @@ export default function PaperView() {
                                     setActiveHighlight={setActiveHighlight}
                                     addHighlight={addHighlight}
                                     removeHighlight={removeHighlight}
+                                    recolorHighlight={recolorHighlight}
                                     addAnnotation={addAnnotation}
                                     updateAnnotation={updateAnnotation}
                                     removeAnnotation={removeAnnotation}
@@ -827,13 +757,8 @@ export default function PaperView() {
                                     onOverlaysCreated={handleOverlaysCreated}
                                     onRefreshUrl={refreshPdfUrl}
                                     currentUser={user}
-                                    showAnnotationCards={showAnnotationCards}
-                                    onToggleAnnotationCards={() => setAnnotationCardsVisible((v) => !v)}
-                                    annotationsPanelActive={annotationsPanelActive}
-                                    onAnnotateViaSidePanel={onAnnotateViaSidePanel}
-                                    onNoteStarted={onNoteStarted}
                                     onAskStarted={onAskStarted}
-                                    composeHighlightId={composeHighlightId}
+                                    onOpenThread={onOpenThread}
                                     parentPaperId={parentPaperId}
                                     displayedPaperId={displayedPaperId}
                                     parentPaperTitle={paperData?.title ?? undefined}
@@ -877,8 +802,6 @@ export default function PaperView() {
                                             rightSideFunction={rightSideFunction}
                                             setRightSideFunction={setRightSideFunction}
                                             PaperToolset={toolset}
-                                            showAnnotationCards={showAnnotationCards}
-                                            onToggleAnnotationCards={() => setAnnotationCardsVisible(v => !v)}
                                         />
                                     </>
                                 )}
@@ -929,6 +852,7 @@ export default function PaperView() {
                                 setActiveHighlight={setActiveHighlight}
                                 addHighlight={addHighlight}
                                 removeHighlight={removeHighlight}
+                                recolorHighlight={recolorHighlight}
                                 addAnnotation={addAnnotation}
                                 updateAnnotation={updateAnnotation}
                                 removeAnnotation={removeAnnotation}
@@ -936,14 +860,9 @@ export default function PaperView() {
                                 onOverlaysCreated={handleOverlaysCreated}
                                 onRefreshUrl={refreshPdfUrl}
                                 currentUser={user}
-                                showAnnotationCards={showAnnotationCards}
-                                onToggleAnnotationCards={() => setAnnotationCardsVisible((v) => !v)}
                                 annotationsPanelActive={annotationsPanelActive}
-                                onAnnotateViaSidePanel={onAnnotateViaSidePanel}
-                                onNoteStarted={onNoteStarted}
                                 onAskStarted={onAskStarted}
-                                composeHighlightId={composeHighlightId}
-                                sidePanelOpen={rightSideFunction !== 'Read'}
+                                onOpenThread={onOpenThread}
                                 isReadMode={isReadMode}
                                 onToggleReadMode={handleToggleReadMode}
                                 parentPaperId={parentPaperId}

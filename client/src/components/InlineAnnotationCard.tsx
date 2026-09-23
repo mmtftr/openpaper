@@ -6,8 +6,9 @@ import { BasicUser } from "@/lib/auth";
 import { PaperHighlightAnnotation } from "@/lib/schema";
 import { cn, formatAnnotationDate, getAlphaHashToBackgroundColor, getInitials } from "@/lib/utils";
 import { CollapsibleNoteText } from "@/components/CollapsibleNoteText";
-import { Pencil, Trash2, X } from "lucide-react";
+import { File, Pencil, Trash2, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 interface InlineAnnotationCardProps {
     highlightId: string;
@@ -25,6 +26,12 @@ interface InlineAnnotationCardProps {
     onHeightChange?: (height: number) => void;
     /** Called when the user interacts with the card so the parent can mark this highlight active (e.g. show reply UI). */
     onCardFocus?: () => void;
+    /** Reports whether an unsaved draft (new note, reply or edit) is in progress. */
+    onDirtyChange?: (dirty: boolean) => void;
+    widthPx?: number;
+    className?: string;
+    style?: CSSProperties;
+    footer?: ReactNode;
 }
 
 export function InlineAnnotationCard({
@@ -41,6 +48,11 @@ export function InlineAnnotationCard({
     onClose,
     onHeightChange,
     onCardFocus,
+    onDirtyChange,
+    widthPx = 280,
+    className,
+    style,
+    footer,
 }: InlineAnnotationCardProps) {
     const isNewThread = annotations.length === 0;
     const canWrite = Boolean(addAnnotation);
@@ -82,10 +94,21 @@ export function InlineAnnotationCard({
         !hasMultiComment || threadExpanded ? sortedThread : sortedThread.slice(0, 1);
     const moreCount = hasMultiComment && !threadExpanded ? sortedThread.length - 1 : 0;
 
+    /** Saved text of the note being edited — an edit only counts as a draft once it differs. */
+    const editOriginalRef = useRef("");
+    const editChanged = Boolean(editingId) && editContent.trim() !== editOriginalRef.current.trim();
+    const editChangedRef = useRef(editChanged);
+    editChangedRef.current = editChanged;
+    const isDirty = Boolean(newContent.trim() || replyContent.trim() || editChanged);
+    useEffect(() => {
+        onDirtyChange?.(isDirty);
+    }, [isDirty, onDirtyChange]);
+
     // Auto-focus the new-thread textarea on mount when there are no annotations
     useEffect(() => {
         if (isNewThread && canWrite && newTextareaRef.current) {
-            newTextareaRef.current.focus();
+            // preventScroll: a floating card may not be positioned yet.
+            newTextareaRef.current.focus({ preventScroll: true });
         }
     }, [isNewThread, canWrite]);
 
@@ -106,8 +129,9 @@ export function InlineAnnotationCard({
         const handleOutsideClick = (e: MouseEvent) => {
             if (cardRef.current && !cardRef.current.contains(e.target as Node)) {
                 if (!isNewThread) {
-                    // Thread exists — never auto-close via outside click
-                    setEditingId(null);
+                    // Thread exists — never auto-close via outside click. An edit
+                    // with unsaved changes survives; an untouched one collapses.
+                    if (!editChangedRef.current) setEditingId(null);
                     // Collapse reply to pill (draft kept in replyContent for next open)
                     setIsReplyOpen(false);
                 } else if (!newContent.trim()) {
@@ -136,7 +160,7 @@ export function InlineAnnotationCard({
         if (!editingId) return;
         const handleMouseDown = (e: MouseEvent) => {
             const el = editBlockRef.current;
-            if (el && !el.contains(e.target as Node)) {
+            if (el && !el.contains(e.target as Node) && !editChangedRef.current) {
                 setEditingId(null);
             }
         };
@@ -218,7 +242,8 @@ export function InlineAnnotationCard({
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             handleSaveNew();
-        } else if (e.key === "Escape") {
+        } else if (e.key === "Escape" && !isSaving) {
+            // Closing mid-save could discard the highlight the note is landing on.
             onClose();
         }
     };
@@ -264,12 +289,13 @@ export function InlineAnnotationCard({
             ref={cardRef}
             data-inline-annotation-card=""
             className={cn(
-                "absolute z-40 w-[280px] rounded-xl shadow-lg flex flex-col transition-[top,left,background-color,border-color] duration-200 ease-out motion-reduce:transition-none overflow-hidden",
+                "absolute z-40 rounded-xl shadow-lg flex flex-col transition-[top,left,background-color,border-color] duration-200 ease-out motion-reduce:transition-none overflow-hidden",
                 isActive
                     ? "border border-border bg-background"
-                    : "border-0 bg-[#F9FAFD] dark:bg-zinc-800"
+                    : "border-0 bg-[#F9FAFD] dark:bg-zinc-800",
+                className
             )}
-            style={{ left: `${leftPosition}px`, top: `${topPosition}px` }}
+            style={{ left: `${leftPosition}px`, top: `${topPosition}px`, width: widthPx, ...style }}
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => {
                 e.stopPropagation();
@@ -301,6 +327,7 @@ export function InlineAnnotationCard({
                                 className="h-6 w-6 text-muted-foreground hover:text-foreground flex-shrink-0"
                                 onClick={(e) => { e.stopPropagation(); onClose(); }}
                                 onMouseDown={(e) => e.stopPropagation()}
+                                disabled={isSaving}
                                 title="Close"
                             >
                                 <X size={14} />
@@ -367,17 +394,25 @@ export function InlineAnnotationCard({
                         {visibleThread.map((ann) => (
                             <div key={ann.id} className="flex flex-col gap-2">
                                 <div className="flex items-center gap-3">
-                                    <Avatar className="h-7 w-7 flex-shrink-0">
-                                        {user?.picture && <AvatarImage src={user.picture} alt={displayName} />}
-                                        <AvatarFallback
-                                            className="text-[10px] text-white font-medium"
-                                            style={{ backgroundColor: avatarBg }}
-                                        >
-                                            {getInitials(displayName)}
-                                        </AvatarFallback>
-                                    </Avatar>
+                                    {ann.role === "assistant" ? (
+                                        <div className="h-7 w-7 flex-shrink-0 rounded-full flex items-center justify-center bg-blue-100 dark:bg-blue-900">
+                                            <File size={12} className="text-blue-500" />
+                                        </div>
+                                    ) : (
+                                        <Avatar className="h-7 w-7 flex-shrink-0">
+                                            {user?.picture && <AvatarImage src={user.picture} alt={displayName} />}
+                                            <AvatarFallback
+                                                className="text-[10px] text-white font-medium"
+                                                style={{ backgroundColor: avatarBg }}
+                                            >
+                                                {getInitials(displayName)}
+                                            </AvatarFallback>
+                                        </Avatar>
+                                    )}
                                     <div className="flex flex-col leading-tight flex-1 min-w-0">
-                                        <span className="text-xs font-medium">{displayName}</span>
+                                        <span className="text-xs font-medium">
+                                            {ann.role === "assistant" ? "Open Paper" : displayName}
+                                        </span>
                                         <span className="text-[11px] text-muted-foreground">{formatAnnotationDate(ann.created_at)}</span>
                                     </div>
                                     {ann.role === "user" && isActive && (
@@ -392,6 +427,7 @@ export function InlineAnnotationCard({
                                                         onCardFocus?.();
                                                         setThreadExpanded(true);
                                                         setEditingId(ann.id);
+                                                        editOriginalRef.current = ann.content;
                                                         setEditContent(ann.content);
                                                     }}
                                                     onMouseDown={(e) => e.stopPropagation()}
@@ -543,6 +579,7 @@ export function InlineAnnotationCard({
                     )}
                 </>
             )}
+            {footer}
         </div>
     );
 }

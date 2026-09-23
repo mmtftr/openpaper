@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { toast } from "sonner";
 import { Provider, useAtomValue, useSetAtom } from "jotai";
 import type { BasicUser } from "@/lib/auth";
 import type {
@@ -16,8 +17,10 @@ import PdfPane from "./PdfPane";
 import { ReaderToolbar } from "./ReaderToolbar";
 import { HighlightLayer } from "./HighlightLayer";
 import SelectionLayer from "./SelectionLayer";
-import { AnnotationCardsLayer } from "./AnnotationCardsLayer";
-import { AnnotationHoverCard } from "@/components/AnnotationHoverCard";
+import { HighlightPopover } from "./HighlightPopover";
+import { useHighlightPopover } from "./useHighlightPopover";
+import type { HighlightPopoverTarget } from "./useHighlightPopover";
+import type { HighlightHit } from "./HighlightLayer";
 import Thumbnails from "./Thumbnails";
 import Outline from "./Outline";
 import { useAnchoredHighlights } from "./useAnchoredHighlights";
@@ -45,6 +48,7 @@ export interface PdfReaderProps {
 		color?: HighlightColor
 	) => Promise<PaperHighlight | undefined> | void;
 	removeHighlight?: (highlight: PaperHighlight) => void;
+	recolorHighlight?: (highlight: PaperHighlight, color: HighlightColor) => void;
 
 	addAnnotation?: (
 		highlightId: string,
@@ -67,21 +71,15 @@ export interface PdfReaderProps {
 	onRefreshUrl?: () => Promise<string | null>;
 
 	currentUser?: BasicUser | null;
-	showAnnotationCards?: boolean;
-	onToggleAnnotationCards?: () => void;
-	/** Route note composition to the side panel instead of an inline card. */
+	/** The Annotations side panel is on screen: clicked highlights scroll it to their thread. */
 	annotationsPanelActive?: boolean;
-	onAnnotateViaSidePanel?: (payload: { highlightId: string }) => void;
-	composeHighlightId?: string | null;
-	/** A note was started from the selection toolbar; show where it's composed. */
-	onNoteStarted?: (highlightId: string) => void;
+	/** "Open in Annotations" from a highlight's note popover. */
+	onOpenThread?: (highlight: PaperHighlight) => void;
 	/** A quote was sent to chat from the selection toolbar. */
 	onAskStarted?: () => void;
 
 	isReadMode?: boolean;
 	onToggleReadMode?: () => void;
-	/** Side panel is taking horizontal space — left-align pages to free the right gutter for cards. */
-	sidePanelOpen?: boolean;
 
 	parentPaperId?: string;
 	displayedPaperId?: string;
@@ -137,6 +135,8 @@ function PdfReaderInner(props: PdfReaderProps) {
 		activeHighlight = null,
 		setActiveHighlight,
 		addHighlight,
+		removeHighlight,
+		recolorHighlight,
 		addAnnotation,
 		updateAnnotation,
 		removeAnnotation,
@@ -145,16 +145,11 @@ function PdfReaderInner(props: PdfReaderProps) {
 		onUnanchoredHighlights,
 		onRefreshUrl,
 		currentUser,
-		showAnnotationCards = true,
-		onToggleAnnotationCards,
 		annotationsPanelActive,
-		onAnnotateViaSidePanel,
-		composeHighlightId,
-		onNoteStarted,
+		onOpenThread,
 		onAskStarted,
 		isReadMode,
 		onToggleReadMode,
-		sidePanelOpen = false,
 		displayedPaperId = "",
 		...toolbarProps
 	} = props;
@@ -199,13 +194,49 @@ function PdfReaderInner(props: PdfReaderProps) {
 		return () => clearTimeout(timer);
 	}, [matchCount, onSearchComplete]);
 
-	// --- Selection actions --------------------------------------------------
-	// Bumped per toolbar action so a slow note save can't pull the side panel
-	// away from whatever the user did next.
+	// --- Highlight popover (note thread, or actions for a bare highlight) ---
+	const popover = useHighlightPopover();
+	const {
+		target: popoverTarget,
+		engage,
+		isDirty,
+		clickAway,
+		close: closePopover,
+	} = popover;
+	const popoverHighlight = useMemo(
+		() =>
+			popoverTarget
+				? highlights.find((h) => h.id === popoverTarget.highlightId) ?? null
+				: null,
+		[popoverTarget, highlights]
+	);
+	const popoverNotes = useMemo(
+		() =>
+			popoverTarget
+				? annotations.filter((a) => a.highlight_id === popoverTarget.highlightId)
+				: EMPTY_ANNOTATIONS,
+		[popoverTarget, annotations]
+	);
+
+	// Bumped per user action so a slow note save can't pop a composer over
+	// whatever the user did next (another highlight, Ask, another document).
 	const selectionActionSeq = useRef(0);
+
+	// Another document means another set of highlights.
+	useEffect(() => {
+		selectionActionSeq.current++;
+		closePopover();
+	}, [pdfUrl, closePopover]);
+
+	// --- Selection actions --------------------------------------------------
 	const persistHighlight = useCallback(
 		async (anchor: TextAnchor, color: HighlightColor, doAnnotate: boolean) => {
 			if (!pdfDoc || !addHighlight) return;
+			// Opening a composer here would replace a note still being written.
+			if (doAnnotate && isDirty()) {
+				toast("Finish or discard the note you're writing first.");
+				return;
+			}
 			const seq = ++selectionActionSeq.current;
 			try {
 				// Store against the page's unrotated dimensions so the saved
@@ -224,14 +255,22 @@ function PdfReaderInner(props: PdfReaderProps) {
 					doAnnotate,
 					color
 				);
-				if (doAnnotate && saved?.id && seq === selectionActionSeq.current) {
-					onNoteStarted?.(saved.id);
+				if (
+					doAnnotate &&
+					saved?.id &&
+					seq === selectionActionSeq.current &&
+					!isDirty()
+				) {
+					// Re-selecting already-highlighted text returns the existing
+					// highlight; that one must survive an abandoned note.
+					const existed = highlights.some((h) => h.id === saved.id);
+					engage(saved, -1, { compose: true, createdForNote: !existed });
 				}
 			} catch (error) {
 				console.error("Failed to persist highlight:", error);
 			}
 		},
-		[pdfDoc, addHighlight, onNoteStarted]
+		[pdfDoc, addHighlight, highlights, engage, isDirty]
 	);
 
 	const handleAskAi = useCallback(
@@ -246,51 +285,41 @@ function PdfReaderInner(props: PdfReaderProps) {
 	);
 
 	const handleHighlightClick = useCallback(
-		(highlight: PaperHighlight) => {
-			setActiveHighlight?.(highlight);
-			// A highlight that already has a thread (e.g. an AI annotation) just
-			// gets focused in the panel; only a bare highlight opens a new note.
-			const hasThread = annotations.some((a) => a.highlight_id === highlight.id);
-			if (annotationsPanelActive && highlight.id && !hasThread) {
-				onAnnotateViaSidePanel?.({ highlightId: highlight.id });
-			}
+		({ highlight, rectIndex }: HighlightHit) => {
+			const cur = popoverTarget;
+			if (cur?.engaged && cur.highlightId === highlight.id) return;
+			// Don't throw away an unsaved note by clicking another highlight.
+			if (cur && isDirty()) return;
+			selectionActionSeq.current++;
+			engage(highlight, rectIndex);
+			// The panel follows only when it's already showing annotations.
+			if (annotationsPanelActive) setActiveHighlight?.(highlight);
 		},
-		[setActiveHighlight, annotations, annotationsPanelActive, onAnnotateViaSidePanel]
+		[popoverTarget, isDirty, engage, annotationsPanelActive, setActiveHighlight]
 	);
 
-	// Hovering a highlight previews its notes. Only useful when the inline cards
-	// aren't already on screen showing the same thing.
-	const [hovered, setHovered] = useState<{
-		highlight: PaperHighlight;
-		point: { x: number; y: number };
-	} | null>(null);
-	const handleHighlightHover = useCallback(
-		(highlight: PaperHighlight | null, point: { x: number; y: number } | null) => {
-			setHovered(highlight && point ? { highlight, point } : null);
-		},
-		[]
-	);
-	const hoveredAnnotations = useMemo(
-		() =>
-			hovered?.highlight.id
-				? annotations.filter((a) => a.highlight_id === hovered.highlight.id)
-				: [],
-		[annotations, hovered]
-	);
-
-	const alignLeft = sidePanelOpen && showAnnotationCards && !annotationsPanelActive;
+	// A highlight made by "Comment" exists only to hold the note. However its
+	// popover goes away (Cancel, Escape, click-away, another highlight), drop it
+	// if no note was saved.
+	const prevTargetRef = useRef<HighlightPopoverTarget | null>(null);
+	useEffect(() => {
+		const prev = prevTargetRef.current;
+		prevTargetRef.current = popoverTarget;
+		if (!prev?.createdForNote || prev.highlightId === popoverTarget?.highlightId) return;
+		if (annotations.some((a) => a.highlight_id === prev.highlightId)) return;
+		const abandoned = highlights.find((h) => h.id === prev.highlightId);
+		if (abandoned) removeHighlight?.(abandoned);
+		// Only target transitions matter; the lists are read at that moment.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [popoverTarget]);
 
 	return (
-		<div
-			className={`flex h-full w-full flex-col${alignLeft ? " pdf-align-left" : ""}`}
-		>
+		<div className="flex h-full w-full flex-col">
 			<ReaderToolbar
 				{...toolbarProps}
 				displayedPaperId={displayedPaperId}
 				isReadMode={isReadMode}
 				onToggleReadMode={onToggleReadMode}
-				showAnnotationCards={showAnnotationCards}
-				onToggleAnnotationCards={onToggleAnnotationCards}
 			/>
 			<div className="flex min-h-0 flex-1">
 				<ReaderSidebar />
@@ -302,37 +331,37 @@ function PdfReaderInner(props: PdfReaderProps) {
 					>
 						<HighlightLayer
 							highlights={anchored}
-							activeHighlightId={activeHighlight?.id ?? null}
-							onHighlightClick={handleHighlightClick}
-							onHighlightHover={
-								showAnnotationCards ? undefined : handleHighlightHover
+							activeHighlightId={
+								popoverTarget?.highlightId ?? activeHighlight?.id ?? null
 							}
+							onHighlightClick={handleHighlightClick}
+							onEmptyClick={clickAway}
+							onHighlightHover={popover.hover}
+							onPagePointerDown={popover.pagePointerDown}
 							onRenderedPositions={onOverlaysCreated}
 						/>
-						{showAnnotationCards && !annotationsPanelActive && (
-							<AnnotationCardsLayer
-								highlights={anchored}
-								annotations={annotations}
-								activeHighlight={activeHighlight}
-								composeHighlightId={composeHighlightId}
-								currentUser={currentUser}
-								addAnnotation={addAnnotation}
-								updateAnnotation={updateAnnotation}
-								removeAnnotation={removeAnnotation}
-								onClose={() => setActiveHighlight?.(null)}
-								onCardFocus={(highlightId) => {
-									const match = highlights.find((h) => h.id === highlightId);
-									if (match) setActiveHighlight?.(match);
-								}}
-							/>
-						)}
-						{hovered && hoveredAnnotations.length > 0 && !showAnnotationCards && (
-							<AnnotationHoverCard
-								annotations={hoveredAnnotations}
-								position={hovered.point}
-								user={currentUser ?? null}
-							/>
-						)}
+						<HighlightPopover
+							target={popoverTarget}
+							highlight={popoverHighlight}
+							notes={popoverNotes}
+							currentUser={currentUser}
+							addAnnotation={addAnnotation}
+							updateAnnotation={updateAnnotation}
+							removeAnnotation={removeAnnotation}
+							onRecolor={recolorHighlight}
+							onDeleteHighlight={removeHighlight}
+							onAskAi={setUserMessageReferences ? handleAskAi : undefined}
+							onOpenThread={onOpenThread}
+							close={closePopover}
+							clickAway={clickAway}
+							popoverEnter={popover.popoverEnter}
+							popoverLeave={popover.popoverLeave}
+							engageCurrent={popover.engageCurrent}
+							setCompose={popover.setCompose}
+							setDirty={popover.setDirty}
+							isDirty={isDirty}
+							cancelPending={popover.cancelPending}
+						/>
 						<SelectionLayer
 							onHighlight={
 								addHighlight

@@ -73,7 +73,7 @@ function lineRects(range: Range): DOMRect[] {
 	return lines;
 }
 
-function ShortcutHint({ children }: { children: string }) {
+export function ShortcutHint({ children }: { children: string }) {
 	return (
 		<kbd className="[@media(pointer:coarse)]:hidden rounded border border-border px-1 font-sans text-[10px] leading-4 text-muted-foreground">
 			{children}

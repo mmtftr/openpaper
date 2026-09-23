@@ -3,8 +3,6 @@
 import { useAtom, useAtomValue } from "jotai";
 import {
 	Columns2,
-	Eye,
-	EyeOff,
 	Maximize2,
 	Minimize2,
 	Minus,
@@ -32,9 +30,6 @@ export interface ReaderToolbarProps extends SupplementaryPickerProps {
 	/** Focus mode: expand the PDF to fill the viewport, hiding the side panel. */
 	isReadMode?: boolean;
 	onToggleReadMode?: () => void;
-	/** Inline annotation cards in the page gutter. */
-	showAnnotationCards?: boolean;
-	onToggleAnnotationCards?: () => void;
 }
 
 function ToolButton({
@@ -74,8 +69,6 @@ function ToolButton({
 export function ReaderToolbar({
 	isReadMode,
 	onToggleReadMode,
-	showAnnotationCards,
-	onToggleAnnotationCards,
 	...supplementary
 }: ReaderToolbarProps) {
 	const api = useAtomValue(viewerApiAtom);
@@ -164,15 +157,6 @@ export function ReaderToolbar({
 			</div>
 
 			<div className="flex items-center gap-0.5">
-				{onToggleAnnotationCards && (
-					<ToolButton
-						title={showAnnotationCards ? "Hide notes" : "Show notes"}
-						active={showAnnotationCards}
-						onClick={onToggleAnnotationCards}
-					>
-						{showAnnotationCards ? <Eye size={14} /> : <EyeOff size={14} />}
-					</ToolButton>
-				)}
 				{onToggleReadMode && (
 					<ToolButton
 						title={isReadMode ? "Exit focus mode" : "Focus mode"}

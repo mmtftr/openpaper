@@ -444,14 +444,6 @@
 
 
 /*
- * Left-align PDF pages when the side panel is open and inline annotation cards
- * are visible, reclaiming the left negative space for margin cards on the right.
- */
-.pdf-align-left .pdfViewer .page {
-	margin-left: 0 !important;
-}
-
-/*
  * Crepe editor: kill the default browser contenteditable focus outline. The
  * editor sits in the paper sidebar where the panel border already provides
  * the affordance — the inner outline is just visual noise.

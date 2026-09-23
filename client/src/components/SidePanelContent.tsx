@@ -38,8 +38,6 @@ interface SidePanelContentProps {
     setUserMessageReferences: React.Dispatch<React.SetStateAction<string[]>>;
     isMobile: boolean;
     renderedHighlightPositions?: Map<string, RenderedHighlightPosition>;
-    composeHighlightId?: string | null;
-    onComposeHighlightDismiss?: (cancelledHighlightId?: string | null) => void;
     addAnnotation?: (highlightId: string, content: string) => Promise<PaperHighlightAnnotation>;
     updateAnnotation?: (annotationId: string, content: string) => Promise<unknown> | void;
     removeAnnotation?: (annotationId: string) => void;
@@ -62,8 +60,6 @@ export function SidePanelContent({
     setUserMessageReferences,
     isMobile,
     renderedHighlightPositions,
-    composeHighlightId,
-    onComposeHighlightDismiss,
     addAnnotation,
     updateAnnotation,
     removeAnnotation,
@@ -113,8 +109,6 @@ export function SidePanelContent({
                         onHighlightClick={handleHighlightClick}
                         activeHighlight={activeHighlight}
                         renderedHighlightPositions={renderedHighlightPositions}
-                        composeHighlightId={composeHighlightId}
-                        onComposeHighlightDismiss={onComposeHighlightDismiss}
                         addAnnotation={addAnnotation}
                         updateAnnotation={updateAnnotation}
                         removeAnnotation={removeAnnotation}

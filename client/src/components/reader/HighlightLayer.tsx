@@ -13,14 +13,30 @@ import {
 import type { AnchoredHighlight } from "./useAnchoredHighlights";
 import type { RenderedHighlightPosition } from "./types";
 
+/** A highlight under the pointer, plus which of its line rects was hit. */
+export interface HighlightHit {
+	highlight: PaperHighlight;
+	rectIndex: number;
+}
+
+/** Popovers anchored to highlights live inside the scroll container; pointer
+ *  events inside them must not be re-read as hits on the text underneath. */
+export const READER_POPOVER_SELECTOR = "[data-reader-popover]";
+/** Anything floating over the pages that owns its own pointer events. */
+const OVERLAY_SELECTOR = `${READER_POPOVER_SELECTOR}, [data-citation-preview]`;
+/** PDF link annotations (citations etc.) own their own hover/click. */
+const PDF_LINK_SELECTOR = ".annotationLayer a[href]";
+
 export interface HighlightLayerProps {
 	highlights: AnchoredHighlight[];
 	activeHighlightId?: string | null;
-	onHighlightClick?: (highlight: PaperHighlight) => void;
-	onHighlightHover?: (
-		highlight: PaperHighlight | null,
-		point: { x: number; y: number } | null
-	) => void;
+	onHighlightClick?: (hit: HighlightHit) => void;
+	/** A click on the pages that didn't land on a highlight. */
+	onEmptyClick?: () => void;
+	/** Fires only when the hovered highlight (or line) changes. */
+	onHighlightHover?: (hit: HighlightHit | null) => void;
+	/** Primary-button press on the pages — a selection may be starting. */
+	onPagePointerDown?: () => void;
 	onRenderedPositions?: (
 		positions: Map<string, RenderedHighlightPosition>
 	) => void;
@@ -61,7 +77,9 @@ export function HighlightLayer({
 	highlights,
 	activeHighlightId,
 	onHighlightClick,
+	onEmptyClick,
 	onHighlightHover,
+	onPagePointerDown,
 	onRenderedPositions,
 }: HighlightLayerProps) {
 	const { containerRef } = useReaderContext();
@@ -208,8 +226,14 @@ export function HighlightLayer({
 	// --- Hit testing -------------------------------------------------------
 	// The rects don't take pointer events (so selection works through them), so
 	// pointer interaction is resolved against the geometry we just measured.
+	// Last reported hover, keyed on highlight *and* line. A ref, not effect
+	// state: the listener effect re-subscribes whenever its callbacks change
+	// (e.g. each time a popover opens), and losing this would swallow the
+	// "left the highlight" report that closes it.
+	const hoveredKeyRef = useRef<string | null>(null);
+
 	const hitTest = useCallback(
-		(clientX: number, clientY: number): PaperHighlight | null => {
+		(clientX: number, clientY: number): HighlightHit | null => {
 			const container = containerRef.current;
 			if (!container) return null;
 			const containerRect = container.getBoundingClientRect();
@@ -224,13 +248,14 @@ export function HighlightLayer({
 				// Last drawn wins, matching what the user sees on overlap.
 				for (let i = entries.length - 1; i >= 0; i--) {
 					const { highlight, anchor } = entries[i];
-					for (const r of anchor.rects) {
+					for (let j = 0; j < anchor.rects.length; j++) {
+						const r = anchor.rects[j];
 						const rx = box.left + (r.left / 100) * box.width;
 						const ry = box.top + (r.top / 100) * box.height;
 						const rw = (r.width / 100) * box.width;
 						const rh = (r.height / 100) * box.height;
 						if (x >= rx && x <= rx + rw && y >= ry && y <= ry + rh) {
-							return highlight;
+							return { highlight, rectIndex: j };
 						}
 					}
 				}
@@ -243,45 +268,89 @@ export function HighlightLayer({
 	useEffect(() => {
 		const container = containerRef.current;
 		if (!container) return;
-		if (!onHighlightClick && !onHighlightHover) return;
+		if (!onHighlightClick && !onHighlightHover && !onEmptyClick) return;
+
+		const insidePopover = (target: EventTarget | null) =>
+			target instanceof Element && target.closest(OVERLAY_SELECTOR) !== null;
+		const onLink = (target: EventTarget | null) =>
+			target instanceof Element && target.closest(PDF_LINK_SELECTOR) !== null;
 
 		const onClick = (e: MouseEvent) => {
+			if (insidePopover(e.target) || onLink(e.target)) return;
 			// A drag that ends in a selection isn't a click on the highlight.
 			if (!window.getSelection()?.isCollapsed) return;
 			const hit = hitTest(e.clientX, e.clientY);
 			if (hit) onHighlightClick?.(hit);
+			else onEmptyClick?.();
 		};
 
-		let hoveredId: string | null = null;
+		const report = (hit: HighlightHit | null) => {
+			const key = hit ? `${hit.highlight.id}:${hit.rectIndex}` : null;
+			if (key === hoveredKeyRef.current) return;
+			const sameHighlight =
+				hit && hoveredKeyRef.current?.startsWith(`${hit.highlight.id}:`);
+			hoveredKeyRef.current = key;
+			// Moving between lines of the same highlight isn't a new hover.
+			if (sameHighlight) return;
+			onHighlightHover?.(hit);
+		};
+
+		// One hit test per frame, against the latest pointer position.
+		let frame: number | null = null;
+		let last: MouseEvent | null = null;
 		const onMove = (e: MouseEvent) => {
-			const hit = hitTest(e.clientX, e.clientY);
-			const id = hit?.id ?? null;
-			if (id === hoveredId) return;
-			hoveredId = id;
-			onHighlightHover?.(hit, hit ? { x: e.clientX, y: e.clientY } : null);
+			last = e;
+			if (frame != null) return;
+			frame = requestAnimationFrame(() => {
+				frame = null;
+				const ev = last;
+				if (!ev) return;
+				// Over a popover: it tracks its own enter/leave. Forget the last
+				// hit so coming back onto the same highlight reports it again
+				// (and cancels the close the popover's leave scheduled).
+				if (insidePopover(ev.target)) {
+					hoveredKeyRef.current = null;
+					return;
+				}
+				if (onLink(ev.target) || ev.buttons !== 0) {
+					report(null);
+					return;
+				}
+				report(hitTest(ev.clientX, ev.clientY));
+			});
 		};
 		// Leaving the pane straight off a highlight never fires another
-		// mousemove, so without this the hover card stays up indefinitely.
+		// mousemove, so without this the hover state never clears.
 		const onLeave = () => {
-			if (hoveredId === null) return;
-			hoveredId = null;
-			onHighlightHover?.(null, null);
+			last = null;
+			report(null);
+		};
+		const onDown = (e: PointerEvent) => {
+			if (e.button !== 0 || insidePopover(e.target)) return;
+			onPagePointerDown?.();
 		};
 
 		container.addEventListener("click", onClick);
-		// Only track the pointer when someone is actually listening: the scan is
-		// synchronous over every rect on the candidate page, and the caller drops
-		// the hover callback whenever inline cards are showing the same content.
+		container.addEventListener("pointerdown", onDown);
 		if (onHighlightHover) {
 			container.addEventListener("mousemove", onMove);
 			container.addEventListener("mouseleave", onLeave);
 		}
 		return () => {
+			if (frame != null) cancelAnimationFrame(frame);
 			container.removeEventListener("click", onClick);
+			container.removeEventListener("pointerdown", onDown);
 			container.removeEventListener("mousemove", onMove);
 			container.removeEventListener("mouseleave", onLeave);
 		};
-	}, [containerRef, hitTest, onHighlightClick, onHighlightHover]);
+	}, [
+		containerRef,
+		hitTest,
+		onHighlightClick,
+		onEmptyClick,
+		onHighlightHover,
+		onPagePointerDown,
+	]);
 
 	const container = containerRef.current;
 	if (!container) return null;
@@ -315,6 +384,7 @@ export function HighlightLayer({
 								<div
 									key={`${entryKey}:${i}`}
 									data-highlight-id={highlight.id ?? ""}
+									data-rect-index={i}
 									data-highlight-role={highlight.role}
 									className="pdf-highlight-rect"
 									style={{

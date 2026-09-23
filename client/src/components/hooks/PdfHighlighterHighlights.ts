@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { PaperHighlight, ScaledPosition, HighlightColor } from "@/lib/schema";
 import { fetchFromApi } from "@/lib/api";
 
@@ -12,11 +12,9 @@ export function useHighlighterHighlights(
 		x: number;
 		y: number;
 	} | null>(null);
-	const [isAnnotating, setIsAnnotating] = useState(false);
 	const [isHighlightInteraction, setIsHighlightInteraction] = useState(false);
 	const [activeHighlight, setActiveHighlight] =
 		useState<PaperHighlight | null>(null);
-	const blockScrollOnNextHighlight = useRef(false);
 
 	// Fetch highlights from server
 	const fetchHighlights = useCallback(async () => {
@@ -129,18 +127,16 @@ export function useHighlighterHighlights(
 				return;
 			}
 
-			// Re-selecting already-highlighted text: annotate the existing one
-			// (sendHighlightToServer would drop it as a duplicate).
+			// Re-selecting already-highlighted text: hand back the existing one
+			// so the caller can annotate it (sendHighlightToServer would drop it
+			// as a duplicate). It isn't made active — for an AI highlight that
+			// would also switch the side panel to Annotations.
 			const existing = highlights.find(
 				(h) =>
 					h.raw_text === selectedText &&
 					h.page_number === (pageNumber || position.boundingRect.pageNumber)
 			);
-			if (existing && doAnnotate) {
-				setActiveHighlight(existing);
-				setIsAnnotating(true);
-				return existing;
-			}
+			if (existing && doAnnotate) return existing;
 
 			const newHighlight: Omit<PaperHighlight, "id"> = {
 				raw_text: selectedText,
@@ -155,15 +151,7 @@ export function useHighlighterHighlights(
 				const saved = await sendHighlightToServer(newHighlight);
 				savedHighlight = saved;
 
-				if (saved) {
-					if (doAnnotate) {
-						blockScrollOnNextHighlight.current = true;
-						setActiveHighlight(saved);
-						setIsAnnotating(true);
-					}
-
-					setHighlights((prev) => [...prev, saved]);
-				}
+				if (saved) setHighlights((prev) => [...prev, saved]);
 			} catch (error) {
 				console.error("Error adding highlight:", error);
 			}
@@ -171,9 +159,6 @@ export function useHighlighterHighlights(
 			// Reset states
 			setSelectedText("");
 			setTooltipPosition(null);
-			if (!doAnnotate) {
-				setIsAnnotating(false);
-			}
 			return savedHighlight;
 		},
 		[highlights]
@@ -183,6 +168,43 @@ export function useHighlighterHighlights(
 	const removeHighlight = useCallback((highlight: PaperHighlight) => {
 		removeHighlightFromServer(highlight);
 	}, []);
+
+	// Change a user highlight's colour. The PATCH replaces every field, so the
+	// rest of the highlight is sent back unchanged.
+	const recolorHighlight = useCallback(
+		async (highlight: PaperHighlight, color: HighlightColor) => {
+			if (!highlight.id || highlight.color === color) return;
+			const previous = highlight.color;
+			setHighlights((prev) =>
+				prev.map((h) => (h.id === highlight.id ? { ...h, color } : h))
+			);
+			try {
+				await fetchFromApi(`/api/highlight/${highlight.id}`, {
+					method: "PATCH",
+					headers: {
+						"Content-Type": "application/json",
+						Accept: "application/json",
+					},
+					body: JSON.stringify({
+						raw_text: highlight.raw_text,
+						position: highlight.position ?? null,
+						start_offset: highlight.start_offset ?? null,
+						end_offset: highlight.end_offset ?? null,
+						color,
+					}),
+				});
+			} catch (error) {
+				console.error("Error updating highlight colour:", error);
+				// Only undo our own change — a newer pick may have landed since.
+				setHighlights((prev) =>
+					prev.map((h) =>
+						h.id === highlight.id && h.color === color ? { ...h, color: previous } : h
+					)
+				);
+			}
+		},
+		[]
+	);
 
 	// Handle text selection (for compatibility, though not used with new viewer)
 	const handleTextSelection = useCallback(
@@ -243,13 +265,6 @@ export function useHighlighterHighlights(
 		}
 	}, [selectedText]);
 
-	// Handle active highlight scrolling
-	useEffect(() => {
-		if (activeHighlight && !blockScrollOnNextHighlight.current) {
-			// Scrolling is handled by the PdfHighlighter component via utilsRef
-		}
-		blockScrollOnNextHighlight.current = false;
-	}, [activeHighlight]);
 
 	return {
 		highlights,
@@ -258,8 +273,7 @@ export function useHighlighterHighlights(
 		setSelectedText,
 		tooltipPosition,
 		setTooltipPosition,
-		isAnnotating,
-		setIsAnnotating,
+		recolorHighlight,
 		isHighlightInteraction,
 		setIsHighlightInteraction,
 		activeHighlight,
