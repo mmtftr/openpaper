@@ -160,11 +160,6 @@ export default function PaperView() {
 
     const [rightSideFunction, setRightSideFunction] = useState<string>('Overview');
     const annotationsPanelActive = rightSideFunction === 'Annotations';
-    useEffect(() => {
-        if (rightSideFunction !== 'Annotations') {
-            setComposeHighlightId(null);
-        }
-    }, [rightSideFunction]);
 
     const [toolset, setToolset] = useState(PaperToolset);
     const initialRsfRef = useRef<string | null>(null);
@@ -245,9 +240,11 @@ export default function PaperView() {
      *  Skip when the annotation is routed to the Annotations side panel (no margin card). */
     const ANNOTATE_MIN_PDF_WIDTH = 70; // %
     const preAnnotateWidthRef = useRef<number | null>(null);
-    const annotationGoesToSidePanel = !showAnnotationCards && annotationsPanelActive;
+    // The margin-card layer is never mounted while the Annotations tab is open.
+    const annotationGoesToSidePanel = annotationsPanelActive;
     useEffect(() => {
-        const shouldWiden = isAnnotating && !isReadMode && !annotationGoesToSidePanel;
+        // A bare highlight only gets a margin card while it's the compose target.
+        const shouldWiden = isAnnotating && composeHighlightId !== null && !isReadMode && !annotationGoesToSidePanel;
         if (shouldWiden && preAnnotateWidthRef.current === null) {
             // Turn on annotation card visibility so the new card is seen
             if (!annotationCardsVisible) {
@@ -263,7 +260,7 @@ export default function PaperView() {
         }
     // leftPanelWidth, annotationCardsVisible intentionally excluded — only read on transition
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isAnnotating, isReadMode, annotationGoesToSidePanel]);
+    }, [isAnnotating, composeHighlightId, isReadMode, annotationGoesToSidePanel]);
 
     /** Tracks the last non-Read panel so we can restore it when exiting focus mode. */
     const lastNonReadFunctionRef = useRef<string>('Chat');
@@ -732,6 +729,16 @@ export default function PaperView() {
         setComposeHighlightId(payload.highlightId);
     }, []);
 
+    /** Selection-toolbar actions jump to the tab where the action continues. */
+    const onNoteStarted = useCallback((highlightId: string) => {
+        setRightSideFunction('Annotations');
+        setComposeHighlightId(highlightId);
+    }, []);
+
+    const onAskStarted = useCallback(() => {
+        setRightSideFunction('Chat');
+    }, []);
+
     const onComposeHighlightDismiss = useCallback(
         (cancelledHighlightId?: string | null) => {
             setComposeHighlightId(null);
@@ -746,6 +753,15 @@ export default function PaperView() {
         },
         [annotations, highlights, removeHighlight, setActiveHighlight]
     );
+
+    // Leaving the Annotations tab abandons an open composer, same as Cancel.
+    useEffect(() => {
+        if (rightSideFunction === 'Annotations') return;
+        if (composeHighlightId) onComposeHighlightDismiss(composeHighlightId);
+        else setIsAnnotating(false);
+    // Only on tab change — the dismiss handler's identity churns with every highlight update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [rightSideFunction]);
 
     if (loading) return <PaperViewSkeleton />;
 
@@ -815,6 +831,8 @@ export default function PaperView() {
                                     onToggleAnnotationCards={() => setAnnotationCardsVisible((v) => !v)}
                                     annotationsPanelActive={annotationsPanelActive}
                                     onAnnotateViaSidePanel={onAnnotateViaSidePanel}
+                                    onNoteStarted={onNoteStarted}
+                                    onAskStarted={onAskStarted}
                                     composeHighlightId={composeHighlightId}
                                     parentPaperId={parentPaperId}
                                     displayedPaperId={displayedPaperId}
@@ -922,6 +940,8 @@ export default function PaperView() {
                                 onToggleAnnotationCards={() => setAnnotationCardsVisible((v) => !v)}
                                 annotationsPanelActive={annotationsPanelActive}
                                 onAnnotateViaSidePanel={onAnnotateViaSidePanel}
+                                onNoteStarted={onNoteStarted}
+                                onAskStarted={onAskStarted}
                                 composeHighlightId={composeHighlightId}
                                 sidePanelOpen={rightSideFunction !== 'Read'}
                                 isReadMode={isReadMode}

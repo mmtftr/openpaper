@@ -26,7 +26,18 @@ interface SelState {
 	pointerX: number | null;
 }
 
-const TOOLBAR_W = 268;
+type SelectionAction = "highlight" | "annotate" | "ask";
+
+/** Single-key shortcuts, live while the toolbar is showing. */
+const SHORTCUT_KEYS: Record<string, SelectionAction> = {
+	h: "highlight",
+	c: "annotate",
+	a: "ask",
+};
+
+// Key hints only make sense with a keyboard; touch gets the narrower toolbar.
+const TOOLBAR_W_WITH_HINTS = 356;
+const TOOLBAR_W_TOUCH = 296;
 const TOOLBAR_H = 40;
 const VIEWPORT_MARGIN = 8;
 const GAP = 8;
@@ -60,6 +71,14 @@ function lineRects(range: Range): DOMRect[] {
 		lines.push(new DOMRect(r.left, r.top, r.width, r.height));
 	}
 	return lines;
+}
+
+function ShortcutHint({ children }: { children: string }) {
+	return (
+		<kbd className="[@media(pointer:coarse)]:hidden rounded border border-border px-1 font-sans text-[10px] leading-4 text-muted-foreground">
+			{children}
+		</kbd>
+	);
 }
 
 /**
@@ -171,13 +190,53 @@ export default function SelectionLayer({
 		return () => document.removeEventListener("pointerdown", onPointerDown);
 	}, [dismiss]);
 
+	const runAction = useCallback(
+		(action: SelectionAction, anchor: TextAnchor) => {
+			if (action === "highlight") {
+				if (!onHighlight) return;
+				onHighlight(anchor, color);
+			} else if (action === "annotate") {
+				if (!onAnnotate) return;
+				onAnnotate(anchor, color);
+			} else {
+				if (!onAskAi) return;
+				onAskAi(anchor.quote);
+			}
+			clearSelection();
+			dismiss();
+		},
+		[color, onHighlight, onAnnotate, onAskAi, dismiss]
+	);
+
 	useEffect(() => {
 		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") dismiss();
+			if (e.key === "Escape") {
+				dismiss();
+				return;
+			}
+			if (!sel || e.repeat || e.isComposing) return;
+			if (e.metaKey || e.ctrlKey || e.altKey) return;
+			const target = e.target as HTMLElement | null;
+			if (
+				target?.tagName === "INPUT" ||
+				target?.tagName === "TEXTAREA" ||
+				target?.isContentEditable
+			)
+				return;
+			const action = SHORTCUT_KEYS[e.key.toLowerCase()];
+			const handler = { highlight: onHighlight, annotate: onAnnotate, ask: onAskAi };
+			if (!action || !handler[action]) return;
+			// The toolbar can outlive its selection (collapsed by the keyboard, or
+			// replaced by one outside the PDF), so act on what's selected now.
+			const current = captureFromSelection(null);
+			if (!current) return;
+			e.preventDefault();
+			e.stopPropagation();
+			runAction(action, current.anchor);
 		};
 		document.addEventListener("keydown", onKeyDown);
 		return () => document.removeEventListener("keydown", onKeyDown);
-	}, [dismiss]);
+	}, [sel, dismiss, runAction, captureFromSelection, onHighlight, onAnnotate, onAskAi]);
 
 	// Keep the toolbar glued to the selection while the page scrolls or resizes.
 	const hasSel = sel !== null;
@@ -200,6 +259,10 @@ export default function SelectionLayer({
 
 	if (!sel) return null;
 
+	const toolbarW = window.matchMedia("(pointer: coarse)").matches
+		? TOOLBAR_W_TOUCH
+		: TOOLBAR_W_WITH_HINTS;
+
 	const line = sel.focusAtEnd ? sel.lines[sel.lines.length - 1] : sel.lines[0];
 	const anchorX =
 		sel.pointerX != null
@@ -213,12 +276,12 @@ export default function SelectionLayer({
 		? !(spaceBelow >= needed || spaceBelow >= spaceAbove)
 		: spaceAbove >= needed || spaceAbove >= spaceBelow;
 
-	let x = anchorX - TOOLBAR_W / 2;
+	let x = anchorX - toolbarW / 2;
 	x = Math.max(
 		VIEWPORT_MARGIN,
-		Math.min(x, window.innerWidth - TOOLBAR_W - VIEWPORT_MARGIN)
+		Math.min(x, window.innerWidth - toolbarW - VIEWPORT_MARGIN)
 	);
-	const arrowX = Math.min(Math.max(anchorX - x, 18), TOOLBAR_W - 18);
+	const arrowX = Math.min(Math.max(anchorX - x, 18), toolbarW - 18);
 	const y = above ? line.top - GAP - TOOLBAR_H : line.bottom + GAP;
 
 	const finish = () => {
@@ -231,7 +294,7 @@ export default function SelectionLayer({
 			ref={toolbarRef}
 			data-reader-selection-toolbar="true"
 			className="fixed z-50"
-			style={{ left: x, top: y, width: TOOLBAR_W }}
+			style={{ left: x, top: y, width: toolbarW }}
 		>
 			<div
 				className={`pointer-events-none absolute size-2 rotate-45 border-border bg-popover ${
@@ -242,13 +305,12 @@ export default function SelectionLayer({
 			<div className="flex items-center gap-0.5 rounded-xl border border-border bg-popover/95 p-1 shadow-xl backdrop-blur">
 				{onHighlight && (
 				<button
-					onClick={() => {
-						onHighlight(sel.anchor, color);
-						finish();
-					}}
+					title="Highlight (H)"
+					onClick={() => runAction("highlight", sel.anchor)}
 					className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
 				>
 					<Highlighter className="size-3.5 text-blue-500" /> Highlight
+					<ShortcutHint>H</ShortcutHint>
 				</button>
 				)}
 
@@ -288,25 +350,23 @@ export default function SelectionLayer({
 
 				{onAnnotate && (
 				<button
-					onClick={() => {
-						onAnnotate(sel.anchor, color);
-						finish();
-					}}
+					title="Comment (C)"
+					onClick={() => runAction("annotate", sel.anchor)}
 					className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
 				>
-					<StickyNote className="size-3.5 text-blue-500" /> Note
+					<StickyNote className="size-3.5 text-blue-500" /> Comment
+					<ShortcutHint>C</ShortcutHint>
 				</button>
 				)}
 
 				{onAskAi && (
 				<button
-					onClick={() => {
-						onAskAi(sel.anchor.quote);
-						finish();
-					}}
+					title="Ask AI (A)"
+					onClick={() => runAction("ask", sel.anchor)}
 					className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
 				>
 					<MessageCircle className="size-3.5 text-blue-500" /> Ask
+					<ShortcutHint>A</ShortcutHint>
 				</button>
 				)}
 

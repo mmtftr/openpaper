@@ -43,7 +43,7 @@ export interface PdfReaderProps {
 		pageNumber?: number,
 		doAnnotate?: boolean,
 		color?: HighlightColor
-	) => void;
+	) => Promise<PaperHighlight | undefined> | void;
 	removeHighlight?: (highlight: PaperHighlight) => void;
 
 	addAnnotation?: (
@@ -73,6 +73,10 @@ export interface PdfReaderProps {
 	annotationsPanelActive?: boolean;
 	onAnnotateViaSidePanel?: (payload: { highlightId: string }) => void;
 	composeHighlightId?: string | null;
+	/** A note was started from the selection toolbar; show where it's composed. */
+	onNoteStarted?: (highlightId: string) => void;
+	/** A quote was sent to chat from the selection toolbar. */
+	onAskStarted?: () => void;
 
 	isReadMode?: boolean;
 	onToggleReadMode?: () => void;
@@ -146,6 +150,8 @@ function PdfReaderInner(props: PdfReaderProps) {
 		annotationsPanelActive,
 		onAnnotateViaSidePanel,
 		composeHighlightId,
+		onNoteStarted,
+		onAskStarted,
 		isReadMode,
 		onToggleReadMode,
 		sidePanelOpen = false,
@@ -194,9 +200,13 @@ function PdfReaderInner(props: PdfReaderProps) {
 	}, [matchCount, onSearchComplete]);
 
 	// --- Selection actions --------------------------------------------------
+	// Bumped per toolbar action so a slow note save can't pull the side panel
+	// away from whatever the user did next.
+	const selectionActionSeq = useRef(0);
 	const persistHighlight = useCallback(
 		async (anchor: TextAnchor, color: HighlightColor, doAnnotate: boolean) => {
 			if (!pdfDoc || !addHighlight) return;
+			const seq = ++selectionActionSeq.current;
 			try {
 				// Store against the page's unrotated dimensions so the saved
 				// position stays comparable with what the ingestion job writes.
@@ -207,31 +217,45 @@ function PdfReaderInner(props: PdfReaderProps) {
 					viewport.width,
 					viewport.height
 				);
-				addHighlight(anchor.quote, position, anchor.page, doAnnotate, color);
+				const saved = await addHighlight(
+					anchor.quote,
+					position,
+					anchor.page,
+					doAnnotate,
+					color
+				);
+				if (doAnnotate && saved?.id && seq === selectionActionSeq.current) {
+					onNoteStarted?.(saved.id);
+				}
 			} catch (error) {
 				console.error("Failed to persist highlight:", error);
 			}
 		},
-		[pdfDoc, addHighlight]
+		[pdfDoc, addHighlight, onNoteStarted]
 	);
 
 	const handleAskAi = useCallback(
 		(quote: string) => {
+			selectionActionSeq.current++;
 			setUserMessageReferences?.((prev) =>
 				prev.includes(quote) ? prev : [...prev, quote]
 			);
+			onAskStarted?.();
 		},
-		[setUserMessageReferences]
+		[setUserMessageReferences, onAskStarted]
 	);
 
 	const handleHighlightClick = useCallback(
 		(highlight: PaperHighlight) => {
 			setActiveHighlight?.(highlight);
-			if (annotationsPanelActive && highlight.id) {
+			// A highlight that already has a thread (e.g. an AI annotation) just
+			// gets focused in the panel; only a bare highlight opens a new note.
+			const hasThread = annotations.some((a) => a.highlight_id === highlight.id);
+			if (annotationsPanelActive && highlight.id && !hasThread) {
 				onAnnotateViaSidePanel?.({ highlightId: highlight.id });
 			}
 		},
-		[setActiveHighlight, annotationsPanelActive, onAnnotateViaSidePanel]
+		[setActiveHighlight, annotations, annotationsPanelActive, onAnnotateViaSidePanel]
 	);
 
 	// Hovering a highlight previews its notes. Only useful when the inline cards

@@ -129,6 +129,19 @@ export function useHighlighterHighlights(
 				return;
 			}
 
+			// Re-selecting already-highlighted text: annotate the existing one
+			// (sendHighlightToServer would drop it as a duplicate).
+			const existing = highlights.find(
+				(h) =>
+					h.raw_text === selectedText &&
+					h.page_number === (pageNumber || position.boundingRect.pageNumber)
+			);
+			if (existing && doAnnotate) {
+				setActiveHighlight(existing);
+				setIsAnnotating(true);
+				return existing;
+			}
+
 			const newHighlight: Omit<PaperHighlight, "id"> = {
 				raw_text: selectedText,
 				role: "user",
@@ -137,17 +150,19 @@ export function useHighlighterHighlights(
 				color: color,
 			};
 
+			let savedHighlight: PaperHighlight | undefined;
 			try {
-				const savedHighlight = await sendHighlightToServer(newHighlight);
+				const saved = await sendHighlightToServer(newHighlight);
+				savedHighlight = saved;
 
-				if (savedHighlight) {
+				if (saved) {
 					if (doAnnotate) {
 						blockScrollOnNextHighlight.current = true;
-						setActiveHighlight(savedHighlight);
+						setActiveHighlight(saved);
 						setIsAnnotating(true);
 					}
 
-					setHighlights((prev) => [...prev, savedHighlight]);
+					setHighlights((prev) => [...prev, saved]);
 				}
 			} catch (error) {
 				console.error("Error adding highlight:", error);
@@ -159,6 +174,7 @@ export function useHighlighterHighlights(
 			if (!doAnnotate) {
 				setIsAnnotating(false);
 			}
+			return savedHighlight;
 		},
 		[highlights]
 	);
