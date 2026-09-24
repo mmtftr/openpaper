@@ -1,11 +1,17 @@
 // Copies the runtime assets pdf.js loads over HTTP out of node_modules and into
 // public/, so they always match the installed pdfjs-dist rather than drifting
-// from a vendored copy. Kept in sync by `prebuild` and `postinstall`.
+// from a vendored copy. Kept in sync by `prebuild` and `predev`.
 //
-// - build/pdf.worker.min.mjs -> public/pdf.worker.mjs  (GlobalWorkerOptions.workerSrc)
-// - cmaps/          -> public/pdfjs/cmaps/           (cMapUrl)
-// - standard_fonts/ -> public/pdfjs/standard_fonts/  (standardFontDataUrl)
-// - wasm/           -> public/pdfjs/wasm/            (wasmUrl)
+// Everything lands under a directory named after the installed pdfjs-dist
+// version, and the viewer builds its URLs from `pdfjsLib.version` (see
+// `src/components/reader/pdfjs.ts`). Bumping pdfjs-dist therefore changes every
+// asset URL, so no browser / proxy cache can keep serving a worker from the
+// previous release ("The API version X does not match the Worker version Y").
+//
+// - build/pdf.worker.min.mjs -> public/pdfjs/<version>/pdf.worker.mjs  (GlobalWorkerOptions.workerSrc)
+// - cmaps/          -> public/pdfjs/<version>/cmaps/           (cMapUrl)
+// - standard_fonts/ -> public/pdfjs/<version>/standard_fonts/  (standardFontDataUrl)
+// - wasm/           -> public/pdfjs/<version>/wasm/            (wasmUrl)
 
 import { createRequire } from 'node:module';
 import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
@@ -19,21 +25,23 @@ const { version } = require('pdfjs-dist/package.json');
 
 const publicDir = join(clientDir, 'public');
 const outDir = join(publicDir, 'pdfjs');
+const versionDir = join(outDir, version);
 
 await rm(outDir, { recursive: true, force: true });
-await mkdir(outDir, { recursive: true });
+// Pre-versioning location of the worker; make sure a stale copy never ships.
+await rm(join(publicDir, 'pdf.worker.mjs'), { force: true });
+await mkdir(versionDir, { recursive: true });
 
 for (const dir of ['cmaps', 'standard_fonts', 'wasm']) {
-    await cp(join(pdfjsDir, dir), join(outDir, dir), { recursive: true });
+    await cp(join(pdfjsDir, dir), join(versionDir, dir), { recursive: true });
 }
 
 await cp(
     join(pdfjsDir, 'build', 'pdf.worker.min.mjs'),
-    join(publicDir, 'pdf.worker.mjs')
+    join(versionDir, 'pdf.worker.mjs')
 );
 
-// The viewer reads this at runtime to assert the served assets match the
-// bundled library; a mismatch means the sync step did not run.
+// Handy for checking what a deployment serves: `curl <host>/pdfjs/version.json`.
 await writeFile(join(outDir, 'version.json'), JSON.stringify({ version }) + '\n');
 
-console.log(`[pdfjs] synced worker + cmaps/standard_fonts/wasm for pdfjs-dist ${version}`);
+console.log(`[pdfjs] synced worker + cmaps/standard_fonts/wasm for pdfjs-dist ${version} -> public/pdfjs/${version}/`);
