@@ -16,8 +16,8 @@ import {
 } from 'lucide-react';
 import { toast } from "sonner";
 
-import { useAnnotations } from '@/components/hooks/PdfAnnotation';
-import { useHighlighterHighlights } from '@/components/hooks/PdfHighlighterHighlights';
+import { useAnnotations } from '@/hooks/PdfAnnotation';
+import { useHighlighterHighlights } from '@/hooks/PdfHighlighterHighlights';
 
 import {
     PaperData,
@@ -27,7 +27,6 @@ import {
 } from '@/lib/schema';
 
 import { PaperSidebar } from '@/components/PaperSidebar';
-import { PaperStatus, PaperStatusEnum } from '@/components/utils/PdfStatus';
 import { useAuth } from '@/lib/auth';
 
 import PaperViewSkeleton from '@/components/PaperViewSkeleton';
@@ -107,13 +106,6 @@ export default function PaperView() {
 
     const {
         highlights,
-        setHighlights,
-        selectedText,
-        setSelectedText,
-        tooltipPosition,
-        setTooltipPosition,
-        isHighlightInteraction,
-        setIsHighlightInteraction,
         activeHighlight,
         setActiveHighlight,
         addHighlight,
@@ -127,7 +119,6 @@ export default function PaperView() {
         addAnnotation,
         removeAnnotation,
         updateAnnotation,
-        renderAnnotations,
         refreshAnnotations,
     } = useAnnotations(parentPaperId);
 
@@ -628,7 +619,6 @@ export default function PaperView() {
 
     const paperHeader = usePaperHeader();
     const setPaperHeaderContext = paperHeader?.setPaperContext;
-    const headerUpdatePaperStatus = paperHeader?.updatePaperStatus;
     const headerPaperStatus = paperHeader?.paperStatus ?? null;
 
     // Publish the parent paper's id/status/title to the layout's header so the
@@ -645,30 +635,6 @@ export default function PaperView() {
         if (!headerPaperStatus) return;
         setPaperData(prev => (prev && prev.status !== headerPaperStatus ? { ...prev, status: headerPaperStatus } : prev));
     }, [headerPaperStatus]);
-
-    const handleStatusChange = useCallback((status: PaperStatus) => {
-        setPaperData(prev => prev ? { ...prev, status: status } : null);
-        if (headerUpdatePaperStatus) {
-            headerUpdatePaperStatus(status);
-            return;
-        }
-        // Fallback (provider not mounted, e.g. share routes)
-        try {
-            fetchFromApi(`/api/paper/status?status=${status}&paper_id=${parentPaperId}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            if (status === PaperStatusEnum.COMPLETED) {
-                toast.success("Completed reading! 🎉", {
-                    description: `Congrats on finishing ${paperData?.title}!`,
-                    duration: 5000,
-                });
-            }
-        } catch (error) {
-            console.error('Error updating paper status:', error);
-            toast.error("Failed to update paper status.");
-        }
-    }, [parentPaperId, paperData, headerUpdatePaperStatus]);
 
     const onAskStarted = useCallback(() => {
         setRightSideFunction('Chat');
@@ -709,7 +675,6 @@ export default function PaperView() {
             : displayedPaperData;
 
     const pdfUrlForViewer = effectiveDisplayedPaperData?.file_url;
-    const displayedPaperStatus = effectiveDisplayedPaperData?.status ?? paperData.status;
 
     const sidePanelProps = {
         rightSideFunction,

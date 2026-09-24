@@ -216,21 +216,6 @@ class OpenAlexResponse(BaseModel):
         return data
 
 
-class OpenAlexCitationGraph(BaseModel):
-    center: OpenAlexWork
-    cites: OpenAlexResponse
-    cited_by: OpenAlexResponse
-
-    @model_validator(mode="before")
-    @classmethod
-    def validate_citation_graph(cls, data):
-        if "cites" in data:
-            data["cites"] = OpenAlexResponse(**data["cites"])
-        if "cited_by" in data:
-            data["cited_by"] = OpenAlexResponse(**data["cited_by"])
-        return data
-
-
 class OpenAlexFilter(BaseModel):
     authors: Optional[List[str]] = None
     institutions: Optional[List[str]] = None
@@ -380,37 +365,6 @@ def build_abstract_from_inverted_index(inverted_index: dict) -> str:
     return " ".join(abstract).strip() if abstract else ""
 
 
-def get_paper_by_open_alex_id(open_alex_id: str) -> Optional[OpenAlexWork]:
-    """
-    Retrieve a paper from OpenAlex by its OpenAlex ID.
-
-    Args:
-        open_alex_id (str): The OpenAlex ID of the work.
-
-    Returns:
-        Optional[OpenAlexWork]: The OpenAlexWork object if found, otherwise None.
-    """
-    url = _with_openalex_auth(f"https://api.openalex.org/works/{quote(open_alex_id)}")
-    for attempt in range(OPENALEX_MAX_RETRIES):
-        try:
-            response = requests.get(url, timeout=10)
-            if response.status_code == 200:
-                return OpenAlexWork(**response.json())
-            elif response.status_code == 404:
-                return None
-            else:
-                response.raise_for_status()
-        except requests.RequestException as e:
-            if attempt < OPENALEX_MAX_RETRIES - 1:
-                logger.warning(
-                    f"Error fetching paper by OpenAlex ID (attempt {attempt + 1}): {e}. Retrying..."
-                )
-                time.sleep(OPENALEX_RETRY_DELAY)
-            else:
-                raise
-    return None
-
-
 def get_work_by_doi(doi: str) -> Optional[OpenAlexWork]:
     """
     Retrieve a work from OpenAlex by its DOI.
@@ -449,35 +403,6 @@ def get_work_by_doi(doi: str) -> Optional[OpenAlexWork]:
             else:
                 raise
     return None
-
-
-def construct_citation_graph(open_alex_id: str) -> OpenAlexCitationGraph:
-    """
-    Construct a citation graph for a given OpenAlex ID, including both citations and cited-by relationships. Use a depth of 1 to include direct citations and works that cite the original work.
-
-    Args:
-        open_alex_id (str): The OpenAlex ID of the work.
-
-    Returns:
-        dict: A dictionary representing the citation graph.
-    """
-    center = get_paper_by_open_alex_id(open_alex_id)
-    if not center:
-        raise ValueError(f"Paper with OpenAlex ID {open_alex_id} not found.")
-
-    # Construct the citation graph
-    cites_url = f"https://api.openalex.org/works?filter=cites:{quote(open_alex_id)}&page=1&per_page=20"
-    cites_response = _request_with_retry(_with_openalex_auth(cites_url))
-
-    cited_by_url = f"https://api.openalex.org/works?filter=cited_by:{quote(open_alex_id)}&page=1&per_page=20"
-    cited_by_response = _request_with_retry(_with_openalex_auth(cited_by_url))
-
-    cites_data = cites_response.json()
-    cited_by_data = cited_by_response.json()
-
-    return OpenAlexCitationGraph(
-        cites=cites_data, cited_by=cited_by_data, center=center
-    )
 
 
 def extract_doi_from_url(url: str) -> str | None:

@@ -42,7 +42,6 @@
 	--radius-md: calc(var(--radius) - 2px);
 	--radius-lg: var(--radius);
 	--radius-xl: calc(var(--radius) + 4px);
-	--animate-gradient: gradient 8s linear infinite;
 	--animate-shimmer-slide: shimmer-slide var(--speed) ease-in-out infinite alternate;
 	--animate-spin-around: spin-around calc(var(--speed) * 2) infinite linear;
 

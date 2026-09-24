@@ -2,17 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import { PaperHighlight, ScaledPosition, HighlightColor } from "@/lib/schema";
 import { fetchFromApi } from "@/lib/api";
 
-export function useHighlighterHighlights(
-	paperId: string,
-	readOnlyHighlights: Array<PaperHighlight> = []
-) {
+export function useHighlighterHighlights(paperId: string) {
 	const [highlights, setHighlights] = useState<Array<PaperHighlight>>([]);
-	const [selectedText, setSelectedText] = useState<string>("");
-	const [tooltipPosition, setTooltipPosition] = useState<{
-		x: number;
-		y: number;
-	} | null>(null);
-	const [isHighlightInteraction, setIsHighlightInteraction] = useState(false);
 	const [activeHighlight, setActiveHighlight] =
 		useState<PaperHighlight | null>(null);
 
@@ -156,9 +147,6 @@ export function useHighlighterHighlights(
 				console.error("Error adding highlight:", error);
 			}
 
-			// Reset states
-			setSelectedText("");
-			setTooltipPosition(null);
 			return savedHighlight;
 		},
 		[highlights]
@@ -206,83 +194,18 @@ export function useHighlighterHighlights(
 		[]
 	);
 
-	// Handle text selection (for compatibility, though not used with new viewer)
-	const handleTextSelection = useCallback(
-		(e: React.MouseEvent | MouseEvent) => {
-			const selection = window.getSelection();
-			if (selection && selection.toString()) {
-				let text = selection.toString();
-				setIsHighlightInteraction(false);
-
-				// Normalize the text
-				text = text.replace(/\s+/g, " ").trim();
-				setSelectedText(text);
-
-				setTooltipPosition({
-					x: e.clientX,
-					y: e.clientY,
-				});
-			} else {
-				if (!isHighlightInteraction && selectedText) {
-					setTimeout(() => {
-						if (!isHighlightInteraction) {
-							const currentSelection = window.getSelection();
-							if (!currentSelection?.toString()) {
-								setSelectedText("");
-							}
-							setTooltipPosition(null);
-						}
-					}, 200);
-				}
-			}
-		},
-		[isHighlightInteraction, selectedText]
-	);
-
-	// Clear highlights from state
-	const clearHighlights = useCallback(() => {
-		setHighlights([]);
-	}, []);
-
-	// Refresh highlights
-	const refreshHighlights = useCallback(async () => {
-		await fetchHighlights();
-	}, [fetchHighlights]);
-
-	// Load highlights on mount or when readOnlyHighlights changes
+	// Load highlights on mount or when paperId changes
 	useEffect(() => {
-		if (readOnlyHighlights.length > 0) {
-			setHighlights(readOnlyHighlights);
-		} else {
-			fetchHighlights();
-		}
-	}, [paperId, readOnlyHighlights.length, fetchHighlights]);
-
-	// Reset interaction state when selectedText is cleared
-	useEffect(() => {
-		if (!selectedText) {
-			setIsHighlightInteraction(false);
-		}
-	}, [selectedText]);
-
+		fetchHighlights();
+	}, [paperId, fetchHighlights]);
 
 	return {
 		highlights,
-		setHighlights,
-		selectedText,
-		setSelectedText,
-		tooltipPosition,
-		setTooltipPosition,
 		recolorHighlight,
-		isHighlightInteraction,
-		setIsHighlightInteraction,
 		activeHighlight,
 		setActiveHighlight,
-		handleTextSelection,
-		clearHighlights,
 		addHighlight,
 		removeHighlight,
 		fetchHighlights,
-		refreshHighlights,
 	};
 }
