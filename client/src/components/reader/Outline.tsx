@@ -6,6 +6,25 @@ import { ChevronDown, ChevronRight, List } from "lucide-react";
 import type { PDFDocumentProxy } from "./pdfjs";
 import { pdfDocAtom } from "./atoms";
 import { viewerApiAtom } from "./useViewer";
+import { fetchFromApi } from "@/lib/api";
+
+interface GeneratedOutlineEntry {
+	title: string;
+	level: number;
+	page: number;
+	top_percent?: number | null;
+	children?: GeneratedOutlineEntry[];
+}
+
+function generatedItems(entries: GeneratedOutlineEntry[]): OutlineItem[] {
+	return entries.map((entry) => ({
+		title: entry.title,
+		dest: null,
+		page: entry.page,
+		topPercent: entry.top_percent ?? undefined,
+		items: generatedItems(entry.children ?? []),
+	}));
+}
 
 interface OutlineItem {
 	title: string;
@@ -14,6 +33,8 @@ interface OutlineItem {
 	dest: string | unknown[] | null;
 	url?: string;
 	items?: OutlineItem[];
+	page?: number;
+	topPercent?: number;
 }
 
 // pdf.js types the destination ref loosely; we only ever hand it back to
@@ -47,7 +68,7 @@ function Row({
 	item: OutlineItem;
 	depth: number;
 	doc: PDFDocumentProxy | null;
-	onGoToPage: (page: number) => void;
+	onGoToPage: (page: number, topPercent?: number) => void;
 }) {
 	const [open, setOpen] = useState(depth < 1);
 	const hasChildren = !!item.items?.length;
@@ -75,6 +96,10 @@ function Row({
 				)}
 				<button
 					onClick={async () => {
+						if (item.page !== undefined) {
+							onGoToPage(item.page, item.topPercent);
+							return;
+						}
 						if (item.url) {
 							window.open(item.url, "_blank", "noopener,noreferrer");
 							return;
@@ -108,31 +133,62 @@ function Row({
 	);
 }
 
-/** Document outline (PDF bookmarks), from `doc.getOutline()`. */
-export default function Outline() {
+/** Prefer embedded bookmarks; generate an OCR outline only when none exist. */
+export default function Outline({ displayedPaperId }: { displayedPaperId: string }) {
 	const doc = useAtomValue(pdfDocAtom);
 	const api = useAtomValue(viewerApiAtom);
 	const [items, setItems] = useState<OutlineItem[] | null>(null);
+	const [generated, setGenerated] = useState(false);
+	const [error, setError] = useState(false);
+	const [attempt, setAttempt] = useState(0);
 
 	useEffect(() => {
 		let cancelled = false;
+		const controller = new AbortController();
 		setItems(null);
+		setGenerated(false);
+		setError(false);
 		if (!doc) return;
 		doc
 			.getOutline()
-			.then((outline) => {
-				if (!cancelled) setItems((outline ?? []) as OutlineItem[]);
+			.then(async (outline) => {
+				if (cancelled) return;
+				if (outline?.length || !displayedPaperId) {
+					setItems((outline ?? []) as OutlineItem[]);
+					return;
+				}
+				setGenerated(true);
+				const entries: GeneratedOutlineEntry[] = await fetchFromApi(
+					`/api/paper/outline?id=${encodeURIComponent(displayedPaperId)}`,
+					{ signal: controller.signal }
+				);
+				if (!cancelled) setItems(generatedItems(entries));
 			})
 			.catch(() => {
-				if (!cancelled) setItems([]);
+				if (!cancelled) setError(true);
 			});
 		return () => {
 			cancelled = true;
+			controller.abort();
 		};
-	}, [doc]);
+	}, [doc, displayedPaperId, attempt]);
+
+	if (error)
+		return (
+			<div className="p-4 text-xs text-muted-foreground" role="status">
+				<p>Couldn’t load outline.</p>
+				<button className="mt-2 underline" onClick={() => setAttempt(attempt + 1)}>
+					Try again
+				</button>
+			</div>
+		);
 
 	if (!items)
-		return <p className="p-4 text-xs text-muted-foreground">Loading outline…</p>;
+		return (
+			<p className="p-4 text-xs text-muted-foreground" role="status">
+				{generated ? "Generating outline…" : "Loading outline…"}
+			</p>
+		);
 	if (items.length === 0)
 		return (
 			<div className="flex flex-col items-center gap-2 p-6 text-muted-foreground">
@@ -143,13 +199,19 @@ export default function Outline() {
 
 	return (
 		<div className="p-2">
+			{generated && (
+				<p className="px-2 pb-2 text-[10px] text-muted-foreground">AI-generated</p>
+			)}
 			{items.map((item, i) => (
 				<Row
 					key={i}
 					item={item}
 					depth={0}
 					doc={doc}
-					onGoToPage={(page) => api?.goToPage(page)}
+					onGoToPage={(page, topPercent) => {
+						if (topPercent !== undefined) api?.goToPagePercent(page, topPercent);
+						else api?.goToPage(page);
+					}}
 				/>
 			))}
 		</div>

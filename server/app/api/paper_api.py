@@ -21,6 +21,7 @@ from app.helpers.paper_search import get_doi, get_enriched_data
 from app.helpers.parser import parse_publication_date
 from app.helpers.s3 import s3_service
 from app.helpers.subscription_limits import can_user_upload_paper
+from app.llm.paper_outline import OutlineEntry, cached_outline
 from app.schemas.responses import ResponseCitation
 from app.schemas.user import CurrentUser
 from dotenv import load_dotenv
@@ -650,6 +651,18 @@ async def get_pdf(
 
     # Return the file URL
     return JSONResponse(status_code=200, content=paper_data)
+
+
+@paper_router.get("/outline", response_model=List[OutlineEntry])
+def get_paper_outline(
+    id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_required_user),
+):
+    paper = paper_crud.get(db, id=id, user=current_user)
+    if not paper:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return cached_outline(db, paper)
 
 
 @paper_router.get("/markdown")

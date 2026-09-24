@@ -226,6 +226,10 @@ async def handle_paper_processing_webhook(
                 db=db, upload_job_id=job_id, user=job_user
             )
 
+            # A new parse means new headings: drop any outline built from the old one.
+            if existing_paper is not None:
+                existing_paper.generated_outline = None
+
             # Create paper record
             paper = paper_crud.update(
                 db=db,

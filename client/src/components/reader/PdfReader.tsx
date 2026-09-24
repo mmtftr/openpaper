@@ -98,7 +98,7 @@ const EMPTY_HIGHLIGHTS: PaperHighlight[] = [];
 const EMPTY_ANNOTATIONS: PaperHighlightAnnotation[] = [];
 
 /** Left rail: thumbnails / outline. */
-function ReaderSidebar() {
+function ReaderSidebar({ displayedPaperId }: { displayedPaperId: string }) {
 	const open = useAtomValue(outlineOpenAtom);
 	const setTab = useSetAtom(outlineTabAtom);
 	const tab = useAtomValue(outlineTabAtom);
@@ -121,7 +121,11 @@ function ReaderSidebar() {
 				))}
 			</div>
 			<div className="min-h-0 flex-1 overflow-y-auto">
-				{tab === "thumbnails" ? <Thumbnails /> : <Outline />}
+				{tab === "thumbnails" ? (
+					<Thumbnails />
+				) : (
+					<Outline key={displayedPaperId} displayedPaperId={displayedPaperId} />
+				)}
 			</div>
 		</aside>
 	);
@@ -130,11 +134,11 @@ function ReaderSidebar() {
 function PdfReaderInner(props: PdfReaderProps) {
 	const {
 		pdfUrl,
+		highlightJumpRequest,
 		explicitSearchTerm,
 		explicitSearchPage,
 		onSearchComplete,
 		highlights = EMPTY_HIGHLIGHTS,
-		highlightJumpRequest,
 		annotations = EMPTY_ANNOTATIONS,
 		activeHighlight = null,
 		setActiveHighlight,
@@ -223,14 +227,14 @@ function PdfReaderInner(props: PdfReaderProps) {
 		[popoverTarget, annotations]
 	);
 
-	// Bumped per user action so a slow note save can't pop a composer over
-	// whatever the user did next (another highlight, Ask, another document).
-	const selectionActionSeq = useRef(0);
-
 	// A panel jump dismisses a hover card that could obscure the destination.
 	useEffect(() => {
 		if (highlightJumpRequest && !isDirty()) closePopover();
 	}, [highlightJumpRequest, closePopover, isDirty]);
+
+	// Bumped per user action so a slow note save can't pop a composer over
+	// whatever the user did next (another highlight, Ask, another document).
+	const selectionActionSeq = useRef(0);
 
 	// Another document means another set of highlights.
 	useEffect(() => {
@@ -332,7 +336,7 @@ function PdfReaderInner(props: PdfReaderProps) {
 				onToggleReadMode={onToggleReadMode}
 			/>
 			<div className="flex min-h-0 flex-1">
-				<ReaderSidebar />
+				<ReaderSidebar displayedPaperId={displayedPaperId} />
 				<div className="relative min-w-0 flex-1">
 					<PdfPane
 						pdfUrl={pdfUrl}

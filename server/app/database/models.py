@@ -457,6 +457,7 @@ class Paper(Base):
     # response with image_base64 stripped); used by the agentic chat tools.
     parser = Column(Text, nullable=True)
     ocr = Column(JSONB, nullable=True)
+    generated_outline = Column(JSONB, nullable=True)
     figure_count = Column(Integer, nullable=True)
     page_count = Column(Integer, nullable=True)
 

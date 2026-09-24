@@ -140,6 +140,7 @@ def backfill(
                 .values(
                     parser="mistral",
                     ocr=result.get("ocr"),
+                    generated_outline=None,
                     figure_count=result.get("figure_count"),
                     page_count=result.get("page_count"),
                     raw_content=result.get("raw_content"),
