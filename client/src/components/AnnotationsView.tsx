@@ -1,5 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { File, Pencil, Trash2, User as UserIcon } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
 	HighlightColor,
@@ -9,9 +8,9 @@ import {
 import { RenderedHighlightPosition } from '@/components/reader';
 import { smoothScrollTo } from '@/lib/animation';
 import { BasicUser } from "@/lib/auth";
-import { cn, formatAnnotationDate } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { CollapsibleNoteText } from '@/components/CollapsibleNoteText';
+import { NoteThread } from '@/components/notes/NoteThread';
 
 const ITEM_BG_MAP: Record<HighlightColor, string> = {
 	yellow: "bg-yellow-50 dark:bg-yellow-950/20",
@@ -29,16 +28,6 @@ const QUOTE_ACCENT_BORDER: Record<HighlightColor, string> = {
 	pink: "border-pink-500 dark:border-pink-400",
 	purple: "border-purple-500 dark:border-purple-400",
 };
-
-/** Matches the note popover's (`InlineAnnotationCard`) reply field — max-h-48 */
-const REPLY_TEXTAREA_MAX_PX = 192;
-function autoResizeReplyTextarea(el: HTMLTextAreaElement) {
-	el.style.height = "auto";
-	el.style.height = `${Math.min(el.scrollHeight, REPLY_TEXTAREA_MAX_PX)}px`;
-}
-
-const inlineReplyTextareaClassName =
-	"text-sm text-foreground placeholder:text-muted-foreground resize-none w-full min-h-[4rem] max-h-48 px-3 py-2 overflow-y-auto overflow-x-hidden box-border rounded-md border border-black bg-background focus:outline-none focus:ring-0 focus:border-black dark:border-white dark:focus:border-white";
 
 function annotationCreatedMs(iso: string | undefined): number {
 	if (!iso) return NaN;
@@ -106,18 +95,6 @@ export function AnnotationsView({
 }: AnnotationsViewProps) {
 	const firstAnnotationRefs = useRef<Record<string, HTMLDivElement | null>>({});
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-	const prevActiveIdRef = useRef<string | null>(null);
-	/** highlight id → expanded full thread (same behavior as inline annotation card) */
-	const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
-	const [replyOpen, setReplyOpen] = useState(false);
-	const [replyDraft, setReplyDraft] = useState('');
-	const [isReplySaving, setIsReplySaving] = useState(false);
-	const replyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-	/** id of the annotation currently being edited in-place (null = none) */
-	const [editingId, setEditingId] = useState<string | null>(null);
-	const [editDraft, setEditDraft] = useState('');
-	const [isEditSaving, setIsEditSaving] = useState(false);
-	const editTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const [filter, setFilter] = useState<ThreadFilter>('all');
 
 	const threads = useMemo<AnnotationThread[]>(() => {
@@ -154,15 +131,10 @@ export function AnnotationsView({
 			return idB.localeCompare(idA);
 		});
 
+		// Each thread orders its own notes (oldest first).
 		return sorted.map((highlight) => ({
 			highlight,
-			annotations: (annotationMap.get(highlight.id!) ?? []).sort((a, b) => {
-				const ta = annotationCreatedMs(a.created_at);
-				const tb = annotationCreatedMs(b.created_at);
-				return (
-					(Number.isFinite(ta) ? ta : 0) - (Number.isFinite(tb) ? tb : 0)
-				);
-			}),
+			annotations: annotationMap.get(highlight.id!) ?? [],
 		}));
 	}, [highlights, annotations, renderedHighlightPositions]);
 
@@ -204,100 +176,6 @@ export function AnnotationsView({
 		}
 		// `filter`: the active row only mounts once a filter hiding it gives way.
 	}, [activeHighlight, filter]);
-
-	// When the active highlight changes (e.g. user clicked highlighted PDF text): expand that
-	// thread fully so "+N more replies" is not needed. When switching A→B, collapse A's expansion
-	// state and expand B.
-	useEffect(() => {
-		const id = activeHighlight?.id ?? null;
-		const prev = prevActiveIdRef.current;
-
-		setExpandedThreads((prevMap) => {
-			const next = { ...prevMap };
-			if (prev !== null && id !== null && prev !== id) {
-				delete next[prev];
-			}
-			if (id !== null) {
-				next[id] = true;
-			}
-			return next;
-		});
-
-		prevActiveIdRef.current = id;
-	}, [activeHighlight?.id]);
-
-	useEffect(() => {
-		setReplyOpen(false);
-		setReplyDraft('');
-		setEditingId(null);
-		setEditDraft('');
-	}, [activeHighlight?.id]);
-
-	useLayoutEffect(() => {
-		if (!replyOpen) return;
-		const el = replyTextareaRef.current;
-		if (!el) return;
-		el.focus();
-		autoResizeReplyTextarea(el);
-	}, [replyOpen]);
-
-	useLayoutEffect(() => {
-		if (!editingId) return;
-		const el = editTextareaRef.current;
-		if (!el) return;
-		el.focus();
-		// place caret at end so the user can keep typing
-		const len = el.value.length;
-		el.setSelectionRange(len, len);
-		autoResizeReplyTextarea(el);
-	}, [editingId]);
-
-	const handleReplySave = async (highlightId: string) => {
-		if (!addAnnotation || !replyDraft.trim() || isReplySaving) return;
-		setIsReplySaving(true);
-		try {
-			await addAnnotation(highlightId, replyDraft.trim());
-			setReplyDraft('');
-			setReplyOpen(false);
-			setExpandedThreads((prev) => ({ ...prev, [highlightId]: true }));
-		} finally {
-			setIsReplySaving(false);
-		}
-	};
-
-	const handleEditStart = (annotation: PaperHighlightAnnotation) => {
-		setEditingId(annotation.id);
-		setEditDraft(annotation.content);
-		setReplyOpen(false);
-		setExpandedThreads((prev) => ({ ...prev, [annotation.highlight_id]: true }));
-	};
-
-	const handleEditCancel = () => {
-		setEditingId(null);
-		setEditDraft('');
-	};
-
-	const handleEditSave = async (annotationId: string) => {
-		if (!updateAnnotation || !editDraft.trim() || isEditSaving) return;
-		setIsEditSaving(true);
-		try {
-			await updateAnnotation(annotationId, editDraft.trim());
-			setEditingId(null);
-			setEditDraft('');
-		} finally {
-			setIsEditSaving(false);
-		}
-	};
-
-	const handleDelete = (annotationId: string) => {
-		if (!removeAnnotation) return;
-		// match InlineAnnotationCard: no confirm dialog
-		removeAnnotation(annotationId);
-		if (editingId === annotationId) {
-			setEditingId(null);
-			setEditDraft('');
-		}
-	};
 
 	if (threads.length === 0) {
 		return (
@@ -356,24 +234,6 @@ export function AnnotationsView({
 						const bg = isActive
 							? "bg-white dark:bg-zinc-950"
 							: ITEM_BG_MAP[color];
-						const hasPdfAnchor = Boolean(
-							highlight.position || renderedHighlightPositions?.has(hid)
-						);
-						const renderedPosition = renderedHighlightPositions?.get(hid);
-						const isUnanchoredAssistant =
-							highlight.role === 'assistant' && !hasPdfAnchor;
-						const isApproximateAssistantAnchor =
-							highlight.role === 'assistant' &&
-							!highlight.position &&
-							renderedPosition?.matchStrategy &&
-							renderedPosition.matchStrategy !== "normalized";
-
-						const hasMulti = threadAnns.length > 1;
-						const expanded = expandedThreads[hid] ?? false;
-						const visible =
-							!hasMulti || expanded ? threadAnns : threadAnns.slice(0, 1);
-						const moreCount = hasMulti && !expanded ? threadAnns.length - 1 : 0;
-
 						return (
 							<div
 								key={hid}
@@ -387,12 +247,8 @@ export function AnnotationsView({
 								tabIndex={0}
 								aria-current={isActive ? true : undefined}
 								aria-label={`Annotation thread: ${(highlight.raw_text ?? '').slice(0, 80)}`}
-								onClick={() => {
-									onHighlightClick(highlight);
-									if (hasMulti && !expanded) {
-										setExpandedThreads((prev) => ({ ...prev, [hid]: true }));
-									}
-								}}
+								// Activating a thread also expands it (NoteThread).
+								onClick={() => onHighlightClick(highlight)}
 								onKeyDown={(e) => {
 									// Only the row itself; keys inside its textareas/buttons are theirs.
 									if (e.target !== e.currentTarget) return;
@@ -402,254 +258,70 @@ export function AnnotationsView({
 									}
 								}}
 							>
-								<div className="flex flex-col gap-3">
-									{highlight.raw_text?.trim() ? (
-										<div
-											className={cn(
-												"min-w-0 border-l-2 pl-3 mb-0",
-												QUOTE_ACCENT_BORDER[color]
-											)}
-										>
-											<CollapsibleNoteText
-												content={highlight.raw_text}
-												isActive={isActive}
-												paragraphClassName="text-xs text-muted-foreground whitespace-pre-wrap break-words"
-											/>
-											{isUnanchoredAssistant ? (
-												<p className="mt-1 text-[11px] font-medium text-muted-foreground">
-													Couldn&apos;t locate quote in PDF
-												</p>
-											) : isApproximateAssistantAnchor ? (
-												<p className="mt-1 text-[11px] font-medium text-muted-foreground">
-													Located approximately in PDF
-												</p>
-											) : null}
-										</div>
-									) : null}
-									{visible.map((annotation) => {
-										const isAI = annotation.role === 'assistant';
-										const canEdit = !isAI && !readonly && isActive && Boolean(updateAnnotation);
-										const canDelete = !isAI && !readonly && isActive && Boolean(removeAnnotation);
-										const isEditing = editingId === annotation.id;
-										return (
-										<div key={annotation.id} className="flex flex-col gap-2">
-											<div className="flex items-center gap-2">
-												<div className={`w-8 h-8 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center ${isAI ? 'bg-blue-100 dark:bg-blue-900' : 'bg-muted'}`}>
-													{isAI ? (
-														<File size={14} className="text-blue-500" />
-													) : user?.picture ? (
-														// eslint-disable-next-line @next/next/no-img-element
-														<img src={user.picture} alt={user.name ?? undefined} className="w-full h-full object-cover" />
-													) : (
-														<UserIcon size={14} className="text-muted-foreground" />
-													)}
-												</div>
-												<span className="text-sm font-medium text-foreground">
-													{isAI ? 'Open Paper' : user?.name || 'User'}
-												</span>
-												<span className="text-xs text-muted-foreground">
-													{formatAnnotationDate(annotation.created_at)}
-												</span>
-												{(canEdit || canDelete) && !isEditing && (
-													<div
-														className="ml-auto flex items-center gap-0.5"
-														onMouseDown={(e) => e.stopPropagation()}
-														onClick={(e) => e.stopPropagation()}
-													>
-														{canEdit && (
-															<Button
-																type="button"
-																variant="ghost"
-																size="icon"
-																className="h-6 w-6 text-muted-foreground hover:text-foreground"
-																title="Edit"
-																aria-label="Edit annotation"
-																onClick={(e) => {
-																	e.stopPropagation();
-																	handleEditStart(annotation);
-																}}
-																onMouseDown={(e) => e.stopPropagation()}
-															>
-																<Pencil size={12} />
-															</Button>
-														)}
-														{canDelete && (
-															<Button
-																type="button"
-																variant="ghost"
-																size="icon"
-																className="h-6 w-6 text-muted-foreground hover:text-destructive"
-																title="Delete"
-																aria-label="Delete annotation"
-																onClick={(e) => {
-																	e.stopPropagation();
-																	handleDelete(annotation.id);
-																}}
-																onMouseDown={(e) => e.stopPropagation()}
-															>
-																<Trash2 size={12} />
-															</Button>
-														)}
-													</div>
-												)}
-											</div>
-											<div className="pl-10">
-												{isEditing ? (
-													<div
-														className="flex flex-col gap-2"
-														onMouseDown={(e) => e.stopPropagation()}
-														onClick={(e) => e.stopPropagation()}
-													>
-														<textarea
-															ref={editTextareaRef}
-															value={editDraft}
-															onChange={(e) => {
-																setEditDraft(e.target.value);
-																autoResizeReplyTextarea(e.target);
-															}}
-															onKeyDown={(e) => {
-																if (e.key === 'Enter' && !e.shiftKey) {
-																	e.preventDefault();
-																	void handleEditSave(annotation.id);
-																} else if (e.key === 'Escape') {
-																	e.preventDefault();
-																	handleEditCancel();
-																}
-															}}
-															onMouseDown={(e) => e.stopPropagation()}
-															aria-label="Edit annotation"
-															className={inlineReplyTextareaClassName}
-															disabled={isEditSaving}
-															rows={3}
-														/>
-														<div className="flex items-center justify-end gap-2">
-															<Button
-																type="button"
-																variant="ghost"
-																size="sm"
-																className="h-7 px-2 text-xs text-muted-foreground"
-																disabled={isEditSaving}
-																onClick={(e) => {
-																	e.stopPropagation();
-																	handleEditCancel();
-																}}
-																onMouseDown={(e) => e.stopPropagation()}
-															>
-																Cancel
-															</Button>
-															<Button
-																type="button"
-																size="sm"
-																className="h-7 px-3 text-xs"
-																disabled={isEditSaving || !editDraft.trim()}
-																onClick={(e) => {
-																	e.stopPropagation();
-																	void handleEditSave(annotation.id);
-																}}
-																onMouseDown={(e) => e.stopPropagation()}
-															>
-																Save
-															</Button>
-														</div>
-													</div>
-												) : (
-													<CollapsibleNoteText
-														content={annotation.content}
-														isActive={isActive}
-														paragraphClassName="text-sm text-foreground leading-snug whitespace-pre-wrap break-words"
-													/>
-												)}
-											</div>
-										</div>
-									)})}
-									{moreCount > 0 && (
-										<p className="text-xs text-muted-foreground pl-10">
-											+{moreCount} more {moreCount === 1 ? 'reply' : 'replies'} — click to show
-										</p>
-									)}
-								</div>
-								{isActive && addAnnotation && !readonly && (
-									<div
-										className="mt-2 pt-0"
-										onMouseDown={(e) => e.stopPropagation()}
-										onClick={(e) => e.stopPropagation()}
-									>
-										{replyOpen ? (
-											<div className="flex flex-col gap-2">
-												<textarea
-													ref={replyTextareaRef}
-													value={replyDraft}
-													onChange={(e) => {
-														setReplyDraft(e.target.value);
-														autoResizeReplyTextarea(e.target);
-													}}
-													onKeyDown={(e) => {
-														if (e.key === 'Enter' && !e.shiftKey) {
-															e.preventDefault();
-															void handleReplySave(hid);
-														} else if (e.key === 'Escape') {
-															setReplyOpen(false);
-															setReplyDraft('');
-														}
-													}}
-													onMouseDown={(e) => e.stopPropagation()}
-													placeholder="Write a reply…"
-													aria-label="Reply"
-													className={inlineReplyTextareaClassName}
-													disabled={isReplySaving}
-													rows={3}
-												/>
-												<div className="flex items-center justify-end gap-2">
-													<Button
-														type="button"
-														variant="ghost"
-														size="sm"
-														className="h-7 px-2 text-xs text-muted-foreground"
-														disabled={isReplySaving}
-														onClick={(e) => {
-															e.stopPropagation();
-															setReplyOpen(false);
-															setReplyDraft('');
-														}}
-														onMouseDown={(e) => e.stopPropagation()}
-													>
-														Cancel
-													</Button>
-													<Button
-														type="button"
-														size="sm"
-														className="h-7 px-3 text-xs"
-														disabled={isReplySaving || !replyDraft.trim()}
-														onClick={(e) => {
-															e.stopPropagation();
-															void handleReplySave(hid);
-														}}
-														onMouseDown={(e) => e.stopPropagation()}
-													>
-														Reply
-													</Button>
-												</div>
-											</div>
-										) : (
-											<button
-												type="button"
-												className="w-full text-left text-sm text-muted-foreground rounded-full border border-border px-3 py-1.5 hover:bg-muted/50 transition-colors cursor-text"
-												onMouseDown={(e) => e.stopPropagation()}
-												onClick={(e) => {
-													e.stopPropagation();
-													setReplyOpen(true);
-												}}
-											>
-												Reply…
-											</button>
-										)}
-									</div>
-								)}
+								<NoteThread
+									variant="panel"
+									highlightId={hid}
+									notes={threadAnns}
+									user={user}
+									isActive={isActive}
+									addAnnotation={readonly ? undefined : addAnnotation}
+									updateAnnotation={readonly ? undefined : updateAnnotation}
+									removeAnnotation={readonly ? undefined : removeAnnotation}
+									header={
+										<QuotedPassage
+											highlight={highlight}
+											color={color}
+											isActive={isActive}
+											renderedPosition={renderedHighlightPositions?.get(hid)}
+										/>
+									}
+								/>
 							</div>
 						);
 					})}
 				</div>
 			</div>
+		</div>
+	);
+}
+
+/** The highlighted PDF text heading a thread, with a note when it couldn't be placed exactly. */
+function QuotedPassage({
+	highlight,
+	color,
+	isActive,
+	renderedPosition,
+}: {
+	highlight: PaperHighlight;
+	color: HighlightColor;
+	isActive: boolean;
+	renderedPosition: RenderedHighlightPosition | undefined;
+}) {
+	if (!highlight.raw_text?.trim()) return null;
+	const isAssistant = highlight.role === 'assistant';
+	const hasPdfAnchor = Boolean(highlight.position || renderedPosition);
+	const isUnanchoredAssistant = isAssistant && !hasPdfAnchor;
+	const isApproximateAssistantAnchor =
+		isAssistant &&
+		!highlight.position &&
+		renderedPosition?.matchStrategy &&
+		renderedPosition.matchStrategy !== "normalized";
+	return (
+		<div className={cn("min-w-0 border-l-2 pl-3 mb-0", QUOTE_ACCENT_BORDER[color])}>
+			<CollapsibleNoteText
+				content={highlight.raw_text}
+				isActive={isActive}
+				paragraphClassName="text-xs text-muted-foreground whitespace-pre-wrap break-words"
+			/>
+			{isUnanchoredAssistant ? (
+				<p className="mt-1 text-[11px] font-medium text-muted-foreground">
+					Couldn&apos;t locate quote in PDF
+				</p>
+			) : isApproximateAssistantAnchor ? (
+				<p className="mt-1 text-[11px] font-medium text-muted-foreground">
+					Located approximately in PDF
+				</p>
+			) : null}
 		</div>
 	);
 }

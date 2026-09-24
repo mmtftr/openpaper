@@ -391,8 +391,6 @@ export function HighlightPopover(props: HighlightPopoverProps) {
 				<InlineAnnotationCard
 					key={target.highlightId}
 					highlightId={target.highlightId}
-					topPosition={0}
-					leftPosition={0}
 					widthPx={placement?.width ?? NOTE_CARD_WIDTH}
 					className="relative z-auto border border-border bg-background"
 					// Inline: the card's own `overflow-hidden` class would win over a
@@ -403,7 +401,6 @@ export function HighlightPopover(props: HighlightPopoverProps) {
 						overscrollBehavior: "contain",
 					}}
 					annotations={notes}
-					isActive
 					user={currentUser ?? null}
 					addAnnotation={addAnnotation}
 					updateAnnotation={updateAnnotation}
