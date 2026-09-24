@@ -8,13 +8,11 @@ deterministic and testable.
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 
 import pytest
 
 from app.llm.chat.citations import extract_citations, reconcile_citations
-from app.llm.chat.history import SANDBOX_REPLAY_CHAR_CAP, strip_sandbox_outputs
 from app.llm.citation_handler import CitationHandler
 from app.llm.repo.code_citations import verify_code_citation, verify_code_citations
 from app.llm.repo.sandbox import RepoSnapshot
@@ -438,67 +436,45 @@ def test_reconciler_handles_code_citations_before_the_page_shortcircuit(snapshot
     assert out[1] == {"key": 2, "page": None, "reference": "legacy citation"}
 
 
-# -- history bloat --------------------------------------------------------
-
-
-def test_strip_sandbox_outputs_caps_run_python_returns():
-    dump = [
-        {
-            "kind": "request",
-            "parts": [
-                {
-                    "part_kind": "tool-return",
-                    "tool_name": "run_python",
-                    "content": {"files": ["a.py"], "output": "x" * 9000},
-                },
-                {
-                    "part_kind": "tool-return",
-                    "tool_name": "read_section",
-                    "content": {"text": "y" * 9000},
-                },
-            ],
-        }
-    ]
-    stripped = strip_sandbox_outputs(dump)
-    sandbox_part = stripped[0]["parts"][0]["content"]
-    assert len(sandbox_part["output"]) < 9000
-    assert sandbox_part["output"].endswith("…[output trimmed from history]")
-    assert sandbox_part["files"] == ["a.py"]          # chips survive
-    # Other tools are untouched — only run_python is capped here.
-    assert len(stripped[0]["parts"][1]["content"]["text"]) == 9000
-
-
-def test_strip_sandbox_outputs_leaves_small_returns_alone():
-    dump = [
-        {
-            "kind": "request",
-            "parts": [
-                {
-                    "part_kind": "tool-return",
-                    "tool_name": "run_python",
-                    "content": {"files": [], "output": "short"},
-                }
-            ],
-        }
-    ]
-    assert strip_sandbox_outputs(dump)[0]["parts"][0]["content"]["output"] == "short"
-
-
-def test_strip_sandbox_outputs_survives_a_real_pydantic_ai_dump():
-    from pydantic_ai.messages import ModelMessagesTypeAdapter, ModelRequest, ToolReturnPart
-
-    message = ModelRequest(
-        parts=[
-            ToolReturnPart(
-                tool_name="run_python",
-                content={"files": ["a.py"], "output": "z" * 5000},
-                tool_call_id="call-1",
-            )
-        ]
+def test_flattened_multiline_gutter_quote_is_matched(snapshot):
+    """The evidence parser joins a quote's lines with spaces, so a three-line
+    `read()` quote reaches verification as ONE line: `4| def ... 5| ...`."""
+    text = (
+        "---EVIDENCE---\n@cite[1|file=pipeline/run.py|lines=4-6]\n"
+        "4| def get_refusal_direction(harmful, harmless):\n"
+        "5|     diff = harmful.mean(dim=0) - harmless.mean(dim=0)\n"
+        "6|     return diff / diff.norm()\n---END-EVIDENCE---"
     )
-    dump = ModelMessagesTypeAdapter.dump_python([message], mode="json")
-    stripped = strip_sandbox_outputs(dump)
-    output = stripped[0]["parts"][0]["content"]["output"]
-    assert len(output) <= SANDBOX_REPLAY_CHAR_CAP + 40
-    # Still valid for replay after trimming.
-    ModelMessagesTypeAdapter.validate_json(json.dumps(stripped))
+    [citation] = extract_citations(text)
+    assert "\n" not in citation["reference"]
+    out = verify_code_citation(citation, snapshot)
+    assert out["verified"] is True
+    assert (out["start_line"], out["end_line"]) == (4, 6)
+
+
+def test_inline_pipes_in_real_code_are_not_split_as_gutters():
+    from app.llm.repo.code_citations import _split_inline_gutters
+
+    assert _split_inline_gutters("mask = 1|2 | 3|4") is None
+    assert _split_inline_gutters("x = a | b") is None
+    assert _split_inline_gutters("9| one 3| two") is None  # not increasing
+    assert _split_inline_gutters("4| a 5| b 6| c") == ["4| a", "5| b", "6| c"]
+
+
+def test_exact_match_is_narrowed_to_the_quoted_lines(snapshot):
+    """A short quote under a wide `lines=` range verifies, but the range it
+    earns is the quote's own — not the 400-line span the model claimed."""
+    citation = {
+        "key": 1,
+        "file": "pipeline/run.py",
+        "start_line": 1,
+        "end_line": 6,
+        "reference": (
+            "diff = harmful.mean(dim=0) - harmless.mean(dim=0)\n"
+            "return diff / diff.norm()"
+        ),
+    }
+    out = verify_code_citation(citation, snapshot)
+    assert out["verified"] is True
+    assert (out["start_line"], out["end_line"]) == (5, 6)
+    assert "#L5-L6" in out["github_url"]

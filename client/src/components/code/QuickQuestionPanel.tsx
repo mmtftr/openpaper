@@ -23,6 +23,7 @@ import {
     ReasoningTrigger,
 } from "@/components/ai-elements/reasoning";
 import { codeMarkdownComponents } from "@/components/code/CodeBlock";
+import { ToolActivity } from "@/components/chat/ToolActivity";
 
 /**
  * Ephemeral Q&A over one code selection, anchored inside the code viewer.
@@ -258,7 +259,17 @@ export function QuickQuestionPanel({
                                 </Reasoning>
                             );
                         }
-                        if (block.kind !== "text") return null;
+                        if (block.kind === "tool") {
+                            // The answer may look things up elsewhere in the
+                            // repo; each lookup gets the same compact row the
+                            // chat panel uses.
+                            return (
+                                <ToolActivity
+                                    key={`tool-${block.part.toolCallId ?? index}`}
+                                    part={block.part}
+                                />
+                            );
+                        }
                         return (
                             <div
                                 key={`text-${index}`}

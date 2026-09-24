@@ -486,7 +486,9 @@ def ingest_repo(*, paper_id: str, url: str) -> IngestResult:
         _cleanup(tmp_dir)
         raise IngestError(f"Failed to ingest {ref.slug}: {exc}") from exc
 
-    storage.prune_other_snapshots(paper_id, sha)
+    # Older snapshots are pruned by the CALLER once it has confirmed it still
+    # owns the repo row: pruning here let a superseded (stale) job delete the
+    # snapshot its replacement had just published.
 
     logger.info(
         "Ingested %s@%s for paper %s: %d files, %d bytes in %.1fs",

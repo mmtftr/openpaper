@@ -55,6 +55,7 @@ from pydantic_ai.ui.vercel_ai.response_types import (
 )
 
 from app.llm.chat.citations import EVIDENCE_END, EVIDENCE_START
+from app.llm.chat.tool_preview import preview_json
 
 logger = logging.getLogger(__name__)
 
@@ -68,12 +69,25 @@ TOOL_OUTPUT_WIRE_CAP = 6000
 MAX_ERROR_TEXT_CHARS = 2000
 
 
+# File chips kept on a truncated `run_python` output (matches the client's
+# MAX_TOOL_FILES).
+MAX_TRUNCATED_FILES = 20
+
+
 def truncate_tool_output(output: Any, cap: int = TOOL_OUTPUT_WIRE_CAP) -> Any:
     """Cap a tool output for UI transport.
 
-    Structure is preserved for small outputs; oversized ones become a
-    `{truncated: true, preview: "..."}` marker so the client can render a
-    peek without shipping whole paper sections.
+    Small outputs pass through untouched. Past the cap the output becomes a
+    `{truncated: true, preview: ...}` marker whose preview is still readable:
+
+    - the `run_python` shape (`{"files": [...], "output": "<text>"}`) keeps
+      its `files` — they are what the UI renders as chips — and previews the
+      output TEXT (plain stdout, not its JSON encoding), with `omitted_chars`
+      saying how much was cut. A bare string output previews the same way.
+    - everything else previews as a trimmed JSON VALUE (`preview_json`):
+      clipped strings, capped collections and inline markers for what was
+      dropped, so the client can pretty-print and highlight it instead of
+      showing a raw slice of the encoding.
     """
     try:
         serialized = json.dumps(output, default=str)
@@ -81,7 +95,29 @@ def truncate_tool_output(output: Any, cap: int = TOOL_OUTPUT_WIRE_CAP) -> Any:
         serialized = str(output)
     if len(serialized) <= cap:
         return output
-    return {"truncated": True, "preview": serialized[:cap]}
+    marker: Dict[str, Any] = {"truncated": True}
+    if isinstance(output, str):
+        return _text_preview(marker, output, cap)
+    if isinstance(output, dict):
+        files = output.get("files")
+        if isinstance(files, list):
+            marker["files"] = [
+                entry for entry in files if isinstance(entry, str)
+            ][:MAX_TRUNCATED_FILES]
+        text = output.get("output")
+        if isinstance(text, str):
+            return _text_preview(marker, text, cap)
+    preview = preview_json(output, cap)
+    # `preview_json` only gives up on pathological shapes (thousands of keys
+    # at the top level); a raw slice of the encoding is the last resort.
+    marker["preview"] = preview if preview is not None else serialized[:cap]
+    return marker
+
+
+def _text_preview(marker: Dict[str, Any], text: str, cap: int) -> Dict[str, Any]:
+    marker["preview"] = text[:cap]
+    marker["omitted_chars"] = len(text) - len(marker["preview"])
+    return marker
 
 
 def _held_suffix_len(buf: str, marker: str) -> int:

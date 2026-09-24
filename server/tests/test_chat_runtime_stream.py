@@ -183,7 +183,10 @@ class _Fixture:
                 fixture.built_models.append(fixture.model)
                 return fixture.model
 
-            def build_settings(self, spec, reasoning_effort=None):
+            def build_settings(self, spec, reasoning_effort=None, **kwargs):
+                # `**kwargs` so a new keyword on the real signature (e.g.
+                # `cache_key`) doesn't turn every runtime test into a
+                # TypeError.
                 return None
 
         def fake_build_agent(*, model, spec, system_prompt, paper, context_mode,
@@ -697,6 +700,48 @@ class TestReusedUserRowIsMerged:
         assert update.bucket["model_prompt"] == f"{question}\n\nEVIDENCE BLOCK"
         # The new submission id still takes effect.
         assert update.bucket["client_message_id"] == "client-1"
+
+    def test_text_only_retry_replays_the_stored_prompt(self, monkeypatch):
+        """A text-only resubmission must ask the SAME question the original
+        did: the stored `model_prompt` (with its evidence block) is what the
+        model receives, not the bare text."""
+        from contextlib import asynccontextmanager
+
+        from pydantic_ai.messages import ModelRequest, UserPromptPart
+
+        class _RecordingModel(WrapperModel):
+            """Records every message list the model was asked to answer."""
+
+            def __init__(self, wrapped):
+                super().__init__(wrapped)
+                self.requests: List[List[Any]] = []
+
+            async def request(self, messages, *args, **kwargs):
+                self.requests.append(list(messages))
+                return await self.wrapped.request(messages, *args, **kwargs)
+
+            @asynccontextmanager
+            async def request_stream(self, messages, *args, **kwargs):
+                self.requests.append(list(messages))
+                async with self.wrapped.request_stream(
+                    messages, *args, **kwargs
+                ) as stream:
+                    yield stream
+
+        question, rows = self._rows()
+        model = _RecordingModel(TestModel(custom_output_text=ANSWER, call_tools=[]))
+        fixture = _Fixture(monkeypatch, model=model, rows=rows)
+        fixture.collect(text=question, message_id="client-1")
+        prompts = [
+            str(part.content)
+            for messages in model.requests
+            for message in messages
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+            if isinstance(part, UserPromptPart)
+        ]
+        assert prompts, "the model was never called"
+        assert any(question in p and "EVIDENCE BLOCK" in p for p in prompts)
 
 
 class TestRetryStatusDelivery:

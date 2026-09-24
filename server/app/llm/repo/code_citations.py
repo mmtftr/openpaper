@@ -4,7 +4,10 @@ We hold the ground-truth bytes the agent read, so a code citation can be
 checked exactly: does the quoted snippet appear at the claimed lines? Three
 outcomes:
 
-  exact      — quote found at `lines=A-B`            → keep, attach permalink
+  exact      — quote found inside `lines=A-B`        → keep, attach permalink
+                                                       (narrowed to the quote's
+                                                       own lines when A-B is more
+                                                       than twice as long)
   repaired   — quote found elsewhere in the file     → rewrite the line range
   unverified — quote not in the file at all          → drop the lines, mark
                                                        `verified: false`
@@ -83,6 +86,33 @@ def _elided_prefix(quote: str) -> Optional[str]:
 _GUTTER_RE = re.compile(r"^[ \t]*(\d{1,7})[ \t]*\|[ \t]?")
 
 
+# A gutter that survived the evidence parser's line-joining: digits glued to
+# the pipe (`read()` prints `NNN| `), preceded by whitespace or the start.
+_INLINE_GUTTER_RE = re.compile(r"(?:(?<=\s)|^)(\d{1,7})\|[ \t]?")
+
+
+def _split_inline_gutters(text: str) -> Optional[List[str]]:
+    """Re-split a flattened gutter quote into its lines, or None.
+
+    `CitationHandler.parse_evidence_block` joins a quote's lines with single
+    spaces, so a multi-line `read()` quote reaches verification as ONE line:
+    `12| foo 13| bar`. Recognized only when the quote STARTS with a gutter
+    and the numbers strictly increase — `a = 1|2` never qualifies.
+    """
+    stripped = text.strip()
+    matches = list(_INLINE_GUTTER_RE.finditer(stripped))
+    if len(matches) < 2 or matches[0].start() != 0:
+        return None
+    numbers = [int(match.group(1)) for match in matches]
+    if any(later <= earlier for earlier, later in zip(numbers, numbers[1:])):
+        return None
+    lines: List[str] = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(stripped)
+        lines.append(stripped[match.start() : end].rstrip())
+    return lines
+
+
 def _strip_line_gutter(text: str) -> Tuple[Optional[str], Optional[int]]:
     """(text without the `NNN| ` prefixes, first line number) or (None, None).
 
@@ -90,6 +120,10 @@ def _strip_line_gutter(text: str) -> Tuple[Optional[str], Optional[int]]:
     code (`flags = READ | WRITE`) or a markdown table is never mangled.
     """
     lines = text.split("\n")
+    if len(lines) == 1:
+        inline = _split_inline_gutters(text)
+        if inline is not None:
+            lines = inline
     non_empty = [line for line in lines if line.strip()]
     if not non_empty:
         return None, None
@@ -222,6 +256,30 @@ def normalize_citation_path(snapshot: RepoSnapshot, path: str) -> Optional[str]:
     return None
 
 
+def _find_within_lines(
+    flat: str,
+    owners: List[int],
+    candidates: List[str],
+    start_line: int,
+    end_line: int,
+) -> Optional[Tuple[int, int]]:
+    """(first, last) source lines of the first candidate found INSIDE the
+    claimed `[start_line, end_line]` range of the normalized index, or None."""
+    for candidate in candidates:
+        if not candidate:
+            continue
+        position = flat.find(candidate)
+        while position != -1:
+            last = min(position + len(candidate) - 1, len(owners) - 1)
+            first_line, last_line = owners[position], owners[last]
+            if first_line >= start_line and last_line <= end_line:
+                return first_line, last_line
+            if first_line > end_line:
+                break
+            position = flat.find(candidate, position + 1)
+    return None
+
+
 def _match_anchored_at(
     lines: List[str], text: str, start: int
 ) -> Optional[int]:
@@ -275,10 +333,17 @@ def verify_code_citation(
         # earn a permalink that says we checked it. We did not.
         return _unverified(out, snapshot)
 
-    # 1. The range the model claimed.
+    # 1. The range the model claimed. Kept when the quote covers at least half
+    #    of it (a quote is usually an excerpt of the span it cites); narrowed
+    #    to the quote's own lines otherwise — a two-line quote under
+    #    `lines=1-400` must not earn a 400-line highlight and permalink.
     if claimed_start is not None:
-        window = _normalize(" ".join(lines[claimed_start - 1 : claimed_end]))
-        if any(text in window for text in candidates):
+        flat, owners = cache.get_index(resolved, lines)
+        span = _find_within_lines(flat, owners, candidates, claimed_start, claimed_end)
+        if span is not None:
+            first, last = span
+            if claimed_end - claimed_start + 1 > 2 * (last - first + 1):
+                return _verified(out, snapshot, first, last)
             return _verified(out, snapshot, claimed_start, claimed_end)
 
     # 2. The range implied by a quoted `read()` gutter — authoritative when

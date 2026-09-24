@@ -62,7 +62,6 @@ from app.llm.chat.history import (
     load_model_history,
     strip_figure_bytes,
     strip_instructions,
-    strip_sandbox_outputs,
 )
 from app.llm.chat.paper import (
     MAX_AGENTIC_ITERATIONS,
@@ -236,6 +235,37 @@ def _plan_trailing_reuse(
     return rows, None, None
 
 
+def _stored_model_prompt(row: Any, user_query: str) -> Optional[str]:
+    """The exact prompt a reused user row's model saw, if it extends the
+    resubmitted text (i.e. it carries the reference-citation block)."""
+    bucket = getattr(row, "bucket", None)
+    if not isinstance(bucket, dict):
+        return None
+    prompt = bucket.get(MODEL_PROMPT_KEY)
+    if (
+        isinstance(prompt, str)
+        and prompt.startswith(user_query)
+        and prompt.strip() != user_query
+    ):
+        return prompt
+    return None
+
+
+def _stored_references(row: Any) -> List[str]:
+    """The reference strings persisted on a user row, oldest form first."""
+    references = getattr(row, "references", None)
+    if not isinstance(references, dict):
+        return []
+    out: List[str] = []
+    for citation in references.get("citations") or []:
+        if not isinstance(citation, dict):
+            continue
+        text = citation.get("reference")
+        if isinstance(text, str) and text.strip():
+            out.append(text)
+    return out
+
+
 async def run_paper_chat(
     *,
     db: Session,
@@ -335,6 +365,17 @@ async def run_paper_chat(
         raise ChatRequestError(
             "This message was already submitted.", status_code=409
         )
+    # A retry that resends the text alone must not silently ask a different
+    # question: the references are the prompt's evidence block, and the
+    # reused row still has them. Prefer the stored prompt verbatim (ground
+    # truth for what the model saw); fall back to regenerating the block
+    # from the stored references. (The web client resends references
+    # itself; this covers everything else.)
+    stored_prompt: Optional[str] = None
+    if not user_references and reused_user_row is not None:
+        stored_prompt = _stored_model_prompt(reused_user_row, user_query)
+        if stored_prompt is None:
+            user_references = _stored_references(reused_user_row) or None
     # Off the event loop: replay may rehydrate figure bytes from S3
     # (blocking boto3 calls) and JSON-serialize large dumps.
     #
@@ -354,6 +395,10 @@ async def run_paper_chat(
         )
         user_message.parts.append(TextUIPart(text=citation_block, state="done"))
         model_prompt_text = f"{user_query}\n\n{citation_block}"
+    elif stored_prompt is not None:
+        citation_block = stored_prompt[len(user_query) :].strip()
+        user_message.parts.append(TextUIPart(text=citation_block, state="done"))
+        model_prompt_text = stored_prompt
 
     # Build the model BEFORE persisting the user row: a mis-configured
     # provider raises here, and it must surface as a clean 4xx without
@@ -551,8 +596,13 @@ async def run_paper_chat(
             bucket: Dict[str, Any] = {CLIENT_MESSAGE_ID_KEY: user_message.id}
             if dump is not None:
                 bucket[BUCKET_VERSION_KEY] = BUCKET_VERSION
-                bucket[BUCKET_DUMP_KEY] = strip_sandbox_outputs(
-                    strip_figure_bytes(strip_instructions(dump))
+                # Persisted WHOLE: the replayed copy of a turn must match
+                # byte-for-byte what the model saw during it, or the
+                # provider's prompt-cache prefix breaks on the next turn.
+                # Sandbox output is already bounded at the source (24k chars
+                # per call, 240k per turn — see repo/sandbox.py).
+                bucket[BUCKET_DUMP_KEY] = strip_figure_bytes(
+                    strip_instructions(dump)
                 )
             assistant_row = message_crud.create(
                 db,
@@ -624,8 +674,14 @@ async def run_paper_chat(
         try:
             from app.llm.operations import operations
 
-            operations.rename_conversation(
-                db=db, conversation_id=conversation_id, user=current_user
+            # Off the event loop: this makes a SYNCHRONOUS LLM call for the
+            # title. Inline it would stall every chunk queued behind
+            # `on_complete` — and every other request on this worker.
+            await asyncio.to_thread(
+                operations.rename_conversation,
+                db=db,
+                conversation_id=conversation_id,
+                user=current_user,
             )
         except Exception as exc:
             logger.warning("Conversation title generation failed (non-fatal): %s", exc)
@@ -706,7 +762,13 @@ async def run_paper_chat(
         native_stream = adapter.run_stream_native(
             message_history=model_history,
             deps=deps,
-            model_settings=registry.build_settings(spec, reasoning_effort),
+            # The cache key routes every turn of one conversation to the
+            # same prompt-cache owner, which is the other half of the
+            # prefix-stability work in `load_model_history`: a stable prefix
+            # only hits if the request lands where that prefix is cached.
+            model_settings=registry.build_settings(
+                spec, reasoning_effort, cache_key=f"openpaper:{conversation_id}"
+            ),
             usage_limits=UsageLimits(
                 # Leave headroom after the manual tool budget is exhausted so
                 # the model can see the budget error and produce a final

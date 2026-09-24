@@ -298,6 +298,46 @@ def test_snapshot_is_discarded_when_the_row_vanishes(monkeypatch, tmp_path: Path
     assert not any(m.get("status") == "ready" for m in state["marks"])
 
 
+def test_superseded_job_keeps_the_replacement_rows_snapshot(monkeypatch, tmp_path: Path):
+    """A stale job finishing after a disconnect + reconnect must discard only
+    ITS snapshot: the new row's snapshot stays and no READY is written."""
+    state = _ingestion_env(monkeypatch, tmp_path)
+    old_sha = "b" * 40
+    (tmp_path / PAPER_ID / old_sha).mkdir(parents=True)
+    (tmp_path / PAPER_ID / SHA).mkdir(parents=True)  # the replacement's
+
+    def _ingest(**kwargs):
+        state["row"] = _FakeRow(id=uuid.uuid4(), status="ready", commit_sha=SHA)
+        return SimpleNamespace(
+            owner="o", repo="r", ref="main", commit_sha=old_sha, file_count=1,
+            total_bytes=1, storage_prefix=f"{PAPER_ID}/{old_sha}",
+        )
+
+    monkeypatch.setattr(repo_api, "ingest_repo", _ingest)
+    repo_api.run_ingestion(PAPER_ID, "https://github.com/o/r")
+    assert not (tmp_path / PAPER_ID / old_sha).exists()
+    assert (tmp_path / PAPER_ID / SHA).exists()
+    assert not any(m.get("status") == "ready" for m in state["marks"])
+
+
+def test_owner_prunes_older_snapshots_only_after_ready(monkeypatch, tmp_path: Path):
+    state = _ingestion_env(monkeypatch, tmp_path)
+    old_sha = "c" * 40
+    (tmp_path / PAPER_ID / old_sha).mkdir(parents=True)
+    (tmp_path / PAPER_ID / SHA).mkdir(parents=True)
+    monkeypatch.setattr(
+        repo_api, "ingest_repo",
+        lambda **kwargs: SimpleNamespace(
+            owner="o", repo="r", ref="main", commit_sha=SHA, file_count=1,
+            total_bytes=1, storage_prefix=f"{PAPER_ID}/{SHA}",
+        ),
+    )
+    repo_api.run_ingestion(PAPER_ID, "https://github.com/o/r")
+    assert state["marks"][-1]["status"] == "ready"
+    assert not (tmp_path / PAPER_ID / old_sha).exists()
+    assert (tmp_path / PAPER_ID / SHA).exists()
+
+
 # -- staleness rule -------------------------------------------------------
 
 

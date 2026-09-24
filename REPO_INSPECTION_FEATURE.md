@@ -8,10 +8,20 @@ cross-reviewed again post-build. Delete this doc when the branch lands.
 
 Post-v1 additions built the same day (not in the plan below):
 - **Quick question**: `POST /api/message/quick-question/code` — ephemeral
-  tool-less streamed answer about a selected code range; context =
-  adaptive-mode paper preload + full file (≤64KB/2000 lines, else
-  selection-centered window) + selection. No persistence. Client panel
-  in the code viewer off the selection toolbar.
+  streamed answer about a selected code range; context = adaptive-mode
+  paper preload + full file (≤64KB/2000 lines, else selection-centered
+  window) + selection. No persistence. Client panel in the code viewer
+  off the selection toolbar. Since 2026-09-05 it also gets read-only repo
+  lookups — the `RepoPrelude` helpers registered directly as three
+  pydantic-ai tools (`tree`, `read_file`, `grep_repo`) with NO Monty
+  sandbox, on a 4-lookup budget enforced in `quick_question_tools` (the
+  `UsageLimits` sit far above it so an over-eager model degrades into
+  "answer now" instead of raising — pydantic-ai checks `tool_calls_limit`
+  against a whole parallel batch). Lookups run on a 2-thread pool behind a
+  process-wide slot limit; a busy worker returns a "lookups are busy" note,
+  like a busy sandbox. The prelude's grep clamps each emitted line and caps
+  its output while building it. Tool rows render in the popover via the
+  extracted `ToolActivity` component.
 - **Select-to-attach**: viewer selections attach to chat via the
   existing `user_references` channel as `{path} lines {a}-{b}:` strings.
 - **Line-wrap toggle** in the viewer (persisted, also governs chat code
@@ -23,6 +33,15 @@ Post-v1 additions built the same day (not in the plan below):
 - Erratum: quota exhaustion returns **403** (matching `/chat/paper`),
   not the 429 the quick-question contract draft said; clients treat
   both as quota.
+- 2026-09-05 review pass: the model-facing `run_python` output cap is
+  now 24,000 chars per call (was 4,000, see revision 4 below) with a
+  240,000-char per-run budget after which calls drop back to 4,000;
+  `truncate_tool_output` keeps `files` on the wire marker so the chips no
+  longer depend on the model cap. Quick questions are now metered through
+  `chat_usage_events` (migration `d9e0f1a2b3c4`); older snapshots are
+  pruned by the confirmed row owner in `run_ingestion`, not by
+  `ingest_repo`; flattened multi-line gutter quotes verify; exact matches
+  under a claimed range more than twice their size are narrowed.
 
 ## Vision
 
@@ -350,14 +369,19 @@ Celery ingestion; PDF-side changes of any kind.
    Path confinement via `Path.resolve()` + `is_relative_to()` +
    manifest membership — never string `startswith`.
 4. **Tool return vs wire cap**: `truncate_tool_output` replaces the
-   WHOLE structure with a preview blob past 6,000 serialized chars.
+   WHOLE structure with a preview past 6,000 serialized chars (now a
+   trimmed JSON value via `tool_preview.py`, or the stdout text plus
+   `omitted_chars` for the `run_python` shape).
    Cap `output` at 4,000 chars inside the tool and put `files` first
    in the dict so chips survive.
-5. **History bloat**: add `strip_sandbox_outputs` beside
-   `strip_figure_bytes` — cap `run_python` ToolReturnPart content at
-   ~1,500 chars before persisting to `bucket.pai_messages` (16-call
-   turns would otherwise blow the 240k replay budget in ~2 turns,
-   degrading the whole conversation).
+5. **History bloat**: ~~add `strip_sandbox_outputs`~~ — REMOVED
+   2026-09-06. Trimming `run_python` returns at persist time meant the
+   replayed copy of a turn never matched what the model had seen, which
+   invalidated the provider's prompt cache from that point on. Sandbox
+   outputs are now persisted whole (the sandbox already caps them at
+   24k chars per call / 240k per turn) and the history loader bounds
+   the replay window in chunked jumps instead — see the "Model history
+   ≠ UI pagination" item in `AGENTIC_CHAT_REFACTOR.md`.
 6. **Dispatch**: `run_python` gets its own small executor +
    `asyncio` lock — NOT the shared `_tool_executor(4)` (25s feeds
    would starve every other tool call in the process) and no

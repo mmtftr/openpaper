@@ -184,12 +184,22 @@ def run_ingestion(paper_id: str, url: str) -> None:
         still_there = paper_repo_crud.get_by_paper_id(
             db=session, paper_id=uuid.UUID(paper_id)
         )
-        if still_there is None or still_there.id != row.id:
+        if still_there is None:
             logger.info(
                 "Repo row for paper %s disappeared during ingestion; "
                 "discarding the snapshot", paper_id,
             )
             storage.delete_paper_snapshots(paper_id)
+            return
+        if still_there.id != row.id:
+            # Superseded: a disconnect + reconnect created a new row while
+            # this (stale) job was still running. The new row owns its own
+            # snapshot — drop only ours, never the whole paper directory.
+            logger.info(
+                "Repo row for paper %s was replaced during ingestion; "
+                "discarding this job's snapshot", paper_id,
+            )
+            storage.delete_snapshot(paper_id, result.commit_sha)
             return
 
         _mark_checked(
@@ -205,6 +215,11 @@ def run_ingestion(paper_id: str, url: str) -> None:
             storage_prefix=result.storage_prefix,
             error=None,
         )
+        # Only the confirmed owner prunes older snapshots (see `ingest_repo`).
+        try:
+            storage.prune_other_snapshots(paper_id, result.commit_sha)
+        except storage.SnapshotPathError as exc:
+            logger.warning("Skipping snapshot prune for paper %s: %s", paper_id, exc)
         logger.info(
             "Repo ready for paper %s: %s/%s@%s (%d files)",
             paper_id, result.owner, result.repo, result.commit_sha[:8],

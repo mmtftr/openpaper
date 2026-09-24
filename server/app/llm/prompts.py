@@ -405,7 +405,7 @@ The main body and figures are below. References and appendices are NOT in your i
 
 FULL_MODE_PRELOAD = """
 ## Pre-loaded paper content (Full mode)
-The complete paper is below. Tools are available but you typically won't need them.
+The complete paper TEXT is below, so you rarely need read_section, read_pages or search_paper. Figure and table IMAGES are not included — only their captions are — so when a question is about what a figure shows, call `get_figure(label)` to look at it before answering.
 
 {preloaded_content}
 """

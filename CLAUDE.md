@@ -37,8 +37,10 @@ docker compose up -d --force-recreate server
 
 ## Azure OpenAI model deployments
 
-`OPENAI_MODELS` (`server/.env`) lists the models shown in the chat model
-picker when `AZURE_OPENAI=true`. Its ids must be actual **deployment names**
+`OPENAI_MODELS` (`server/.env`) lists the Azure-backed models shown in the
+chat model picker when `AZURE_OPENAI=true` — the picker also shows the
+`CODEX_PROXY` provider's models, grouped separately (see below). Its ids
+must be actual **deployment names**
 on the `your-azure-resource` Azure resource, not upstream model names —
 Azure lets a deployment be named anything, and this resource's deployments
 happen to reuse the upstream model name for OpenAI's own models (`gpt-5.5`,
@@ -68,3 +70,29 @@ through the same OpenAI-compatible `/openai/v1/chat/completions` and
 `/openai/v1/responses` endpoints as the native models — verify a new one
 with a live call before adding it to `OPENAI_MODELS`, since low-capacity
 deployments (e.g. Fireworks-hosted ones) can 429 under light load.
+
+## The codex proxy as a second chat provider
+
+`LLMProvider.CODEX_PROXY` (`CODEX_PROXY_*` in `server/.env`) is the local
+`codex-raycast-proxy` on `127.0.0.1:8788`, reached from containers at
+`host.docker.internal:8788` and authenticated by the ChatGPT/Codex
+subscription. It runs **alongside** Azure — overlapping ids stay
+independently selectable because the client sends `{model, llm_provider}`
+together.
+
+It is currently the default (`DEFAULT_LLM_PROVIDER=codex_proxy`) because
+**`gpt-6-astra` is not deployed on the Azure resource** but the proxy serves
+it. Two non-obvious facts about that proxy:
+
+- `gpt-6-astra` does **not** appear in its `GET /v1/models` list yet works
+  (streaming, tools, image input, `reasoning_effort` all verified live) — so
+  that list is not proof a codex model is unavailable.
+- It **ignores `response_format` json_schema** (returns prose). Structured
+  output still works only because pydantic-ai defaults to tool-output
+  (`final_result` tool); don't move any caller to native JSON-schema output
+  while this provider is the default.
+
+`DEFAULT_LLM_PROVIDER` is read by both the chat `ModelRegistry` and
+`BaseLLMClient`, so it also routes non-chat work (summaries, titles, data
+tables, audio overview) at the same time. `jobs/.env` is separate and stays
+on Azure.

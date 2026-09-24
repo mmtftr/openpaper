@@ -143,6 +143,20 @@ def prune_other_snapshots(paper_id: Any, keep_sha: Any) -> None:
             logger.warning("Failed to prune snapshot %s: %s", entry, exc)
 
 
+def delete_snapshot(paper_id: Any, sha: Any) -> None:
+    """Remove ONE snapshot. Never raises — used by a superseded ingestion to
+    discard only its own output while a newer row keeps its snapshot."""
+    try:
+        target = snapshot_dir(paper_id, sha)
+    except SnapshotPathError:
+        return
+    try:
+        if target.exists():
+            shutil.rmtree(target, ignore_errors=True)
+    except OSError as exc:  # pragma: no cover - defensive
+        logger.warning("Failed to delete snapshot %s: %s", target, exc)
+
+
 def delete_paper_snapshots(paper_id: Any) -> None:
     """Remove every snapshot for a paper. Never raises — callers are delete
     paths where a stale directory must not fail the user's request."""

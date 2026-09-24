@@ -7,9 +7,9 @@ truth) plus OpenPaper's custom fields (paper_id, conversation_id, model
 selection). The response streams UIMessage chunks produced by the
 pydantic-ai Vercel adapter. See app/llm/chat/ and AGENTIC_CHAT_REFACTOR.md.
 
-POST /quick-question/code streams the same protocol (text/reasoning parts
-only) for an ephemeral, tool-less question about a selected code range in
-the paper's connected repo — nothing is persisted. See
+POST /quick-question/code streams the same protocol for an ephemeral
+question about a selected code range in the paper's connected repo — it gets
+read-only repo lookups on a small budget, but nothing is persisted. See
 app/llm/chat/quick_question.py and REPO_INSPECTION_FEATURE.md.
 
 GET /models lists user-selectable chat models with capability flags.
@@ -105,8 +105,8 @@ async def quick_question_code(
     """Stream a one-shot answer about a selected range of a repo file.
 
     Same wire protocol as /chat/paper (the client uses the identical ai-sdk
-    reader) but text/reasoning parts only — no tools, no citations, and
-    nothing written to conversations or messages.
+    reader), with read-only repo lookup tools but no citations and nothing
+    written to conversations or messages.
     """
     try:
         extras = QuickQuestionCodeBody.model_validate(json.loads(await request.body()))

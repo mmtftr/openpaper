@@ -24,6 +24,11 @@ export interface CodeViewerTarget {
     path?: string;
     startLine?: number | null;
     endLine?: number | null;
+    /**
+     * Revision the line numbers were verified against (a citation's
+     * permalink sha). The dialog warns when the connected snapshot differs.
+     */
+    commitSha?: string | null;
 }
 
 export interface CodeViewerRequest extends CodeViewerTarget {

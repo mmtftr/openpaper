@@ -41,6 +41,10 @@ export function useRepoStatus(paperId: string | null | undefined): UseRepoStatus
     const [mutating, setMutating] = useState(false);
     const inFlightRef = useRef(false);
     const mountedRef = useRef(true);
+    // The paper the hook currently serves: a connect/disconnect that resolves
+    // after a paper switch must not write the OLD paper's repo into state.
+    const paperIdRef = useRef(paperId);
+    paperIdRef.current = paperId;
     // Bumped whenever newer state supersedes in-flight reads (paper switch,
     // connect, disconnect).
     const epochRef = useRef(0);
@@ -109,7 +113,7 @@ export function useRepoStatus(paperId: string | null | undefined): UseRepoStatus
             clearRepoFileCache(paperId);
             try {
                 const created = await connectPaperRepo(paperId, url);
-                if (mountedRef.current) {
+                if (mountedRef.current && paperIdRef.current === paperId) {
                     epochRef.current += 1;
                     setRepo(created);
                     setError(null);
@@ -128,7 +132,7 @@ export function useRepoStatus(paperId: string | null | undefined): UseRepoStatus
         clearRepoFileCache(paperId);
         try {
             await disconnectPaperRepo(paperId);
-            if (mountedRef.current) {
+            if (mountedRef.current && paperIdRef.current === paperId) {
                 epochRef.current += 1;
                 setRepo(null);
                 setError(null);

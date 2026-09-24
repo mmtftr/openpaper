@@ -10,7 +10,10 @@ import {
     QUICK_QUESTION_MAX_CHARS,
     type CodeQuestionModel,
 } from "@/lib/quickQuestionApi";
-import type { ChatUIMessage } from "@/lib/chatMessages";
+import {
+    isTruncatedAssistantMessage,
+    type ChatUIMessage,
+} from "@/lib/chatMessages";
 
 /**
  * One ephemeral code question at a time.
@@ -141,6 +144,17 @@ export function useQuickQuestion() {
                             ...current,
                             status: "error",
                             error: "The server didn't send an answer — try asking again.",
+                        };
+                    }
+                    // A clean EOF mid-answer leaves a part in `streaming`
+                    // state and never sends `finish`; the SDK reports no
+                    // error, so this is the only signal. The partial text
+                    // stays on screen alongside the notice.
+                    if (isTruncatedAssistantMessage(current.message)) {
+                        return {
+                            ...current,
+                            status: "error",
+                            error: "The connection dropped before the answer finished — try asking again.",
                         };
                     }
                     return { ...current, status: "done" };

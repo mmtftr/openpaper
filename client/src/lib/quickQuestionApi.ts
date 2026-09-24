@@ -188,7 +188,7 @@ function toChunkStream(
 
 /**
  * Ask the question and return an async iterable of message snapshots — one per
- * chunk, each a complete `UIMessage` with the text/reasoning parts so far.
+ * chunk, each a complete `UIMessage` with the text, reasoning and tool parts so far.
  *
  * Throws `QuickQuestionError` when the request fails before streaming starts.
  * Errors raised mid-stream go to `onError`; the iterable then ends normally,

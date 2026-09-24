@@ -187,10 +187,24 @@ DB columns are kept (no migrations); only code paths are removed.
    rejected. **Not implemented: the pg advisory lock** — see the Deferred
    section for why it does not fit this session layer.
 4. **Model history ≠ UI pagination**: a dedicated chronological loader
-   fetches ALL rows and applies a char-budget policy — newest turns replay
-   `pai_messages` dumps; beyond budget, turns degrade to text-only. UI
-   pagination stays as-is, separate. (Replay is no longer verbatim: it is
-   sanitized for the target model — see revision 17.)
+   fetches ALL rows and cuts them into three zones — a newest-first
+   **replay window** of turns replayed from their `pai_messages` dumps
+   (`MODEL_HISTORY_REPLAY_CHARS`), a plain-**text tail** ahead of it
+   (`MODEL_HISTORY_TEXT_CHARS`), and everything older **dropped**, so a
+   long thread can never outgrow the context window. Both boundaries snap
+   to a fixed GRID keyed on absolute cumulative cost
+   (`MODEL_HISTORY_REPLAY_CHUNK` / `MODEL_HISTORY_TEXT_CHUNK`) rather than
+   moving a row at a time: providers cache prompt prefixes by hashing the
+   leading bytes, and the original per-turn budget walk rewrote the prefix
+   on every turn (measured 29% cache hits on gpt-5.5, 0% on three
+   consecutive same-model turns). With the grid the prefix is
+   byte-identical between chunk-sized jumps, and a jump costs exactly one
+   uncached re-read. The history always opens on a user turn and always
+   keeps the newest one. UI pagination stays as-is, separate. (Replay is
+   not verbatim across models: it is sanitized for the target model — see
+   revision 17. It IS verbatim across turns for the same model — the
+   1,500-char `run_python` trim at persist time was removed for exactly
+   that reason; sandbox output is bounded at the source instead.)
 5. **Corpus safeguards**: keep tool budget, result caps + dedup at the
    toolset layer, and a no-evidence fallback message; citation grammar is
    `@cite[n|page=P|paper_id=ID]` (named extras only — the existing parser's
@@ -202,13 +216,15 @@ DB columns are kept (no migrations); only code paths are removed.
 7. **History serialization details**: drop system/user messages from the
    dump, merge assistant UIMessages in order with `step-start` parts between
    ModelResponses (live-stream parity), scan ALL text parts for the evidence
-   block, truncate tool outputs (~6KB marker) in the UI projection, version
+   block, truncate tool outputs (~6KB marker whose preview is a trimmed
+   JSON value, see `tool_preview.py`) in the UI projection, version
    the bucket (`bucket.pai_v=1`), keep text-only fallback for legacy rows in
    BOTH GET serialization and model-history load.
 8. **Regeneration**: `trigger=regenerate-message` is rejected (400) for now;
    client does not offer regenerate. Top-level chat `id` must equal
    `conversation_id`.
-9. **Operational parity**: keep non-fatal rename, credits refresh + gating,
+9. **Operational parity**: keep non-fatal rename (run in a thread — it is a
+   synchronous LLM call and used to block the event loop), credits refresh + gating,
    `did_chat_message` / error / per-tool-timing telemetry, assistant
    UIMessage id == DB row id via `server_message_id`.
 
@@ -227,7 +243,9 @@ Additional revisions from the Opus review:
     the reconciled set replaces the raw set in place.
 12. **Interrupted runs**: persist in a `finally` with a FRESH DB session
     (the request-scoped one may be torn down on disconnect).
-13. **Wire hygiene**: tool outputs are truncated (~6KB preview marker) in
+13. **Wire hygiene**: tool outputs are truncated (~6KB marker; the preview
+    is the output trimmed as a JSON value with inline `…[+N …]` markers,
+    or the stdout text for `run_python`, never a slice of the encoding) in
     both the live stream and history serialization; `bucket` is never
     returned by any GET again (it leaks tool transcripts today, including
     on the unauthenticated share endpoint).
@@ -306,11 +324,21 @@ Additional revisions from the Opus review:
   turn setup first.
 - **Credit accounting**: still `len(content)/5`; user-reference blocks,
   tool tokens, and model reasoning are unmetered (parity with legacy).
-  No reservation, so concurrent requests can both pass the quota check.
+  Exchanges that persist no message row (the code-viewer quick question)
+  are metered through `chat_usage_events` (question + answer chars) and
+  summed into the same weekly figure — before that they bypassed the quota
+  entirely. No reservation, so concurrent requests can both pass the check.
 - ~~**Figure rehydration**~~ (done): replayed figures are now charged
   against the history char budget before replay is planned (stored S3 size,
   or a conservative estimate when unavailable), and are not fetched at all
   for a model without vision.
+- **History cost pass walks the whole thread**: the replay grid is anchored
+  at absolute cumulative cost from row 0, so `load_model_history` now sizes
+  EVERY row (including ones it will drop) instead of stopping early. For
+  figures that means an S3 `HEAD` per distinct key in the conversation,
+  memoized per key and run off the event loop. Fine against local MinIO;
+  worth caching the size on the row if a thread ever accumulates hundreds
+  of distinct figures.
 - **Read timeout vs. slow first token**: the chat read gap is 180s, and
   pydantic-ai peeks the first event inside `__aenter__`, so time-to-first-
   token counts against it. A reasoning model that thinks longer than that

@@ -62,6 +62,14 @@ class ModelSpec:
     supports_vision: bool = True
     supports_reasoning_effort: bool = False
     supports_reasoning_summaries: bool = False
+    # OpenAI prompt-caching knob (`prompt_cache_key`). It is an OpenAI-API
+    # parameter, so a non-OpenAI-family deployment reachable through an
+    # OpenAI-compatible gateway may reject it (Fireworks-hosted Azure
+    # deployments accept it but 400 on the sibling `prompt_cache_retention`,
+    # which is why that one is not sent at all). Every flag here is verified
+    # against the live deployment; correct a new one through
+    # `MODEL_OVERRIDES` rather than guessing in `_family_defaults`.
+    supports_prompt_cache_key: bool = False
 
     def to_public_dict(self) -> Dict[str, Any]:
         """Shape served to the model picker."""
@@ -79,6 +87,8 @@ class ModelSpec:
 _KNOWN_MODEL_CAPS: Dict[str, Dict[str, Any]] = {
     # Azure's /responses gateway 400s on image input for this deployment even
     # though the model handles images via /chat/completions (verified live).
+    # Fireworks' OpenAI-compatible server accepts `prompt_cache_key`
+    # (verified live).
     "FW-Kimi-K3": {"api": "chat"},
     # Rejects image input on both endpoints and 400s on reasoning_effort.
     "DeepSeek-V4-Flash-0731": {
@@ -103,16 +113,25 @@ def _family_defaults(provider: LLMProvider, model_id: str) -> Dict[str, Any]:
             "api": "responses",
             "supports_reasoning_effort": is_gpt,
             "supports_reasoning_summaries": is_gpt,
+            # Verified live on the Azure resource (gpt-5.5, gpt-5.4-mini,
+            # the DeepSeek passthrough and the Fireworks-hosted FW-* twins,
+            # both /responses and /chat/completions): all accept it.
+            "supports_prompt_cache_key": True,
         }
     if provider == LLMProvider.CODEX_PROXY:
         # The codex proxy speaks Chat Completions only; reasoning summaries
-        # are a Responses-API feature.
+        # are a Responses-API feature. It forwards unknown parameters to the
+        # codex backend (it surfaces that backend's 400s verbatim) and
+        # `prompt_cache_key` came back accepted.
         return {
             "api": "chat",
             "supports_reasoning_effort": is_gpt,
             "supports_reasoning_summaries": False,
+            "supports_prompt_cache_key": True,
         }
     if provider in (LLMProvider.GROQ, LLMProvider.CEREBRAS):
+        # Not configured on this deployment, so the cache parameters are
+        # unverified — left off rather than guessed.
         return {"api": "chat"}
     return {"api": "native"}
 
@@ -399,30 +418,56 @@ class ModelRegistry:
         raise ValueError(f"Unsupported provider: {spec.provider.value}")
 
     def build_settings(
-        self, spec: ModelSpec, reasoning_effort: Optional[str] = None
+        self,
+        spec: ModelSpec,
+        reasoning_effort: Optional[str] = None,
+        *,
+        cache_key: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """ModelSettings for a call, honoring the spec's capabilities.
 
-        An unsupported reasoning_effort is dropped silently (the picker is
-        capability-gated client-side; a stale selection shouldn't 400).
+        Every setting is gated INDEPENDENTLY, and an unsupported one is
+        dropped silently rather than sent and 400'd (the picker is
+        capability-gated client-side; a stale selection shouldn't fail the
+        call). `None` is returned only when nothing applies at all.
+
+        `cache_key` opts the call into OpenAI prompt caching:
+        `prompt_cache_key` keeps requests for one conversation on the same
+        cache-owning backend, which is what makes automatic prefix caching
+        hit reliably instead of ~30% of the time. (`prompt_cache_retention`
+        is deliberately NOT sent: the default lifetime is enough for a live
+        thread, and Fireworks-hosted deployments 400 on it.)
+
+        It is an OpenAI API parameter, so it rides only on the OpenAI
+        family (`api != "native"`) and only where the spec says the specific
+        deployment accepts it.
         """
-        if not reasoning_effort or not spec.supports_reasoning_effort:
+        if spec.api == "native":
+            # Anthropic/Gemini: none of these settings are theirs.
             return None
         from pydantic_ai.models.openai import (
             OpenAIChatModelSettings,
             OpenAIResponsesModelSettings,
         )
 
+        settings: Dict[str, Any] = {}
+        if reasoning_effort and spec.supports_reasoning_effort:
+            if spec.api == "responses":
+                settings["openai_reasoning_effort"] = str(reasoning_effort)
+                if spec.supports_reasoning_summaries:
+                    settings["openai_reasoning_summary"] = "auto"
+            else:
+                # Chat Completions has no `xhigh` tier — map it down.
+                settings["openai_reasoning_effort"] = (
+                    "high" if reasoning_effort == "xhigh" else str(reasoning_effort)
+                )
+        if cache_key and spec.supports_prompt_cache_key:
+            settings["openai_prompt_cache_key"] = cache_key
+        if not settings:
+            return None
         if spec.api == "responses":
-            settings = OpenAIResponsesModelSettings(
-                openai_reasoning_effort=str(reasoning_effort)
-            )
-            if spec.supports_reasoning_summaries:
-                settings["openai_reasoning_summary"] = "auto"
-            return settings
-        # Chat Completions has no `xhigh` tier — map it down.
-        effort = "high" if reasoning_effort == "xhigh" else str(reasoning_effort)
-        return OpenAIChatModelSettings(openai_reasoning_effort=effort)
+            return OpenAIResponsesModelSettings(**settings)
+        return OpenAIChatModelSettings(**settings)
 
 
 def _default_option(model_id: str):

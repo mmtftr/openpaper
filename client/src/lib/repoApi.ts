@@ -177,8 +177,13 @@ export async function getRepoFile(
  * answer can cite the same file five times, and each snippet needs the real
  * source lines. Keyed by paper + path; in-flight promises are shared, and a
  * rejection is evicted so the next caller retries.
+ *
+ * Bounded LRU: a Map iterates in insertion order, a hit re-inserts its entry,
+ * and the oldest entries are evicted past the cap. Each file is at most
+ * 512 KB on the wire, so the cache can never hold more than ~20 MB.
  */
 const fileCache = new Map<string, Promise<RepoFile>>();
+const FILE_CACHE_MAX_ENTRIES = 40;
 
 export function getRepoFileCached(
     paperId: string,
@@ -186,12 +191,21 @@ export function getRepoFileCached(
 ): Promise<RepoFile> {
     const key = `${paperId}:${path}`;
     const cached = fileCache.get(key);
-    if (cached) return cached;
+    if (cached) {
+        fileCache.delete(key);
+        fileCache.set(key, cached);
+        return cached;
+    }
     const request = getRepoFile(paperId, path).catch((error) => {
         fileCache.delete(key);
         throw error;
     });
     fileCache.set(key, request);
+    while (fileCache.size > FILE_CACHE_MAX_ENTRIES) {
+        const oldest = fileCache.keys().next().value;
+        if (oldest === undefined) break;
+        fileCache.delete(oldest);
+    }
     return request;
 }
 

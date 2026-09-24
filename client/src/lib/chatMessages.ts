@@ -72,6 +72,15 @@ export function codeCitationLabel(citation: Citation): string {
     return `${file}:${citation.start_line}-${citation.end_line}`;
 }
 
+/** The 40-hex commit a GitHub blob permalink pins, or null. */
+export function commitShaFromGithubUrl(
+    url: string | null | undefined
+): string | null {
+    if (!url) return null;
+    const match = /\/blob\/([0-9a-f]{40})\//.exec(url);
+    return match ? match[1] : null;
+}
+
 /** All text content of a message joined (for copy actions / user rows). */
 export function textFromMessage(message: ChatUIMessage): string {
     return message.parts
@@ -118,6 +127,19 @@ export function toolLabel(part: ToolPartView): string {
             return input.name ? `Updating doc "${input.name}"` : "Updating a doc";
         case "run_python":
             return "Inspecting the repository";
+        // Quick-question repo lookups (the popover's read-only tools).
+        case "tree": {
+            const path = typeof input.path === "string" ? input.path : "";
+            return path && path !== "/repo"
+                ? `Listing ${path}`
+                : "Listing repo files";
+        }
+        case "read_file": {
+            const path = typeof input.path === "string" ? input.path : "";
+            return path ? `Reading ${path}` : "Reading a repo file";
+        }
+        case "grep_repo":
+            return `Searching repo for "${input.pattern ?? "…"}"`;
         default:
             return `Calling ${name}`;
     }
@@ -129,13 +151,12 @@ const MAX_TOOL_FILES = 20;
 /**
  * Repo paths from a `run_python` result, for the tool row's file chips.
  *
- * The tool returns `{"files": [...], "output": "..."}`, but past the wire cap
- * the server replaces the WHOLE structure with `{"truncated": true,
- * "preview": "..."}` — in which case there are no paths to show.
+ * The tool returns `{"files": [...], "output": "..."}`; past the wire cap the
+ * server replaces it with a `{"truncated": true, "preview": "..."}` marker
+ * that still carries `files`, so the chips render either way.
  */
 export function toolOutputFiles(part: ToolPartView): string[] {
     const output = asRecord(part.output);
-    if (output.truncated) return [];
     const files = output.files;
     if (!Array.isArray(files)) return [];
     const unique: string[] = [];
@@ -147,6 +168,58 @@ export function toolOutputFiles(part: ToolPartView): string[] {
         if (unique.length >= MAX_TOOL_FILES) break;
     }
     return unique;
+}
+
+/** What a tool row shows for one payload: a JSON value or plain text. */
+export type ToolPayload =
+    | { kind: "json"; value: unknown }
+    | { kind: "text"; text: string };
+
+export interface ToolOutputView {
+    payload: ToolPayload;
+    /** Footer note when the server sent a wire-cap preview instead of the output. */
+    note: string | null;
+}
+
+/**
+ * Decode a tool part's output for display.
+ *
+ * Past the wire cap the server ships `{truncated: true, preview}` — `preview`
+ * is either the output text (`run_python` stdout, bare strings; with
+ * `omitted_chars`) or the output trimmed as a JSON value with inline
+ * `…[+N …]` markers (see `jsonPreview`). Below the cap the output arrives
+ * whole; `run_python`'s stdout is still shown as text rather than as an
+ * escaped JSON string, matching how its preview reads.
+ */
+export function toolOutputView(part: ToolPartView): ToolOutputView | null {
+    const output = part.output;
+    if (output === undefined || output === null) return null;
+    const record = asRecord(output);
+    if (record.truncated === true && "preview" in record) {
+        const preview = record.preview;
+        if (typeof preview === "string") {
+            const omitted =
+                typeof record.omitted_chars === "number" ? record.omitted_chars : 0;
+            return {
+                payload: { kind: "text", text: preview },
+                note:
+                    omitted > 0
+                        ? `Output truncated · ${omitted.toLocaleString("en-US")} more characters not shown`
+                        : "Output truncated",
+            };
+        }
+        return {
+            payload: { kind: "json", value: preview },
+            note: "Output trimmed for display",
+        };
+    }
+    if (typeof output === "string") {
+        return { payload: { kind: "text", text: output }, note: null };
+    }
+    if (typeof record.output === "string" && Array.isArray(record.files)) {
+        return { payload: { kind: "text", text: record.output }, note: null };
+    }
+    return { payload: { kind: "json", value: output }, note: null };
 }
 
 export function toolIsPending(part: ToolPartView): boolean {

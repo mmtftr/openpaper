@@ -31,8 +31,11 @@ from app.llm.chat.history import (
     BUCKET_VERSION,
     BUCKET_VERSION_KEY,
     IMAGE_PLACEHOLDER,
+    MIN_HISTORY_ROWS,
     load_model_history,
     serialize_ui_messages,
+    strip_figure_bytes,
+    strip_instructions,
     strip_replayed_images,
 )
 from app.llm.chat.stream import (
@@ -172,7 +175,23 @@ class TestTruncateToolOutput:
         out = {"content": "x" * (TOOL_OUTPUT_WIRE_CAP + 500)}
         result = truncate_tool_output(out)
         assert result["truncated"] is True
-        assert len(result["preview"]) == TOOL_OUTPUT_WIRE_CAP
+        # The preview is the trimmed VALUE, not a slice of its encoding.
+        assert isinstance(result["preview"], dict)
+        assert result["preview"]["content"].startswith("xxx")
+        assert result["preview"]["content"].endswith(" chars]")
+        assert len(json.dumps(result)) <= TOOL_OUTPUT_WIRE_CAP + 100
+        assert "files" not in result
+
+    def test_run_python_shape_keeps_files_and_previews_output_text(self):
+        out = {
+            "files": ["a.py", "b.py"],
+            "output": "o" * (TOOL_OUTPUT_WIRE_CAP + 50),
+        }
+        result = truncate_tool_output(out)
+        assert result["truncated"] is True
+        assert result["files"] == ["a.py", "b.py"]
+        assert result["preview"] == "o" * TOOL_OUTPUT_WIRE_CAP
+        assert result["omitted_chars"] == 50
 
     def test_unserializable_output_falls_back_to_str(self):
         class Weird:
@@ -475,7 +494,7 @@ class TestLoadModelHistory:
         assert len(tool_calls) == 1
         assert tool_calls[0].tool_name == "read_section"
 
-    def test_budget_degrades_oldest_turns_to_text(self):
+    def test_turns_outside_the_window_degrade_to_text(self):
         old = _simple_turn_dump("q1", "a1" + "X" * 5000)
         new = _simple_turn_dump("q2", "a2")
         rows = [
@@ -484,8 +503,10 @@ class TestLoadModelHistory:
             _row("user", "q2"),
             _row("assistant", "a2-text", bucket=_bucketed(new)),
         ]
-        budget = len(json.dumps(new)) + 10  # only the newest dump fits
-        history = load_model_history(rows, char_budget=budget)
+        # Only the newest turn fits, and its user row is a grid line.
+        history = load_model_history(
+            rows, replay_chars=len(json.dumps(new)) + 10, replay_chunk=1
+        )
         texts = [
             p.content
             for m in history
@@ -497,14 +518,62 @@ class TestLoadModelHistory:
         assert "a2" in texts  # newest turn replayed from the dump
         assert not any("XXXXX" in t for t in texts)
 
-    def test_zero_budget_degrades_everything(self):
+    def test_zero_window_degrades_everything(self):
         rows = [
             _row("user", "q1"),
             _row("assistant", "a1-text", bucket=_bucketed(_simple_turn_dump("q1", "a1"))),
         ]
-        history = load_model_history(rows, char_budget=0)
+        history = load_model_history(rows, replay_chars=0)
         assert len(history) == 2
         assert history[1].parts[0].content == "a1-text"
+
+    def test_text_cap_drops_the_oldest_turns_entirely(self):
+        """Degraded text is bounded too: past the cap, older rows are dropped
+        rather than resent forever (and the history opens on a question)."""
+        rows = []
+        for i in range(6):
+            rows.append(_row("user", f"q{i}"))
+            rows.append(_row("assistant", f"a{i}" + "T" * 1000))
+        # `text_chunk=1` puts a grid line on every user row, so the tail
+        # boundary is exactly "the oldest turn that still fits".
+        history = load_model_history(
+            rows, replay_chars=0, text_chars=2500, text_chunk=1
+        )
+        texts = [
+            p.content
+            for m in history
+            for p in m.parts
+            if isinstance(p, (TextPart, UserPromptPart))
+        ]
+        assert texts[0] == "q4"
+        assert isinstance(history[0].parts[0], UserPromptPart)
+        assert any(t.startswith("a5") for t in texts)
+        assert "q3" not in texts
+        assert not any(t.startswith("a3") for t in texts)
+
+    def test_text_cap_never_drops_the_newest_turn(self):
+        rows = [_row("user", "q"), _row("assistant", "a" * 5000)]
+        history = load_model_history(rows, replay_chars=0, text_chars=10)
+        assert len(history) == 2
+
+    def test_min_history_rows_survive_every_cap(self):
+        """The newest MIN_HISTORY_ROWS rows are sent however small the caps."""
+        rows = []
+        for i in range(6):
+            rows.append(_row("user", f"q{i}" + "Q" * 500))
+            rows.append(_row("assistant", f"a{i}" + "A" * 500))
+        history = load_model_history(
+            rows, replay_chars=0, text_chars=0, text_chunk=1
+        )
+        texts = [
+            p.content
+            for m in history
+            for p in m.parts
+            if isinstance(p, (TextPart, UserPromptPart))
+        ]
+        assert len(history) == MIN_HISTORY_ROWS
+        assert texts[0].startswith("q5")
+        assert texts[1].startswith("a5")
 
     def test_row_without_dump_uses_text(self):
         rows = [
@@ -568,6 +637,264 @@ class TestLoadModelHistory:
         assert any(
             isinstance(p, RetryPromptPart) for m in history for p in m.parts
         )
+
+
+# =====================================================================
+# history: prompt-cache prefix stability
+# =====================================================================
+
+
+def _padded_turn_rows(count: int, pad: int = 0) -> List[SimpleNamespace]:
+    """`count` complete turns, each replaying a dump padded by `pad` chars."""
+    rows: List[SimpleNamespace] = []
+    for i in range(count):
+        rows.append(_row("user", f"q{i}"))
+        rows.append(
+            _row(
+                "assistant",
+                f"a{i}-text",
+                bucket=_bucketed(_simple_turn_dump(f"q{i}", f"a{i}" + "X" * pad)),
+            )
+        )
+    return rows
+
+
+def _turn_costs(rows: List[SimpleNamespace]) -> List[int]:
+    """Replay cost per TURN (user row + assistant dump), derived from the
+    rows themselves — the same arithmetic the loader's grid is built on."""
+    costs = []
+    for index in range(0, len(rows), 2):
+        dump = rows[index + 1].bucket[BUCKET_DUMP_KEY]
+        costs.append(len(rows[index].content) + len(json.dumps(dump)))
+    return costs
+
+
+def _wire_messages(history) -> List[str]:
+    """The serialized messages — what a provider's prefix cache hashes."""
+    return [
+        json.dumps(message)
+        for message in ModelMessagesTypeAdapter.dump_python(history, mode="json")
+    ]
+
+
+def _window_first_turn(history) -> int:
+    """Index of the oldest turn REPLAYED from its dump (dumps carry a
+    ThinkingPart-free ModelResponse whose text is the padded answer)."""
+    for message in history:
+        for part in message.parts:
+            if isinstance(part, UserPromptPart) and str(part.content).startswith("q"):
+                return int(str(part.content)[1:])
+    raise AssertionError("history has no user prompt")
+
+
+class TestReplayPrefixStability:
+    """Provider prompt caches hash the leading BYTES of a request, so the
+    only thing that keeps them warm across turns is a history whose prefix
+    never gets rewritten. The old newest-first budget walk moved the
+    boundary on EVERY turn; the grid moves it only in chunk-sized jumps."""
+
+    def test_appending_a_turn_only_appends_messages(self):
+        rows = _padded_turn_rows(12, pad=200)  # far under the window
+        for turns in range(1, 12):
+            earlier = _wire_messages(load_model_history(rows[: 2 * turns]))
+            later = _wire_messages(load_model_history(rows[: 2 * (turns + 1)]))
+            assert later[: len(earlier)] == earlier, (
+                f"prefix rewritten when turn {turns + 1} was appended"
+            )
+
+    def test_window_start_jumps_by_a_chunk_then_holds(self):
+        pad = 4_000
+        replay_chunk = 30_000
+        replay_chars = 90_000
+        rows = _padded_turn_rows(40, pad=pad)
+        costs = _turn_costs(rows)
+
+        starts = []
+        for turns in range(1, 41):
+            history = load_model_history(
+                rows[: 2 * turns],
+                replay_chars=replay_chars,
+                replay_chunk=replay_chunk,
+                # Keep the tail out of the way: this is about the window.
+                text_chars=0,
+            )
+            starts.append(_window_first_turn(history))
+
+        assert starts == sorted(starts), "the window start must never move back"
+        assert starts[0] == 0
+        assert starts[-1] > 0, "the window never moved — test is not exercising it"
+
+        # Every jump skips roughly a chunk's worth of cost. "Roughly": a grid
+        # line is the first USER row past a chunk multiple, so two adjacent
+        # lines can be up to one turn's overshoot closer than the chunk.
+        jumps = 0
+        for previous, current in zip(starts, starts[1:]):
+            if current == previous:
+                continue
+            jumps += 1
+            assert sum(costs[previous:current]) >= replay_chunk - max(costs), (
+                f"window start moved {previous}->{current} for less than a chunk"
+            )
+        assert jumps >= 2, "expected several jumps over 40 turns"
+        # ...so the number of invalidations is bounded by the thread's size
+        # over the chunk, not by the number of turns.
+        assert jumps <= sum(costs) // replay_chunk + 1
+
+        # ...and between jumps the start holds for several turns.
+        plateau = 1
+        plateaus = []
+        for previous, current in zip(starts, starts[1:]):
+            if current == previous:
+                plateau += 1
+            else:
+                plateaus.append(plateau)
+                plateau = 1
+        assert min(plateaus) >= 2, f"window start moved almost every turn: {starts}"
+
+    def test_window_never_exceeds_its_high_water_mark(self):
+        pad = 4_000
+        rows = _padded_turn_rows(40, pad=pad)
+        costs = _turn_costs(rows)
+        for turns in range(1, 41):
+            start = _window_first_turn(
+                load_model_history(
+                    rows[: 2 * turns],
+                    replay_chars=90_000,
+                    replay_chunk=30_000,
+                    text_chars=0,
+                )
+            )
+            if start == 0:
+                continue  # nothing evicted yet; the whole thread is the window
+            assert sum(costs[start:turns]) <= 90_000
+
+    def test_evicted_turns_appear_as_bounded_text_ahead_of_the_window(self):
+        rows = _padded_turn_rows(20, pad=4_000)
+        history = load_model_history(
+            rows,
+            replay_chars=30_000,
+            replay_chunk=10_000,
+            text_chars=40,  # ~2 evicted turns' worth of `content` text
+            text_chunk=1,
+        )
+        texts = [
+            str(p.content)
+            for m in history
+            for p in m.parts
+            if isinstance(p, (TextPart, UserPromptPart))
+        ]
+        # The tail is plain text from the `content` column, never a dump.
+        assert any(t == "a0-text" for t in texts) is False, "oldest turns dropped"
+        assert any(t.endswith("-text") for t in texts), "expected a text tail"
+        tail_chars = sum(len(t) for t in texts if t.endswith("-text"))
+        # `-text` rows only appear in the tail (replayed answers are padded).
+        assert tail_chars <= 40 + len("aNN-text")
+
+    def test_zero_text_cap_gives_whole_turn_eviction(self):
+        rows = _padded_turn_rows(20, pad=4_000)
+        history = load_model_history(
+            rows, replay_chars=30_000, replay_chunk=10_000, text_chars=0
+        )
+        texts = [
+            str(p.content)
+            for m in history
+            for p in m.parts
+            if isinstance(p, (TextPart, UserPromptPart))
+        ]
+        assert not any(t.endswith("-text") for t in texts), (
+            f"text_chars=0 must leave no text tail; got {texts[:4]}"
+        )
+
+    def test_history_opens_on_a_user_row(self):
+        rows = _padded_turn_rows(20, pad=4_000)
+        for text_chars in (0, 40, 120_000):
+            history = load_model_history(
+                rows,
+                replay_chars=30_000,
+                replay_chunk=10_000,
+                text_chars=text_chars,
+                text_chunk=1,
+            )
+            assert isinstance(history[0], ModelRequest)
+            assert any(isinstance(p, UserPromptPart) for p in history[0].parts)
+
+    def test_row_without_a_dump_inside_the_window_renders_as_text(self):
+        rows = _padded_turn_rows(4, pad=100)
+        # Wipe the dump on the second turn: it is well inside the window.
+        rows[3].bucket = {"client_message_id": "c1"}
+        history = load_model_history(rows, replay_chunk=1)
+        texts = [
+            str(p.content)
+            for m in history
+            for p in m.parts
+            if isinstance(p, (TextPart, UserPromptPart))
+        ]
+        assert "a1-text" in texts
+        assert "q1" in texts  # its question is still there, as text
+
+
+class TestSandboxOutputsArePersistedWhole:
+    """`run_python` returns used to be capped at 1500 chars before saving, so
+    the replayed copy of a turn never matched what the model actually saw —
+    a guaranteed prefix-cache miss. The sandbox already bounds its own output
+    (24k chars per call, 240k per run), so the dump is persisted verbatim."""
+
+    BIG_OUTPUT = "z" * 9_000
+
+    def _sandbox_dump(self):
+        return _dump(
+            [
+                ModelRequest(parts=[UserPromptPart(content="q")]),
+                ModelResponse(
+                    parts=[
+                        ToolCallPart(
+                            tool_name="run_python",
+                            args={"code": "print(1)"},
+                            tool_call_id="call_1",
+                        )
+                    ]
+                ),
+                ModelRequest(
+                    parts=[
+                        ToolReturnPart(
+                            tool_name="run_python",
+                            content={"files": ["a.py"], "output": self.BIG_OUTPUT},
+                            tool_call_id="call_1",
+                        )
+                    ]
+                ),
+                ModelResponse(parts=[TextPart(content="done")]),
+            ]
+        )
+
+    def test_persist_helpers_leave_the_output_intact(self):
+        persisted = strip_figure_bytes(strip_instructions(self._sandbox_dump()))
+        outputs = [
+            part["content"]["output"]
+            for entry in persisted
+            for part in entry["parts"]
+            if part.get("part_kind") == "tool-return"
+        ]
+        assert outputs == [self.BIG_OUTPUT]
+
+    def test_replay_returns_the_full_output(self):
+        rows = [
+            _row("user", "q"),
+            _row("assistant", "done", bucket=_bucketed(self._sandbox_dump())),
+        ]
+        history = load_model_history(rows)
+        outputs = [
+            p.content["output"]
+            for m in history
+            for p in m.parts
+            if isinstance(p, ToolReturnPart)
+        ]
+        assert outputs == [self.BIG_OUTPUT]
+
+    def test_the_trimmer_is_gone(self):
+        from app.llm.chat import history as history_module
+
+        assert not hasattr(history_module, "strip_sandbox_outputs")
 
 
 # =====================================================================
@@ -950,8 +1277,8 @@ class TestStripReplayedImagesRoundTrips:
 
 class TestFigureBudgetAccounting:
     """Cost is computed on byte-STRIPPED dumps (`data: ""`), so rehydration
-    used to re-inflate the history past MODEL_HISTORY_CHAR_BUDGET after the
-    fact — and the provider rejected it on context length."""
+    used to re-inflate the history past the replay window after the fact —
+    and the provider rejected it on context length."""
 
     def _figure_rows(self):
         from pydantic_ai.messages import BinaryImage
@@ -1018,13 +1345,13 @@ class TestFigureBudgetAccounting:
 
         self._patch_sizes(monkeypatch, None)
         rows = self._figure_rows()
-        # The fallback alone must not exceed the budget...
-        assert load_model_history(rows, spec=_spec(), char_budget=200_000)
+        # The fallback alone must not exceed the window...
+        assert load_model_history(rows, spec=_spec(), replay_chars=200_000)
         # ...but it IS charged.
         history = load_model_history(
             rows,
             spec=_spec(),
-            char_budget=history_module.FIGURE_REPLAY_CHAR_ESTIMATE // 2,
+            replay_chars=history_module.FIGURE_REPLAY_CHAR_ESTIMATE // 2,
         )
         assert all(
             not (isinstance(p, UserPromptPart) and isinstance(p.content, list))
@@ -1154,7 +1481,10 @@ class TestSerializeUIMessages:
         out = serialize_ui_messages([_row("assistant", "a", bucket=_bucketed(dump))])
         tp = [p for p in out[0]["parts"] if p["type"].startswith("tool-")][0]
         assert tp["output"]["truncated"] is True
-        assert len(tp["output"]["preview"]) == TOOL_OUTPUT_WIRE_CAP
+        preview = tp["output"]["preview"]
+        assert preview["text"].startswith("ZZZ")
+        assert preview["text"].endswith(" chars]")
+        assert len(json.dumps(preview)) <= TOOL_OUTPUT_WIRE_CAP
 
     def test_dump_user_message_is_dropped(self):
         dump = _simple_turn_dump("the user prompt", "a")
@@ -1374,6 +1704,7 @@ class TestFamilyDefaults:
             "api": "responses",
             "supports_reasoning_effort": True,
             "supports_reasoning_summaries": True,
+            "supports_prompt_cache_key": True,
         }
 
     def test_openai_non_gpt_no_effort(self):
@@ -1388,6 +1719,7 @@ class TestFamilyDefaults:
             "api": "chat",
             "supports_reasoning_effort": True,
             "supports_reasoning_summaries": False,
+            "supports_prompt_cache_key": True,
         }
 
     @pytest.mark.parametrize(
@@ -1736,3 +2068,21 @@ class TestMangledEvidenceMarkerFallback:
         assert strip_evidence_blocks(text) == "answer"
         f = EvidenceFilter()
         assert (f.push(text) + f.flush()).strip() == "answer"
+
+
+def test_stored_references_reads_the_persisted_citation_list():
+    from app.llm.chat.runtime import _stored_references
+
+    row = _row(
+        "user",
+        "q",
+        references={
+            "citations": [
+                {"key": "1", "reference": "quoted text"},
+                {"key": "2", "reference": ""},
+                "junk",
+            ]
+        },
+    )
+    assert _stored_references(row) == ["quoted text"]
+    assert _stored_references(_row("user", "q")) == []

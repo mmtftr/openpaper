@@ -31,7 +31,6 @@ import {
     MessagesSquareIcon,
     RefreshCwIcon,
     Trash2Icon,
-    WrenchIcon,
 } from "lucide-react";
 
 import { useChat } from "@ai-sdk/react";
@@ -52,10 +51,6 @@ import {
     retryTargetFromMessages,
     RetryStatus,
     textFromMessage,
-    toolIsPending,
-    toolLabel,
-    toolOutputFiles,
-    ToolPartView,
 } from "@/lib/chatMessages";
 import { setPaperChatStreaming } from "@/lib/paperDocEvents";
 import { useAuth } from "@/lib/auth";
@@ -149,7 +144,7 @@ import {
     truncateReference,
 } from "@/lib/userReferences";
 import { RepoConnectPopover } from "@/components/code/RepoConnectPopover";
-import { RepoFileChips } from "@/components/code/RepoFileChips";
+import { ToolActivity } from "@/components/chat/ToolActivity";
 import { Citation, PaperData } from "@/lib/schema";
 
 interface PaperChatPanelProps {
@@ -533,40 +528,58 @@ export function PaperChatPanel({
         setRetryStatus(null);
     }, [conversationId]);
 
+    // Conversation whose page load is in flight. Two overlapping loads of the
+    // same page would dedupe to one set of rows but bump the page counter
+    // twice, skipping a page of history. Keyed by conversation so a switch
+    // mid-load never blocks the new conversation's first page.
+    const pageFetchInFlightRef = useRef<string | null>(null);
+
     const fetchPage = useCallback(
         async (page: number) => {
             if (!conversationId) return 0;
-            const response = await fetchFromApi(
-                `/api/conversation/${conversationId}?page=${page}`,
-                { method: "GET" }
-            );
-            // The user may have switched conversations while this request
-            // was in flight — useChat's setMessages targets whatever chat
-            // is CURRENT, so a stale response would leak another
-            // conversation's history into this one.
-            if (activeConversationRef.current !== conversationId) return 0;
-            const fetched: ChatUIMessage[] = response.messages || [];
-            if (fetched.length === 0) {
-                setHasMoreMessages(false);
-                return 0;
+            if (pageFetchInFlightRef.current === conversationId) return 0;
+            pageFetchInFlightRef.current = conversationId;
+            try {
+                const response = await fetchFromApi(
+                    `/api/conversation/${conversationId}?page=${page}`,
+                    { method: "GET" }
+                );
+                // The user may have switched conversations while this
+                // request was in flight — useChat's setMessages targets
+                // whatever chat is CURRENT, so a stale response would leak
+                // another conversation's history into this one.
+                if (activeConversationRef.current !== conversationId) return 0;
+                const fetched: ChatUIMessage[] = response.messages || [];
+                if (fetched.length === 0) {
+                    setHasMoreMessages(false);
+                    return 0;
+                }
+                if (fetched.length < HISTORY_PAGE_SIZE) {
+                    setHasMoreMessages(false);
+                }
+                // Offset pagination drifts when new turns land between page
+                // loads — dedupe by id so overlap never duplicates messages.
+                setMessages((prev) => {
+                    const seen = new Set(prev.map((m) => m.id));
+                    return [...fetched.filter((m) => !seen.has(m.id)), ...prev];
+                });
+                setPageNumberConversationHistory((p) => p + 1);
+                return fetched.length;
+            } finally {
+                if (pageFetchInFlightRef.current === conversationId) {
+                    pageFetchInFlightRef.current = null;
+                }
             }
-            if (fetched.length < HISTORY_PAGE_SIZE) {
-                setHasMoreMessages(false);
-            }
-            // Offset pagination drifts when new turns land between page
-            // loads — dedupe by id so overlap never duplicates messages.
-            setMessages((prev) => {
-                const seen = new Set(prev.map((m) => m.id));
-                return [...fetched.filter((m) => !seen.has(m.id)), ...prev];
-            });
-            setPageNumberConversationHistory((p) => p + 1);
-            return fetched.length;
         },
         [conversationId, setMessages]
     );
 
+    // Gate on readiness only: `paperData` is a fresh object on every status
+    // sync, and re-running this while the create POST below is in flight
+    // used to mint a second empty conversation.
+    const paperReady = Boolean(paperData);
     useEffect(() => {
-        if (!paperData) return;
+        if (!paperReady) return;
         let cancelled = false;
 
         async function init() {
@@ -625,7 +638,7 @@ export function PaperChatPanel({
         return () => {
             cancelled = true;
         };
-    }, [paperData, id]);
+    }, [paperReady, id]);
 
     useEffect(() => {
         if (!id || !conversationId) return;
@@ -707,6 +720,10 @@ export function PaperChatPanel({
         const remaining = conversations.filter((c) => c.id !== target);
         setConversations(remaining);
         if (conversationId === target) {
+            // The active chat is going away: stop its stream first, or the
+            // server keeps generating (and billing) into a deleted
+            // conversation — `useChat` does not abort on an id change.
+            if (isStreaming) stop();
             const next = remaining[0];
             if (next) {
                 setConversationId(next.id);
@@ -732,7 +749,7 @@ export function PaperChatPanel({
                 }
             }
         }
-    }, [conversationId, conversations, id, pendingDeleteId]);
+    }, [conversationId, conversations, id, isStreaming, pendingDeleteId, stop]);
 
     // One-shot initial history load when both user and conversation are ready.
     useEffect(() => {
@@ -745,6 +762,9 @@ export function PaperChatPanel({
                 console.error("Error fetching initial messages:", err)
             )
             .finally(() => {
+                // A load for a conversation the user already left must not
+                // clear the NEW conversation's loading state.
+                if (activeConversationRef.current !== conversationId) return;
                 setIsLoadingMoreMessages(false);
                 setIsFetchingHistory(false);
             });
@@ -1954,90 +1974,6 @@ function citationComponents(
     } as Components;
 }
 
-interface ToolActivityProps {
-    part: ToolPartView;
-}
-
-// Compact row for one agent tool call: pretty label + expandable
-// input/output details. Pending calls show a spinner.
-function ToolActivity({ part }: ToolActivityProps) {
-    const [open, setOpen] = useState(false);
-    const pending = toolIsPending(part);
-    const failed = part.state === "output-error";
-    // Repo files the sandbox touched, when the result still carries them (a
-    // truncated result has no `files` — the chips just don't render).
-    const touchedFiles = useMemo(
-        () => (part.type === "tool-run_python" ? toolOutputFiles(part) : []),
-        [part]
-    );
-
-    const outputPreview = useMemo(() => {
-        if (part.output === undefined || part.output === null) return null;
-        const record =
-            typeof part.output === "object"
-                ? (part.output as Record<string, unknown>)
-                : null;
-        if (record?.truncated && typeof record.preview === "string") {
-            return record.preview;
-        }
-        try {
-            return JSON.stringify(part.output, null, 2);
-        } catch {
-            return String(part.output);
-        }
-    }, [part.output]);
-
-    return (
-        <Collapsible open={open} onOpenChange={setOpen}>
-            <CollapsibleTrigger asChild>
-                <button
-                    type="button"
-                    className={cn(
-                        "flex max-w-full min-w-0 items-center gap-1.5 text-xs rounded px-1.5 py-0.5 transition-colors",
-                        failed
-                            ? "text-destructive hover:bg-destructive/10"
-                            : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
-                    )}
-                >
-                    {pending ? (
-                        <Loader size={12} />
-                    ) : (
-                        <WrenchIcon className="size-3 shrink-0" />
-                    )}
-                    <span className="truncate">{toolLabel(part)}</span>
-                    {failed && <span className="shrink-0">(failed)</span>}
-                    <ChevronDownIcon
-                        className={cn(
-                            "size-3 shrink-0 transition-transform",
-                            open && "rotate-180"
-                        )}
-                    />
-                </button>
-            </CollapsibleTrigger>
-            <RepoFileChips files={touchedFiles} />
-            <CollapsibleContent>
-                <div className="ml-4 mt-1 mb-1 space-y-1 text-[11px] font-mono text-muted-foreground">
-                    {part.input !== undefined && (
-                        <pre className="whitespace-pre-wrap break-words max-h-40 overflow-y-auto rounded bg-muted/40 p-1.5">
-                            {JSON.stringify(part.input, null, 2)}
-                        </pre>
-                    )}
-                    {failed && part.errorText && (
-                        <pre className="whitespace-pre-wrap break-words max-h-40 overflow-y-auto rounded bg-destructive/10 p-1.5">
-                            {part.errorText}
-                        </pre>
-                    )}
-                    {!failed && outputPreview && (
-                        <pre className="whitespace-pre-wrap break-words max-h-40 overflow-y-auto rounded bg-muted/40 p-1.5">
-                            {outputPreview}
-                        </pre>
-                    )}
-                </div>
-            </CollapsibleContent>
-        </Collapsible>
-    );
-}
-
 interface PaperMessageProps {
     message: ChatUIMessage;
     index: number;
@@ -2378,7 +2314,13 @@ function PaperSources({
                                     className="text-xs text-muted-foreground line-clamp-2 leading-snug citation-ref-md"
                                 >
                                     <Markdown
-                                        remarkPlugins={[remarkGfm, remarkMath]}
+                                        remarkPlugins={[
+                                            remarkGfm,
+                                            [
+                                                remarkMath,
+                                                { singleDollarTextMath: false },
+                                            ],
+                                        ]}
                                         rehypePlugins={[rehypeKatex]}
                                         components={{
                                             // Citations are short blurbs;

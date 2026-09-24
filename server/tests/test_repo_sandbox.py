@@ -123,25 +123,68 @@ def test_poisoned_session_is_detected_and_rebuilt(snapshot, monkeypatch):
         sandbox.close()
 
 
-def test_output_is_capped_below_the_wire_truncation_threshold(live_sandbox):
+def test_output_is_capped_for_the_model(live_sandbox):
+    cap = sandbox_module.MAX_TOOL_OUTPUT
     result = _run(live_sandbox, "print('z' * 50000)")
-    assert len(result["output"]) <= sandbox_module.MAX_TOOL_OUTPUT + 40
-    assert result["output"].endswith("[truncated]")
-    # `files` must come first so the chips survive `truncate_tool_output`
-    # replacing an oversized structure with a preview blob.
-    assert list(result.keys())[0] == "files"
+    assert result["output"].startswith("z" * cap)
+    assert len(result["output"]) <= cap + 300
+    # The notice says how much was dropped and how to narrow the call.
+    assert "[output truncated:" in result["output"]
+    assert f"{50000 - cap:,} more chars" in result["output"]
+    assert result["files"] == []
 
 
-def test_tool_payload_survives_the_wire_truncator(live_sandbox):
+def test_full_read_window_fits_in_one_call(tmp_path: Path):
+    """A 400-line read() of ordinary source must not be cut by the model cap —
+    that was the whole point of decoupling it from the UI wire cap."""
+    from app.llm.repo.prelude import MAX_READ_LINES
+
+    root = tmp_path / "snap2"
+    root.mkdir()
+    body = "\n".join(
+        f"result_{i} = transform(inputs[{i}], alpha=0.5)  # step"
+        for i in range(MAX_READ_LINES)
+    )
+    (root / "big.py").write_text(body, encoding="utf-8")
+    snapshot = RepoSnapshot(
+        paper_id="66666666-6666-6666-6666-666666666666",
+        owner="o", repo="r", ref="main", commit_sha="a" * 40, root=root,
+        files=[{"path": "big.py", "size": len(body)}],
+    )
+    sandbox = RepoSandbox(snapshot)
+    asyncio.run(sandbox.open())
+    if sandbox._open_error:
+        sandbox.close()
+        pytest.skip(f"Monty unavailable: {sandbox._open_error}")
+    try:
+        result = _run(sandbox, "print(read('/repo/big.py'))")
+    finally:
+        sandbox.close()
+    assert "[output truncated" not in result["output"]
+    assert f"{MAX_READ_LINES}| " in result["output"]
+    assert result["files"] == ["big.py"]
+
+
+def test_cumulative_output_budget_reduces_later_caps(live_sandbox):
+    first = _run(live_sandbox, "print('a' * 100)")
+    assert live_sandbox.output_chars == len(first["output"])
+    live_sandbox.output_chars = sandbox_module.RUN_OUTPUT_BUDGET
+    result = _run(live_sandbox, "print('z' * 10000)")
+    small_cap = sandbox_module.MAX_TOOL_OUTPUT_AFTER_BUDGET
+    assert result["output"].startswith("z" * small_cap)
+    assert len(result["output"]) <= small_cap + 300
+    assert "[output truncated:" in result["output"]
+
+
+def test_tool_payload_keeps_files_through_the_wire_truncator(live_sandbox):
     from app.llm.chat.stream import truncate_tool_output
 
-    result = _run(live_sandbox, "print(read('/repo/main.py'))\nprint('z' * 6000)")
+    result = _run(live_sandbox, "print(read('/repo/main.py'))\nprint('z' * 8000)")
     wired = truncate_tool_output(result)
-    if isinstance(wired, dict) and wired.get("truncated"):
-        # Even in the preview blob, the file chips are still readable.
-        assert "main.py" in wired["preview"][:200]
-    else:
-        assert wired["files"] == ["main.py"]
+    assert wired["truncated"] is True
+    # The chips survive, and the preview is the output text, not JSON.
+    assert wired["files"] == ["main.py"]
+    assert wired["preview"].startswith("/repo/main.py (lines 1-")
 
 
 def test_closed_sandbox_returns_a_message_not_an_exception(snapshot):
@@ -162,3 +205,49 @@ def test_missing_sandbox_degrades_in_the_tool_dispatcher():
     result = asyncio.run(_run_repo_tool(deps, "print(1)"))
     assert result["files"] == []
     assert "No code repository" in result["output"]
+
+
+def test_open_finishing_after_close_releases_its_resources(snapshot, monkeypatch):
+    """A cancelled turn runs close() while the checkout is still in flight on
+    the executor thread; the late session and mount must not leak."""
+    released = {"session": False, "mount": False}
+
+    class _Mount:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def close(self):
+            released["mount"] = True
+
+    class _Session:
+        def __exit__(self, *args):
+            released["session"] = True
+
+    monkeypatch.setattr(sandbox_module, "MountDir", _Mount)
+    monkeypatch.setattr(sandbox_module, "_get_pool", lambda: object())
+    monkeypatch.setattr(sandbox_module, "_checkout", lambda pool: _Session())
+
+    sandbox = RepoSandbox(snapshot)
+    sandbox.close()        # the turn was torn down first...
+    sandbox._open_sync()   # ...then the executor thread finished opening
+    assert released == {"session": True, "mount": True}
+    assert sandbox._session is None and sandbox._mount is None
+
+
+def test_reset_after_close_does_not_reattach_a_session(snapshot, monkeypatch):
+    exited = []
+
+    class _Session:
+        def __exit__(self, *args):
+            exited.append(self)
+
+    monkeypatch.setattr(sandbox_module, "_get_pool", lambda: object())
+    monkeypatch.setattr(sandbox_module, "_checkout", lambda pool: _Session())
+    sandbox = RepoSandbox(snapshot)
+    sandbox.close()
+    sandbox._reset_session()
+    assert sandbox._session is None
+    assert len(exited) == 1

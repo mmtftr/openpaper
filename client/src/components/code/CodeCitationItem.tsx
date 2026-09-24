@@ -4,7 +4,7 @@ import { ExternalLinkIcon, FileCodeIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { Citation } from "@/lib/schema";
-import { codeCitationLabel } from "@/lib/chatMessages";
+import { codeCitationLabel, commitShaFromGithubUrl } from "@/lib/chatMessages";
 import { useCodeViewer } from "@/components/code/CodeViewerProvider";
 
 /**
@@ -41,6 +41,7 @@ export function CodeCitationItem({
             path: citation.file,
             startLine: verified ? citation.start_line : null,
             endLine: verified ? citation.end_line : null,
+            commitSha: commitShaFromGithubUrl(citation.github_url),
         });
     };
 

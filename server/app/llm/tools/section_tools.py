@@ -7,8 +7,10 @@ over raw_content. read_section returns {error, available_sections} on no-match
 rather than silently fuzzy-picking the wrong section — honest failure beats
 hallucination, and the agent can pick again from the listed top-level headings.
 
-Outputs cap at ~8k tokens with `truncated: true` plus a `full_pages` hint, so
-the agent can `read_pages` to fill in the gap if needed.
+Outputs cap at ~8k tokens with `truncated: true` plus a hint at what was left
+out: `read_section` reports the section's `full_pages`, `read_pages` cuts on a
+page boundary and reports the `pages_returned` plus the `next_page` to resume
+from, so the agent can fill in the gap with another call.
 """
 
 import re
@@ -67,8 +69,10 @@ read_pages_function = {
     "description": (
         "Read the markdown for a contiguous range of pages (1-indexed, inclusive). "
         "Use as an escape hatch — e.g. 'what's right before Table 3' after a "
-        "search_paper hit on page N. Output is capped; the response includes "
-        "{truncated, full_pages} when it is."
+        "search_paper hit on page N. Output is capped at whole pages: "
+        "{pages_returned} always says which pages actually came back, and when "
+        "the cap cut the range short the response adds {truncated: true, "
+        "next_page} so you can continue from there."
     ),
     "parameters": {
         "type": "object",
@@ -473,6 +477,175 @@ def read_section(
     return _read_section_pymupdf(paper, name, text_only)
 
 
+PAGE_SEPARATOR = "\n\n"
+
+
+def _paged_response(
+    *,
+    start: int,
+    end: int,
+    content: str,
+    first_page: int,
+    last_page: int,
+    truncated: bool,
+    page_truncated: bool = False,
+) -> Dict[str, Any]:
+    """Build the `read_pages` payload.
+
+    `pages` echoes what was asked for (kept for backwards compatibility);
+    `pages_returned` is what actually came back. When the cap cut the range
+    short, `next_page` is where the agent should resume — unless the cut
+    landed inside a single oversized page, in which case there is no clean
+    boundary to resume from and `page_truncated` says so instead.
+    """
+    response: Dict[str, Any] = {
+        "pages": [start, end],
+        "content": content,
+        "pages_returned": [first_page, last_page],
+    }
+    if truncated:
+        response["truncated"] = True
+        if page_truncated:
+            response["page_truncated"] = True
+        else:
+            response["next_page"] = last_page + 1
+    return response
+
+
+def _read_pages_mistral(paper: Paper, start: int, end: int) -> Dict[str, Any]:
+    """Whole-page reads off the structured per-page markdown."""
+    selected: List[Tuple[int, str]] = []
+    for page_dict in _pages_from_paper(paper):
+        idx_raw = page_dict.get("index")
+        if idx_raw is None:
+            continue
+        try:
+            page_num = int(idx_raw) + 1
+        except (TypeError, ValueError):
+            # A page with an unparseable index can't be addressed by number;
+            # skipping it beats blowing up the whole read.
+            logger.warning("Skipping page with non-integer index %r", idx_raw)
+            continue
+        if start <= page_num <= end:
+            selected.append((page_num, page_dict.get("markdown") or ""))
+
+    if not selected:
+        return {"error": f"No pages found in range {start}-{end}"}
+    selected.sort(key=lambda item: item[0])
+
+    first_page = selected[0][0]
+    if len(selected[0][1]) > RESPONSE_CHAR_CAP:
+        # One page bigger than the entire budget: hard-cut it rather than
+        # returning nothing, and flag that the cut is mid-page.
+        return _paged_response(
+            start=start,
+            end=end,
+            content=selected[0][1][:RESPONSE_CHAR_CAP],
+            first_page=first_page,
+            last_page=first_page,
+            truncated=True,
+            page_truncated=True,
+        )
+
+    chunks: List[str] = []
+    length = 0
+    last_page = first_page
+    truncated = False
+    for page_num, md in selected:
+        addition = (len(PAGE_SEPARATOR) if chunks else 0) + len(md)
+        if length + addition > RESPONSE_CHAR_CAP:
+            truncated = True
+            break
+        chunks.append(md)
+        length += addition
+        last_page = page_num
+
+    return _paged_response(
+        start=start,
+        end=end,
+        content=PAGE_SEPARATOR.join(chunks),
+        first_page=first_page,
+        last_page=last_page,
+        truncated=truncated,
+    )
+
+
+def _read_pages_pymupdf(paper: Paper, start: int, end: int) -> Dict[str, Any]:
+    """Whole-page reads off the flat raw_content via page_offset_map.
+
+    The included pages are returned as one continuous slice (not per-page
+    slices joined) so the text is byte-identical to the source, including
+    whatever sits between two pages' offsets.
+    """
+    page_offset_map = getattr(paper, "page_offset_map", None) or {}
+    raw = str(getattr(paper, "raw_content", "") or "")
+    if not page_offset_map:
+        return {"error": "No page offset map available for this paper"}
+
+    # Keys may be ints or stringified ints depending on jsonb shape, and the
+    # values come straight out of jsonb — validate rather than trust them.
+    def _bounds(p: int) -> Optional[Tuple[int, int]]:
+        entry = page_offset_map.get(p) or page_offset_map.get(str(p))
+        if not isinstance(entry, (list, tuple)) or len(entry) != 2:
+            return None
+        try:
+            return int(entry[0]), int(entry[1])
+        except (TypeError, ValueError):
+            logger.warning("Page %s has a malformed offset entry %r", p, entry)
+            return None
+
+    start_bounds = _bounds(start)
+    if not start_bounds:
+        return {"error": f"Page {start} not found"}
+
+    body_start = start_bounds[0]
+    if start_bounds[1] - body_start > RESPONSE_CHAR_CAP:
+        return _paged_response(
+            start=start,
+            end=end,
+            content=raw[body_start : body_start + RESPONSE_CHAR_CAP],
+            first_page=start,
+            last_page=start,
+            truncated=True,
+            page_truncated=True,
+        )
+
+    # Walk the map's own page numbers rather than range(start + 1, end + 1):
+    # `end` is model-supplied and may be far past the paper's last page.
+    later_pages: List[int] = []
+    for key in page_offset_map:
+        try:
+            page_num = int(key)
+        except (TypeError, ValueError):
+            continue
+        if start < page_num <= end:
+            later_pages.append(page_num)
+    later_pages.sort()
+
+    body_end = start_bounds[1]
+    last_page = start
+    truncated = False
+    for page_num in later_pages:
+        bounds = _bounds(page_num)
+        if not bounds:
+            continue
+        candidate_end = bounds[1]
+        if candidate_end - body_start > RESPONSE_CHAR_CAP:
+            truncated = True
+            break
+        body_end = candidate_end
+        last_page = page_num
+
+    return _paged_response(
+        start=start,
+        end=end,
+        content=raw[body_start:body_end],
+        first_page=start,
+        last_page=last_page,
+        truncated=truncated,
+    )
+
+
 def read_pages(
     paper_id: str,
     start: int,
@@ -483,6 +656,13 @@ def read_pages(
     target_paper_id: Optional[str] = None,
     allowed_paper_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
+    """Read a 1-indexed inclusive page range, truncating on page boundaries.
+
+    The cap is applied per page rather than per character so the agent never
+    gets a page cut mid-sentence without knowing where the cut fell: the
+    response always says which pages came back (`pages_returned`) and, when
+    the cap stopped it early, where to resume (`next_page`).
+    """
     effective_id = _resolve_target_paper_id(paper_id, target_paper_id, allowed_paper_ids)
     paper = _get_paper_or_raise(effective_id, current_user, db, allowed_paper_ids)
 
@@ -490,43 +670,8 @@ def read_pages(
         return {"error": "Invalid page range"}
 
     if _is_mistral(paper):
-        pages = _pages_from_paper(paper)
-        chunks: List[str] = []
-        for page_dict in pages:
-            idx_raw = page_dict.get("index")
-            if idx_raw is None:
-                continue
-            page_num = int(idx_raw) + 1
-            if start <= page_num <= end:
-                chunks.append(page_dict.get("markdown") or "")
-        body = "\n\n".join(chunks)
-    else:
-        # In pymupdf mode, fall back to page_offset_map.
-        page_offset_map = getattr(paper, "page_offset_map", None) or {}
-        raw = str(getattr(paper, "raw_content", "") or "")
-        if not page_offset_map:
-            return {"error": "No page offset map available for this paper"}
-        # Keys may be ints or stringified ints depending on jsonb shape.
-
-        def _bounds(p: int) -> Optional[List[int]]:
-            return page_offset_map.get(p) or page_offset_map.get(str(p))
-
-        start_bounds = _bounds(start)
-        end_bounds = _bounds(end)
-        if not start_bounds:
-            return {"error": f"Page {start} not found"}
-        if not end_bounds:
-            end_bounds = start_bounds
-        body = raw[start_bounds[0] : end_bounds[1]]
-
-    out, truncated = _truncate(body)
-    response: Dict[str, Any] = {
-        "pages": [start, end],
-        "content": out,
-    }
-    if truncated:
-        response["truncated"] = True
-    return response
+        return _read_pages_mistral(paper, start, end)
+    return _read_pages_pymupdf(paper, start, end)
 
 
 def _search_single_paper(

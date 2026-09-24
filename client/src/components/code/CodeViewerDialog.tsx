@@ -52,6 +52,9 @@ export function CodeViewerDialog({
     const [selectedPath, setSelectedPath] = useState<string | null>(null);
     const [range, setRange] = useState<LineRange | null>(null);
     const [scrollToken, setScrollToken] = useState(0);
+    // Revision the open request's line numbers refer to (null when opened
+    // bare or from the tree).
+    const [citedSha, setCitedSha] = useState<string | null>(null);
 
     // A different paper is a different snapshot — never show the previous
     // one's files while the new manifest loads.
@@ -60,6 +63,7 @@ export function CodeViewerDialog({
         setTreeError(null);
         setSelectedPath(null);
         setRange(null);
+        setCitedSha(null);
     }, [paperId]);
 
     // Refetched on every open: disconnect/reconnect or a re-ingest replaces
@@ -108,6 +112,7 @@ export function CodeViewerDialog({
         if (request.path) {
             setSelectedPath(request.path.replace(/^\/+/, ""));
             setRange(rangeFromRequest(request));
+            setCitedSha(request.commitSha ?? null);
         }
         setScrollToken(request.requestId);
     }, [request]);
@@ -127,7 +132,19 @@ export function CodeViewerDialog({
         setSelectedPath(path);
         // A manually opened file has no cited range to emphasize.
         setRange(null);
+        setCitedSha(null);
     };
+
+    // A citation pins the revision it was verified against. After a
+    // disconnect + reconnect the snapshot can be a different commit, and the
+    // cited line numbers then point at unrelated code — say so.
+    const revisionNotice =
+        selectedPath &&
+        citedSha &&
+        tree?.commit_sha &&
+        citedSha !== tree.commit_sha
+            ? `This citation was verified against revision ${citedSha.slice(0, 7)}; the connected snapshot is now ${tree.commit_sha.slice(0, 7)}, so the highlighted lines may not match.`
+            : null;
 
     const repoLabel = tree?.owner && tree?.repo ? `${tree.owner}/${tree.repo}` : "Repository";
     const shortSha = tree?.commit_sha ? tree.commit_sha.slice(0, 7) : null;
@@ -183,7 +200,16 @@ export function CodeViewerDialog({
                         )}
                     </div>
 
-                    <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 flex-1 flex-col">
+                        {revisionNotice && (
+                            <p
+                                role="status"
+                                className="shrink-0 border-b border-amber-300/60 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+                            >
+                                {revisionNotice}
+                            </p>
+                        )}
+                        <div className="min-h-0 flex-1">
                         {selectedPath ? (
                             <CodeFileView
                                 paperId={paperId}
@@ -199,6 +225,7 @@ export function CodeViewerDialog({
                                 Select a file to view its contents.
                             </div>
                         )}
+                        </div>
                     </div>
                 </div>
             </DialogContent>

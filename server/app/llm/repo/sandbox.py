@@ -63,10 +63,18 @@ CHECKOUT_TIMEOUT = 10.0
 # kept short: a busy sandbox degrades the turn to paper-only rather than
 # stalling the whole answer.
 OPEN_CHECKOUT_TIMEOUT = 3.0
-# Cap applied inside the tool. `truncate_tool_output` replaces the WHOLE
-# structure with a preview blob past 6,000 serialized chars, which would
-# throw away the `files` chips — stay comfortably under it.
-MAX_TOOL_OUTPUT = 4000
+# Cap on what the MODEL sees from one run_python call. Sized so a full
+# `read()` window (MAX_READ_LINES line-numbered lines of ~60-char source)
+# comes back whole. Independent of the UI wire cap: past 6,000 serialized
+# chars `truncate_tool_output` swaps the structure for a preview, but keeps
+# the `files` chips, so nothing here needs to fit on the wire.
+MAX_TOOL_OUTPUT = 24_000
+# Cumulative model-visible output for one agent run (~60K tokens, ten full
+# read() windows). Once spent, later calls are cut to
+# MAX_TOOL_OUTPUT_AFTER_BUDGET so a long exploration cannot flood the
+# context window; the truncation notice tells the model to narrow.
+RUN_OUTPUT_BUDGET = 240_000
+MAX_TOOL_OUTPUT_AFTER_BUDGET = 4_000
 
 MAX_CODE_CHARS = 20_000
 
@@ -152,11 +160,19 @@ class RepoSandbox:
         self._session: Any = None
         self._open_error: Optional[str] = None
         self._lock = asyncio.Lock()
+        # Guards the mount/session handoff between the executor thread that
+        # opens them and the loop thread that closes them: a cancelled turn
+        # can run `close()` while the checkout is still in flight, and a
+        # session attached after that point would never be released.
+        self._state_lock = threading.Lock()
         self._closed = False
         self._holds_slot = False
         self.calls = 0
         self.resets = 0
         self.errors = 0
+        # Model-visible output chars emitted so far in this run
+        # (see RUN_OUTPUT_BUDGET).
+        self.output_chars = 0
 
     # ---- lifecycle --------------------------------------------------------
 
@@ -194,42 +210,50 @@ class RepoSandbox:
 
     def _open_sync(self) -> None:
         pool = _get_pool()
-        self._mount = MountDir(
+        mount = MountDir(
             host_path=self.snapshot.root,
             virtual_path=VIRTUAL_ROOT,
             mode="read-only",
             memory_usage_limit=MOUNT_MEMORY_LIMIT,
         )
-        self._mount.__enter__()
-        self._checkout(pool)
+        mount.__enter__()
+        try:
+            session = _checkout(pool)
+        except BaseException:
+            _close_mount(mount)
+            raise
+        if not self._attach(mount, session):
+            # `close()` already ran (the turn was cancelled while the
+            # checkout was in flight). Nothing else will ever release these.
+            logger.info("Repo sandbox opened after close; releasing it")
+            _exit_session(session)
+            _close_mount(mount)
 
-    def _checkout(self, pool: Monty) -> None:
-        session = pool.checkout(
-            script_name="repo_explorer.py",
-            limits={
-                "max_duration_secs": SESSION_DURATION_BUDGET,
-                "max_memory": SESSION_MEMORY_BUDGET,
-            },
-        )
-        session.__enter__()
-        self._session = session
+    def _attach(self, mount: MountDir, session: Any) -> bool:
+        """Adopt freshly opened resources unless the sandbox is closed."""
+        with self._state_lock:
+            if self._closed:
+                return False
+            self._mount = mount
+            self._session = session
+            return True
 
     def close(self) -> None:
         """Release the session, the mount and the pool slot.
 
         Idempotent and never raises — it runs from `run_paper_chat`'s
-        `finally`, including on cancellation.
+        `finally`, including on cancellation. Detaches under the state lock
+        so a checkout finishing on the executor thread sees `_closed` and
+        releases its own resources (see `_attach`).
         """
-        if self._closed:
-            return
-        self._closed = True
-        self._close_session()
-        if self._mount is not None:
-            try:
-                self._mount.close()
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.warning("Failed to close repo mount: %s", exc)
-            self._mount = None
+        with self._state_lock:
+            if self._closed:
+                return
+            self._closed = True
+            session, self._session = self._session, None
+            mount, self._mount = self._mount, None
+        _exit_session(session)
+        _close_mount(mount)
         if self._holds_slot:
             self._holds_slot = False
             try:
@@ -237,30 +261,31 @@ class RepoSandbox:
             except (ValueError, RuntimeError) as exc:  # pragma: no cover
                 logger.warning("Failed to release sandbox slot: %s", exc)
 
-    def _close_session(self) -> None:
-        if self._session is not None:
-            try:
-                self._session.__exit__(None, None, None)
-            except Exception:
-                pass
-            self._session = None
-
     def _reset_session(self) -> None:
-        self._close_session()
+        with self._state_lock:
+            session, self._session = self._session, None
+        _exit_session(session)
         try:
-            self._checkout(_get_pool())
-            self.resets += 1
+            fresh = _checkout(_get_pool())
         except Exception as exc:
             logger.warning("Failed to rebuild poisoned sandbox session: %s", exc)
-            self._session = None
+            return
+        with self._state_lock:
+            if not self._closed:
+                self._session = fresh
+                self.resets += 1
+                return
+        # Closed while rebuilding: never leave a checked-out worker behind.
+        _exit_session(fresh)
 
     # ---- the tool body ----------------------------------------------------
 
     async def run(self, code: str) -> Dict[str, Any]:
         """Execute `code` in the session. Returns the tool payload.
 
-        `files` comes FIRST so the UI chips survive `truncate_tool_output`
-        replacing an oversized structure with a preview blob.
+        The payload is `{"files": [...], "output": "..."}`. The wire-side
+        `truncate_tool_output` keeps `files` when it previews an oversized
+        `output`, so the UI chips never depend on the model-facing cap here.
         """
         snippet = str(code or "")
         if not snippet.strip():
@@ -285,15 +310,23 @@ class RepoSandbox:
             # budgets are per feed, and a parallel feed would otherwise steal
             # this call's chips and its allowance.
             self.prelude.start_call()
+            cap = self._output_cap()
             output = await asyncio.get_running_loop().run_in_executor(
-                _sandbox_executor, self._feed_sync, snippet
+                _sandbox_executor, self._feed_sync, snippet, cap
             )
             touched = self.prelude.touched
+            self.output_chars += len(output)
 
         self.calls += 1
         return _payload(touched, output)
 
-    def _feed_sync(self, code: str) -> str:
+    def _output_cap(self) -> int:
+        """Per-call output cap, reduced once the run's cumulative budget is spent."""
+        if self.output_chars >= RUN_OUTPUT_BUDGET:
+            return MAX_TOOL_OUTPUT_AFTER_BUDGET
+        return MAX_TOOL_OUTPUT
+
+    def _feed_sync(self, code: str, cap: int = MAX_TOOL_OUTPUT) -> str:
         streams = CollectStreams()
         was_reset = False
         try:
@@ -309,16 +342,17 @@ class RepoSandbox:
                 self._reset_session()
                 was_reset = True
                 body += SESSION_RESET_NOTICE
-            return _format(streams, body, None)
+            return _format(streams, cap, body, None)
         except MontyTypingError as exc:
             self.errors += 1
-            return _format(streams, exc.display(), None)
+            return _format(streams, cap, exc.display(), None)
         except MontyCrashedError as exc:
             self.errors += 1
             self._reset_session()
             was_reset = True
             return _format(
                 streams,
+                cap,
                 f"SandboxCrashed: the worker died (timed_out={exc.timed_out}). "
                 "The session has been RESET — all previous variables are gone."
                 + (
@@ -330,15 +364,15 @@ class RepoSandbox:
             )
         except MontyError as exc:
             self.errors += 1
-            return _format(streams, f"{type(exc).__name__}: {exc}", None)
+            return _format(streams, cap, f"{type(exc).__name__}: {exc}", None)
         except Exception as exc:  # pragma: no cover - defensive
             self.errors += 1
             logger.error("Unexpected sandbox failure: %s", exc, exc_info=True)
-            return _format(streams, f"SandboxError: {type(exc).__name__}", None)
+            return _format(streams, cap, f"SandboxError: {type(exc).__name__}", None)
         finally:
             if was_reset:
                 logger.info("Repo sandbox session reset (poisoned)")
-        return _format(streams, None, None if value is None else repr(value))
+        return _format(streams, cap, None, None if value is None else repr(value))
 
     def _feed(self, code: str, streams: CollectStreams) -> Any:
         if self._session is None:
@@ -351,9 +385,39 @@ class RepoSandbox:
         )
 
 
-# Chips must not themselves blow the wire cap: 20 paths of up to 400 chars
-# would be ~8 KB, which would make `truncate_tool_output` replace the whole
-# structure with a preview blob — exactly what putting `files` first avoids.
+def _checkout(pool: Monty) -> Any:
+    """Check a session out of the pool and enter it."""
+    session = pool.checkout(
+        script_name="repo_explorer.py",
+        limits={
+            "max_duration_secs": SESSION_DURATION_BUDGET,
+            "max_memory": SESSION_MEMORY_BUDGET,
+        },
+    )
+    session.__enter__()
+    return session
+
+
+def _exit_session(session: Any) -> None:
+    if session is None:
+        return
+    try:
+        session.__exit__(None, None, None)
+    except Exception:
+        pass
+
+
+def _close_mount(mount: Optional[MountDir]) -> None:
+    if mount is None:
+        return
+    try:
+        mount.close()
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("Failed to close repo mount: %s", exc)
+
+
+# Chips are bounded on their own: 20 paths of up to 400 chars would be ~8 KB
+# of file list on every tool row, on the wire and in the persisted dump alike.
 MAX_FILES_CHARS = 800
 
 
@@ -370,7 +434,10 @@ def _payload(files: Sequence[str], output: str) -> Dict[str, Any]:
 
 
 def _format(
-    streams: CollectStreams, error: Optional[str], value_repr: Optional[str]
+    streams: CollectStreams,
+    cap: int,
+    error: Optional[str],
+    value_repr: Optional[str],
 ) -> str:
     stdout = "".join(text for stream, text in streams.output if stream == "stdout")
     stderr = "".join(text for stream, text in streams.output if stream == "stderr")
@@ -389,8 +456,14 @@ def _format(
             "not an expression — use print())"
         )
     out = "\n".join(parts)
-    if len(out) > MAX_TOOL_OUTPUT:
-        out = out[:MAX_TOOL_OUTPUT] + "\n...[truncated]"
+    if len(out) > cap:
+        dropped = len(out) - cap
+        out = out[:cap] + (
+            f"\n...[output truncated: {dropped:,} more chars not shown. Narrow "
+            "the call — read() a smaller start=/end= window, grep() with "
+            "path=/glob= or a lower max_results — and continue from the last "
+            "line shown above.]"
+        )
     return out
 
 

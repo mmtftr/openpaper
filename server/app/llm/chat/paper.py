@@ -377,14 +377,20 @@ async def _run_sync_tool(
     ctx = contextvars.copy_context()
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(_tool_executor, lambda: ctx.run(_call))
+    payload: Dict[str, Any] = {
+        "tool": tool_name,
+        "duration_ms": (time.time() - started) * 1000,
+        "context_mode": deps.context_mode,
+        "runtime": "pydantic_ai",
+    }
+    # Cap-hit and failure rates per tool. Guarded on dict because not every
+    # tool returns a plain mapping (the figure path returns image payloads).
+    if isinstance(result, dict):
+        payload["truncated"] = bool(result.get("truncated"))
+        payload["error"] = bool(result.get("error"))
     track_event(
         "paper_agentic_tool_call",
-        {
-            "tool": tool_name,
-            "duration_ms": (time.time() - started) * 1000,
-            "context_mode": deps.context_mode,
-            "runtime": "pydantic_ai",
-        },
+        payload,
         user_id=str(deps.current_user.id),
         db=deps.db,
     )
@@ -442,138 +448,147 @@ def build_paper_agent(
         end_strategy="early",
     )
 
-    if context_mode != "full":
+    # The paper-reading tools are registered in EVERY context mode, Full
+    # included. The system prompt lists all four unconditionally, so gating
+    # them by mode left the model calling tools that weren't there (two such
+    # calls exhaust `retries=1` and fail the turn), and Full mode still needs
+    # `get_figure` — the pre-loaded markdown carries no figure bitmaps, so a
+    # vision model otherwise cannot actually look at a figure.
+
+    @agent.tool(
+        name="read_section",
+        description=(
+            "Read a section by heading. On miss, returns available_sections. "
+            "Use text_only=true when figures are not needed. Pass paper_id "
+            "to target a supplementary paper; defaults to the main paper."
+        ),
+    )
+    async def read_section_tool(
+        ctx: RunContext[PaperAgentDeps],
+        name: str,
+        text_only: bool = False,
+        paper_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if exhausted := _consume_tool_budget(ctx.deps):
+            return exhausted
+        return await _run_sync_tool(
+            read_section,
+            ctx.deps,
+            tool_name="read_section",
+            name=name,
+            text_only=text_only,
+            target_paper_id=paper_id,
+            allowed_paper_ids=ctx.deps.allowed_paper_ids,
+        )
+
+    @agent.tool(
+        name="read_pages",
+        description=(
+            "Read a contiguous 1-indexed inclusive page range. Output is "
+            "capped at whole pages: pages_returned tells you which pages "
+            "actually came back and next_page where to continue reading. "
+            "Pass paper_id to target a supplementary paper; defaults to the "
+            "main paper."
+        ),
+    )
+    async def read_pages_tool(
+        ctx: RunContext[PaperAgentDeps],
+        start: int,
+        end: int,
+        paper_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if exhausted := _consume_tool_budget(ctx.deps):
+            return exhausted
+        return await _run_sync_tool(
+            read_pages,
+            ctx.deps,
+            tool_name="read_pages",
+            start=start,
+            end=end,
+            target_paper_id=paper_id,
+            allowed_paper_ids=ctx.deps.allowed_paper_ids,
+        )
+
+    @agent.tool(
+        name="search_paper",
+        description=(
+            "Regex search the paper. Returns page, line, match, and "
+            "surrounding context lines. Omit paper_id to search the main "
+            "paper plus all supplementary papers together (each hit is "
+            "tagged with its paper_id); pass paper_id to scope to one."
+        ),
+    )
+    async def search_paper_tool(
+        ctx: RunContext[PaperAgentDeps],
+        query: str,
+        context_lines: int = 3,
+        paper_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if exhausted := _consume_tool_budget(ctx.deps):
+            return exhausted
+        return await _run_sync_tool(
+            search_paper,
+            ctx.deps,
+            tool_name="search_paper",
+            query=query,
+            context_lines=context_lines,
+            target_paper_id=paper_id,
+            allowed_paper_ids=ctx.deps.allowed_paper_ids,
+        )
+
+    # Figures only exist for Mistral-parsed papers; Raw mode is the pymupdf
+    # fallback, where there are no rendered bitmaps to fetch.
+    if str(getattr(paper, "parser", "") or "") == "mistral" and context_mode != "raw":
 
         @agent.tool(
-            name="read_section",
+            name="get_figure",
             description=(
-                "Read a section by heading. On miss, returns available_sections. "
-                "Use text_only=true when figures are not needed. Pass paper_id "
-                "to target a supplementary paper; defaults to the main paper."
+                "Fetch a figure or table by label, such as Figure 2 or "
+                "Table 4. Returns metadata (label, page, caption) "
+                + (
+                    "plus the rendered image so you can read the figure "
+                    "directly. "
+                    if supports_vision
+                    else "— this model doesn't support image input, so "
+                    "only the caption/label/page is returned, not the "
+                    "rendered image. "
+                )
+                + "Pass paper_id to target a supplementary paper; "
+                "defaults to the main paper."
             ),
         )
-        async def read_section_tool(
+        async def get_figure_tool(
             ctx: RunContext[PaperAgentDeps],
-            name: str,
-            text_only: bool = False,
+            label: str,
             paper_id: Optional[str] = None,
-        ) -> Dict[str, Any]:
+        ) -> Any:
             if exhausted := _consume_tool_budget(ctx.deps):
                 return exhausted
-            return await _run_sync_tool(
-                read_section,
+            payload = await _run_sync_tool(
+                _resolve_figure_with_image,
                 ctx.deps,
-                tool_name="read_section",
-                name=name,
-                text_only=text_only,
+                tool_name="get_figure",
+                label=label,
                 target_paper_id=paper_id,
                 allowed_paper_ids=ctx.deps.allowed_paper_ids,
             )
-
-        @agent.tool(
-            name="read_pages",
-            description=(
-                "Read a contiguous 1-indexed inclusive page range. Pass "
-                "paper_id to target a supplementary paper; defaults to the "
-                "main paper."
-            ),
-        )
-        async def read_pages_tool(
-            ctx: RunContext[PaperAgentDeps],
-            start: int,
-            end: int,
-            paper_id: Optional[str] = None,
-        ) -> Dict[str, Any]:
-            if exhausted := _consume_tool_budget(ctx.deps):
-                return exhausted
-            return await _run_sync_tool(
-                read_pages,
-                ctx.deps,
-                tool_name="read_pages",
-                start=start,
-                end=end,
-                target_paper_id=paper_id,
-                allowed_paper_ids=ctx.deps.allowed_paper_ids,
-            )
-
-        @agent.tool(
-            name="search_paper",
-            description=(
-                "Regex search the paper. Returns page, line, match, and "
-                "surrounding context lines. Omit paper_id to search the main "
-                "paper plus all supplementary papers together (each hit is "
-                "tagged with its paper_id); pass paper_id to scope to one."
-            ),
-        )
-        async def search_paper_tool(
-            ctx: RunContext[PaperAgentDeps],
-            query: str,
-            context_lines: int = 3,
-            paper_id: Optional[str] = None,
-        ) -> Dict[str, Any]:
-            if exhausted := _consume_tool_budget(ctx.deps):
-                return exhausted
-            return await _run_sync_tool(
-                search_paper,
-                ctx.deps,
-                tool_name="search_paper",
-                query=query,
-                context_lines=context_lines,
-                target_paper_id=paper_id,
-                allowed_paper_ids=ctx.deps.allowed_paper_ids,
-            )
-
-        if str(getattr(paper, "parser", "") or "") == "mistral" and context_mode != "raw":
-
-            @agent.tool(
-                name="get_figure",
-                description=(
-                    "Fetch a figure or table by label, such as Figure 2 or "
-                    "Table 4. Returns metadata (label, page, caption) "
-                    + (
-                        "plus the rendered image so you can read the figure "
-                        "directly. "
-                        if supports_vision
-                        else "— this model doesn't support image input, so "
-                        "only the caption/label/page is returned, not the "
-                        "rendered image. "
+            if "error" in payload:
+                return payload
+            if not supports_vision:
+                return payload["metadata"]
+            return ToolReturn(
+                return_value=payload["metadata"],
+                content=[
+                    BinaryImage(
+                        data=payload["image_bytes"],
+                        media_type=payload["media_type"],
+                        # Identifier doubles as the S3 key so the bytes
+                        # can be dropped from the persisted dump and
+                        # rehydrated on replay.
+                        identifier=f"{FIGURE_ID_PREFIX}{payload['s3_key']}",
                     )
-                    + "Pass paper_id to target a supplementary paper; "
-                    "defaults to the main paper."
-                ),
+                ],
             )
-            async def get_figure_tool(
-                ctx: RunContext[PaperAgentDeps],
-                label: str,
-                paper_id: Optional[str] = None,
-            ) -> Any:
-                if exhausted := _consume_tool_budget(ctx.deps):
-                    return exhausted
-                payload = await _run_sync_tool(
-                    _resolve_figure_with_image,
-                    ctx.deps,
-                    tool_name="get_figure",
-                    label=label,
-                    target_paper_id=paper_id,
-                    allowed_paper_ids=ctx.deps.allowed_paper_ids,
-                )
-                if "error" in payload:
-                    return payload
-                if not supports_vision:
-                    return payload["metadata"]
-                return ToolReturn(
-                    return_value=payload["metadata"],
-                    content=[
-                        BinaryImage(
-                            data=payload["image_bytes"],
-                            media_type=payload["media_type"],
-                            # Identifier doubles as the S3 key so the bytes
-                            # can be dropped from the persisted dump and
-                            # rehydrated on replay.
-                            identifier=f"{FIGURE_ID_PREFIX}{payload['s3_key']}",
-                        )
-                    ],
-                )
 
     if repo_snapshot is not None:
 
@@ -594,10 +609,12 @@ def build_paper_agent(
         async def run_python_tool(
             ctx: RunContext[PaperAgentDeps], code: str
         ) -> Dict[str, Any]:
-            if exhausted := _consume_tool_budget(ctx.deps):
-                return {"files": [], "output": f"[budget] {exhausted['message']}"}
+            # Check the repo sub-budget BEFORE charging the shared budget: a
+            # refused call must not also burn one of the paper tools' slots.
             if ctx.deps.repo_calls_used >= ctx.deps.max_repo_calls:
                 return dict(REPO_BUDGET_EXHAUSTED)
+            if exhausted := _consume_tool_budget(ctx.deps):
+                return {"files": [], "output": f"[budget] {exhausted['message']}"}
             ctx.deps.repo_calls_used += 1
             return await _run_repo_tool(ctx.deps, code)
 

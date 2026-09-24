@@ -358,3 +358,24 @@ def test_delete_paper_snapshots_is_total_and_safe(monkeypatch, tmp_path: Path):
     # Non-existent and invalid ids are no-ops, never raises.
     storage.delete_paper_snapshots(paper_id)
     storage.delete_paper_snapshots("../../etc")
+
+
+def test_grep_clamps_long_lines_and_caps_output_while_building(tmp_path: Path):
+    """A minified-style file must not turn every hit + context into a
+    multi-kilobyte row, nor let the joined result grow without bound."""
+    from app.llm.repo.prelude import GREP_MAX_LINE_CHARS, GREP_MAX_OUTPUT_CHARS
+
+    root = tmp_path / "snap"
+    root.mkdir()
+    body = "\n".join(f"needle {i} " + "x" * 5_000 for i in range(300)) + "\n"
+    (root / "bundle.js").write_text(body, encoding="utf-8")
+    prelude = RepoPrelude(root, [{"path": "bundle.js", "size": len(body)}])
+
+    out = prelude.grep("needle", context=2, max_results=200)
+
+    rows = [row for row in out.split("\n") if row.startswith("/repo/bundle.js:")]
+    assert rows, out
+    assert all(len(row) < GREP_MAX_LINE_CHARS + 100 for row in rows)
+    assert all("…[line truncated]" in row for row in rows)
+    assert len(out) < GREP_MAX_OUTPUT_CHARS + 2_000
+    assert "output cap reached" in out

@@ -1,5 +1,8 @@
 """Host-side helpers injected into the sandbox via `external_lookup`.
 
+Also called directly, with no sandbox in between, by the quick question's
+read-only tools (`app.llm.chat.quick_question_tools`).
+
 Monty's `os` has no `walk` and its `pathlib.Path` has no `glob`/`rglob`, so
 recursive navigation would otherwise be hand-rolled by the model on every
 call. These three functions run on the host at native speed and return
@@ -43,6 +46,15 @@ GREP_SCAN_BYTE_BUDGET = 20 * 1024 * 1024
 GREP_WALL_DEADLINE = 6.0
 GREP_LINE_TIMEOUT = 0.05
 MAX_HELPER_CALLS_PER_FEED = 200
+# Output-side caps for grep, applied WHILE the result is built. Each emitted
+# line is clamped (a minified bundle would otherwise put a multi-megabyte
+# line into every hit and its context) and the result stops growing past
+# GREP_MAX_OUTPUT_CHARS. Sized above the model-facing caps (the sandbox's
+# MAX_TOOL_OUTPUT, the quick question's MAX_LOOKUP_OUTPUT) so those still
+# decide what the model sees; this one only bounds the transient allocation
+# — up to (2*context+1) x scan budget before — made while holding the GIL.
+GREP_MAX_LINE_CHARS = 500
+GREP_MAX_OUTPUT_CHARS = 40_000
 # The deadline is checked before every match, not every N lines: a regex may
 # legitimately burn up to GREP_LINE_TIMEOUT per line, so checking every 256
 # lines would overshoot by ~12 s.
@@ -63,7 +75,8 @@ _BUDGET_SPENT = (
 
 
 class RepoPrelude:
-    """Bound to one published snapshot; produces the `external_lookup` map.
+    """Bound to one published snapshot; produces the `external_lookup` map
+    for the sandbox, or serves the quick-question tools directly.
 
     `manifest_paths` is the authoritative file list. Every path a helper
     touches must resolve inside the snapshot root AND appear in the
@@ -106,7 +119,7 @@ class RepoPrelude:
     # ---- touched-file log + per-feed budget --------------------------------
 
     def start_call(self) -> None:
-        """Begin a new run_python feed.
+        """Begin a new run_python feed (or one quick-question lookup).
 
         Resets the chips (they are per tool row) AND the DoS budgets — one
         snippet gets one wall deadline, one scan allowance and one helper-call
@@ -355,6 +368,7 @@ class RepoPrelude:
             )
 
         out: List[str] = []
+        out_chars = 0
         hits = 0
         files_with_hits = 0
 
@@ -416,8 +430,20 @@ class RepoPrelude:
                 high = min(len(lines), index + context_lines + 1)
                 for j in range(low, high):
                     marker = ":" if j == index else "-"
-                    out.append(f"{self.virtual_root}/{rel_path}:{j + 1}{marker} {lines[j]}")
+                    row = (
+                        f"{self.virtual_root}/{rel_path}:{j + 1}{marker} "
+                        f"{_clamp_grep_line(lines[j])}"
+                    )
+                    out.append(row)
+                    out_chars += len(row) + 1
                 out.append("--")
+                if out_chars >= GREP_MAX_OUTPUT_CHARS:
+                    out.append(
+                        f"... [output cap reached after {hits} matches in "
+                        f"{files_with_hits} files — narrow with path= or glob=, "
+                        "or use a more specific pattern]"
+                    )
+                    return "\n".join(out)
 
         if not out:
             return (
@@ -428,6 +454,12 @@ class RepoPrelude:
 
     def as_external_lookup(self) -> Dict[str, Callable]:
         return {"tree": self.tree, "read": self.read, "grep": self.grep}
+
+
+def _clamp_grep_line(text: str) -> str:
+    if len(text) <= GREP_MAX_LINE_CHARS:
+        return text
+    return text[:GREP_MAX_LINE_CHARS] + " …[line truncated]"
 
 
 def _budget_message(

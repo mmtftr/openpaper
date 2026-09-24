@@ -1,8 +1,17 @@
 """Quick question: an ephemeral, inline answer about a selected code range.
 
-Deliberately NOT a chat turn. There is no conversation, no persistence, no
-tools, no sandbox and no citations — the client opens a popover over a
-selection in the code viewer, gets one streamed answer, and closes it.
+Deliberately NOT a chat turn. There is no conversation, no message
+persistence, no sandbox and no citations — the client opens a popover over a
+selection in the code viewer, gets one streamed answer, and closes it. The
+only row it writes is a `chat_usage_events` entry: chat credits are metered
+from persisted message text, so without it a user under quota could ask quick
+questions forever.
+
+It does get a small, read-only view of the rest of the repo: the three
+`RepoPrelude` helpers (tree / read / grep) registered as plain tools by
+`quick_question_tools`, on a four-lookup budget, so a question whose answer
+lives one file away doesn't have to be re-asked in chat. No Monty sandbox —
+see that module for why.
 
 What it DOES share with chat: the same auth and quota gates, the same model
 registry and plan gating, the same transient-failure retry budget
@@ -12,8 +21,8 @@ UIMessage stream encoding, so the client consumes it with the identical
 ai-sdk stream reader.
 
 Paper access matches ADAPTIVE-mode chat exactly (same preload selection,
-same parser-driven mode coercion) minus the tools — `build_paper_chat_context`
-is reused for that so the two can't drift.
+same parser-driven mode coercion) minus the paper tools —
+`build_paper_chat_context` is reused for that so the two can't drift.
 
 The `OpenPaperAdapter` is reused for encoding, which also means the evidence
 holdback filter runs here. It should never fire (the system prompt forbids
@@ -27,11 +36,19 @@ import json
 import logging
 import uuid
 from dataclasses import dataclass
-from typing import AsyncIterator, List, Optional
+from pathlib import Path
+from typing import Any, AsyncIterator, Dict, List, Optional
 
+from app.database.crud.chat_usage_crud import record_chat_usage
 from app.database.telemetry import track_event
 from app.llm.chat.paper import _select_preload, build_paper_chat_context
+from app.llm.chat.quick_question_tools import (
+    MAX_LOOKUPS,
+    QuickQuestionRepoTools,
+    register_repo_tools,
+)
 from app.llm.chat.stream import OpenPaperAdapter
+from app.llm.repo.prelude import RepoPrelude
 from app.llm.model_registry import get_registry
 from app.llm.retrying_model import RetryingModel
 from app.schemas.user import CurrentUser
@@ -55,6 +72,14 @@ HEAD_LINES = 60
 
 TRUNCATION_MARKER = "[... truncated ...]"
 
+# Character ceilings, independent of the LINE windows above: a file with a
+# few enormous lines (minified JS, a data blob checked in as source) would
+# otherwise put megabytes into one prompt while the line counts look small.
+CODE_LINE_CHAR_LIMIT = 2_000
+CODE_BODY_CHAR_LIMIT = 96 * 1024
+CODE_SELECTION_CHAR_LIMIT = 32 * 1024
+LINE_TRUNCATION_SUFFIX = " …[line truncated]"
+
 QUICK_QUESTION_SYSTEM_PROMPT = """\
 You answer ONE focused question about a specific piece of code from the \
 companion repository of a research paper.
@@ -68,9 +93,19 @@ illustrate code.
 `filter_fn`") over vague description.
 - Relate the code to the paper when that is what the question is really \
 asking, using the paper context provided.
-- You have NO tools and cannot read anything else. If the answer is not \
-determinable from what is shown, say so plainly and say what would be \
-needed — never guess or invent code that isn't there.
+
+Looking things up:
+- The file and the user's selection are already in front of you. Answer from \
+them whenever you can — that is the fast path and it is usually enough.
+- `tree`, `read_file` and `grep_repo` read the rest of the repository \
+(read-only, paths rooted at /repo). Use them only to follow a reference out \
+of this file: where a function is defined, who calls it, what a config value \
+actually is.
+- This is an inline answer, so every lookup costs the user waiting time. At \
+most a few, each one targeted — never a survey of the repo.
+- Never invent code you did not read. If the answer isn't determinable from \
+what is shown and a lookup or two won't settle it, say so plainly and say \
+what would be needed.
 
 Formatting rules:
 - Markdown only. Inline math uses $$...$$; single dollar signs do not render.
@@ -115,9 +150,29 @@ def _render_lines(
     """
     gutter = width if width is not None else len(str(end))
     return "\n".join(
-        f"{number:>{gutter}}| {lines[number - 1]}"
+        f"{number:>{gutter}}| {_clamp_line(lines[number - 1])}"
         for number in range(start, min(end, len(lines)) + 1)
     )
+
+
+def _clamp_line(text: str) -> str:
+    if len(text) <= CODE_LINE_CHAR_LIMIT:
+        return text
+    return text[:CODE_LINE_CHAR_LIMIT] + LINE_TRUNCATION_SUFFIX
+
+
+def _any_line_clamped(lines: List[str], start: int, end: int) -> bool:
+    return any(
+        len(line) > CODE_LINE_CHAR_LIMIT
+        for line in lines[start - 1 : min(end, len(lines))]
+    )
+
+
+def _cap_text(text: str, limit: int) -> tuple[str, bool]:
+    """(text cut to `limit` chars with a marker, whether it was cut)."""
+    if len(text) <= limit:
+        return text, False
+    return text[:limit] + "\n" + TRUNCATION_MARKER, True
 
 
 def build_code_context(
@@ -150,17 +205,25 @@ def build_code_context(
     end = min(end, total)
 
     gutter = len(str(total))
-    selection = _render_lines(lines, start, end, gutter)
+    selection, selection_cut = _cap_text(
+        _render_lines(lines, start, end, gutter), CODE_SELECTION_CHAR_LIMIT
+    )
+    selection_cut = selection_cut or _any_line_clamped(lines, start, end)
 
     if len(content) <= CODE_FULL_BYTE_LIMIT and total <= CODE_FULL_LINE_LIMIT:
+        body, body_cut = _cap_text(
+            _render_lines(lines, 1, total, gutter), CODE_BODY_CHAR_LIMIT
+        )
         return CodeContext(
             file_path=file_path,
             start_line=start,
             end_line=end,
             total_lines=total,
-            body=_render_lines(lines, 1, total, gutter),
+            body=body,
             selection=selection,
-            truncated=False,
+            truncated=body_cut
+            or selection_cut
+            or _any_line_clamped(lines, 1, total),
         )
 
     head_end = min(HEAD_LINES, total)
@@ -185,13 +248,14 @@ def build_code_context(
         previous_end = segment_end
     if previous_end < total:
         parts.append(TRUNCATION_MARKER)
+    body, _ = _cap_text("\n".join(parts), CODE_BODY_CHAR_LIMIT)
 
     return CodeContext(
         file_path=file_path,
         start_line=start,
         end_line=end,
         total_lines=total,
-        body="\n".join(parts),
+        body=body,
         selection=selection,
         truncated=True,
     )
@@ -256,10 +320,24 @@ def _build_run_input(prompt: str) -> RequestData:
     return OpenPaperAdapter.build_run_input(json.dumps(payload).encode("utf-8"))
 
 
-def load_quick_question_code(
-    *, paper_id: str, file_path: str
-) -> tuple[str, str]:
-    """(resolved manifest path, file content) for a ready repo snapshot.
+@dataclass(frozen=True)
+class SnapshotFile:
+    """The selected file, plus the snapshot it was read from.
+
+    The snapshot travels with the file so the lookup tools can be bound to
+    the SAME commit the selection came from — resolving the row twice would
+    let a re-ingest between the two reads answer about a different tree.
+    """
+
+    path: str
+    content: str
+    root: Path
+    commit_sha: str
+    manifest_files: List[Dict[str, Any]]
+
+
+def load_quick_question_code(*, paper_id: str, file_path: str) -> SnapshotFile:
+    """The requested file resolved against a ready repo snapshot.
 
     Raises QuickQuestionError with the status the contract specifies: 409
     when no ready repo is connected, 404 when the path isn't in the manifest.
@@ -299,7 +377,17 @@ def load_quick_question_code(
         content = host_path.read_text(encoding="utf-8", errors="replace")
     except (storage.SnapshotPathError, OSError):
         raise QuickQuestionError("File not found in this snapshot.", 404)
-    return requested, content
+
+    manifest_files = [
+        entry for entry in (manifest.get("files") or []) if isinstance(entry, dict)
+    ]
+    return SnapshotFile(
+        path=requested,
+        content=content,
+        root=root,
+        commit_sha=commit_sha,
+        manifest_files=manifest_files,
+    )
 
 
 async def run_quick_question(
@@ -316,7 +404,7 @@ async def run_quick_question(
     model: Optional[str],
     reasoning_effort: Optional[str],
 ) -> AsyncIterator[str]:
-    """Validate, run the tool-less agent, and yield encoded SSE strings.
+    """Validate, run the agent, and yield encoded SSE strings.
 
     Raises QuickQuestionError for every pre-stream failure so the endpoint
     can turn it into a real HTTP status instead of a broken SSE stream.
@@ -351,11 +439,12 @@ async def run_quick_question(
     if not allowed:
         raise QuickQuestionError(quota_error or "Chat limit reached.", 403)
 
-    resolved_path, content = load_quick_question_code(
+    snapshot_file = load_quick_question_code(
         paper_id=paper_id, file_path=file_path
     )
+    resolved_path = snapshot_file.path
     code = build_code_context(
-        content,
+        snapshot_file.content,
         file_path=resolved_path,
         start_line=start_line,
         end_line=end_line,
@@ -400,6 +489,12 @@ async def run_quick_question(
         instructions=QUICK_QUESTION_SYSTEM_PROMPT,
         retries=1,
     )
+    # Bound to the snapshot the selection came from, and to this request: the
+    # lookup budget dies with the answer.
+    repo_tools = QuickQuestionRepoTools(
+        RepoPrelude(snapshot_file.root, snapshot_file.manifest_files)
+    )
+    register_repo_tools(agent, repo_tools)
     adapter: OpenPaperAdapter = OpenPaperAdapter(
         agent=agent,
         run_input=_build_run_input(prompt),
@@ -414,9 +509,25 @@ async def run_quick_question(
     try:
         native_stream = adapter.run_stream_native(
             deps=None,
-            model_settings=registry.build_settings(spec, reasoning_effort),
-            # Single shot, no tools: one model request is all this can need.
-            usage_limits=UsageLimits(request_limit=2, tool_calls_limit=0),
+            # No conversation here, but the prompt prefix (system prompt +
+            # preload + file) repeats across questions on the same paper, so
+            # a paper-scoped key keeps them routed to the same cache.
+            model_settings=registry.build_settings(
+                spec, reasoning_effort, cache_key=f"openpaper:qq:{paper_id}"
+            ),
+            # The REAL budget is MAX_LOOKUPS, enforced inside the tools so a
+            # spent budget degrades into "answer now" (see
+            # quick_question_tools). These are the hard backstop and sit
+            # well above it on purpose: pydantic-ai RAISES on an over-budget
+            # call — checked against the PROJECTED batch, so one response
+            # carrying N parallel calls trips it before any of them runs —
+            # and that would kill a stream that may already have text in
+            # it. Refused calls are instant "[budget]" strings, so the
+            # headroom is cheap; request_limit still bounds the rounds.
+            usage_limits=UsageLimits(
+                request_limit=MAX_LOOKUPS + 4,
+                tool_calls_limit=MAX_LOOKUPS * 5,
+            ),
             metadata={
                 "paper_id": paper_id,
                 "provider": spec.provider.value,
@@ -441,12 +552,25 @@ async def run_quick_question(
                     "llm_provider": spec.provider.value,
                     "model": spec.id,
                     "delivered": delivered,
+                    "tool_calls": repo_tools.calls,
                 },
                 user_id=str(current_user.id),
                 db=db,
             )
         except Exception:
             pass
+        # Charge the quota. Nothing here persists a message, and the weekly
+        # meter is computed from persisted content — without this row a user
+        # under quota could ask quick questions forever. Same rate as a chat
+        # turn: question + answer characters.
+        if delivered:
+            stream_state = adapter.last_event_stream
+            answer_chars = len(stream_state.accumulated_text) if stream_state else 0
+            record_chat_usage(
+                user_id=current_user.id,
+                kind="quick_question",
+                chars=len(text) + answer_chars,
+            )
         # Close the NATIVE stream directly: closing only the outer protocol
         # generator leaves the provider HTTP stream running (and billing).
         try:

@@ -261,6 +261,29 @@ class Message(Base):
     conversation = relationship("Conversation", back_populates="messages")
 
 
+class ChatUsageEvent(Base):
+    """One paid model exchange that persisted no `messages` row.
+
+    The weekly chat-credit meter sums message characters; ephemeral endpoints
+    (the code-viewer quick question) would otherwise never advance it. See
+    `app.database.crud.chat_usage_crud`.
+    """
+
+    __tablename__ = "chat_usage_events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    kind = Column(String, nullable=False)
+    chars = Column(Integer, nullable=False, default=0)
+    created_at = Column(
+        DateTime(timezone=True), server_default=text("now()"), nullable=False
+    )
+
+
 class ConversableType(str, Enum):
     PAPER = "paper"
     PROJECT = "project"

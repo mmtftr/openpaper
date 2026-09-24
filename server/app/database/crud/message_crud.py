@@ -271,8 +271,10 @@ class MessageCRUD(CRUDBase[Message, MessageCreate, MessageUpdate]):
         start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
         end_of_week = start_of_week + timedelta(days=7)
         # We'll define a `chat credit` as being equal to the value of 5 characters processed. To compute, we take the length of the content of each message and divide by 5.
-        return (
-            db.query(func.sum(func.length(Message.content)) / 5)
+        from app.database.crud.chat_usage_crud import chat_usage_chars_between
+
+        message_chars = (
+            db.query(func.coalesce(func.sum(func.length(Message.content)), 0))
             .filter(
                 Message.user_id == current_user.id,
                 Message.created_at >= start_of_week,
@@ -281,6 +283,12 @@ class MessageCRUD(CRUDBase[Message, MessageCreate, MessageUpdate]):
             .scalar()
             or 0
         )
+        # Ephemeral model calls (the code-viewer quick question) persist no
+        # message; they are metered through `chat_usage_events` instead.
+        extra_chars = chat_usage_chars_between(
+            db, user_id=current_user.id, start=start_of_week, end=end_of_week
+        )
+        return int((int(message_chars) + extra_chars) // 5)
 
 
 # Create a single instance to use throughout the application
