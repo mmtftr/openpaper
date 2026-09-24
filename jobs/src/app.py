@@ -29,21 +29,7 @@ app = FastAPI(
 )
 
 
-def _logfire_request_attributes(request, attributes):
-    """Keep FastAPI argument spans but drop their content: parsed request
-    arguments (webhook OCR payloads, chat bodies) and validation-error inputs."""
-    errors = [
-        {k: v for k, v in err.items() if k != "input"}
-        for err in attributes.get("errors") or []
-    ]
-    return {"errors": errors}
-
-
-logfire.instrument_fastapi(
-    app,
-    capture_headers=True,
-    request_attributes_mapper=_logfire_request_attributes,
-)
+logfire.instrument_fastapi(app, capture_headers=True)
 
 
 class TaskSubmission(BaseModel):

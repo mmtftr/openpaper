@@ -103,8 +103,9 @@ leftovers, legacy tool dicts, `_pai_compat` legacy shims; one `chat/evidence.py`
 ## Phase 2 — Small hardening
 
 Only items that matter with a single user on a tailnet:
-- Logfire: stop capturing request/response bodies and prompts (full PDFs and
-  page images currently go to Logfire).
+- ~~Logfire: stop capturing request/response bodies and prompts.~~ Reverted at the
+  owner's request (2026-09-24): bodies, prompts and outputs stay in Logfire for
+  reviewing transcripts.
 - Two jobs bugs that lose uploads until Phase 5 replaces the pipeline: the
   misspelled `task_reject_on_worker_lost` (`jobs/src/celery_app.py:44`) and
   `result: Optional` on the paper webhook (failures currently 422).

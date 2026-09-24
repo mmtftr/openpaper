@@ -12,10 +12,10 @@ logfire.configure(
     service_name="openpaper-jobs",
     send_to_logfire="if-token-present",
 )
-# No request/response bodies or prompts: they carry full PDFs and page images.
-logfire.instrument_pydantic(record="metrics")
+logfire.instrument_pydantic()
+logfire.instrument_openai()
 logfire.instrument_celery()
-logfire.instrument_httpx()
+logfire.instrument_httpx(capture_all=True)
 
 BROKER_URL = os.getenv("CELERY_BROKER_URL", "pyamqp://guest@localhost:5672//")
 BACKEND_URL = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
