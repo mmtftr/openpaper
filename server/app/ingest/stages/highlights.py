@@ -8,9 +8,9 @@ Port of the jobs service's highlight extraction (`jobs/src/llm_client.py`,
 - a `Highlight` per pick: `role='assistant'`, `origin='ai'`, its `type`,
   `raw_text` = the quote, `position` (`ScaledPosition` JSON, top-left
   origin, no `usePdfCoordinates`) and `page_number` when the quote was found
-  in the PDF text layer, `start_offset`/`end_offset` into the paper's joined
-  page markdown (pages joined with a blank line, like the old
-  `raw_content`), owned by the paper's owner;
+  in the PDF text layer, `start_offset`/`end_offset` into
+  `content.full_text` (every page, empty ones included, joined with a blank
+  line: the old `raw_content`), owned by the paper's owner;
 - an `Annotation` on it with the model's note (`role='assistant'`).
 
 Regeneration (reprocess) replaces the previous AI highlights, except those
@@ -30,9 +30,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.database.models import Annotation, Highlight, Paper
-from app.ingest import storage
+from app.ingest import content, storage
 from app.ingest.config import Resource
-from app.ingest.models import PaperPage
 from app.ingest.pdf.anchor import anchor_quotes
 from app.ingest.stages.base import Stage, StageContext, fail_permanent, skip
 from app.llm import oneshot
@@ -43,7 +42,6 @@ MAX_HIGHLIGHTS = 5
 # Cap on the paper text sent to the model (~100k tokens). The old pipeline
 # sent everything, but it also refused PDFs over 800 pages.
 MAX_PROMPT_CHARS = 400_000
-PAGE_SEPARATOR = "\n\n"
 
 
 # -- model output (same fields as the jobs service's `AIHighlight`) --------------
@@ -141,34 +139,6 @@ class GeneratedHighlight:
     end_offset: Optional[int]
 
 
-def load_page_markdown(session: Session, paper_id: uuid.UUID) -> list[tuple[int, str]]:
-    """Each page's final markdown (`ocr_repair`'s output), in page order."""
-    rows = session.execute(
-        select(PaperPage.page_no, PaperPage.markdown)
-        .where(PaperPage.paper_id == paper_id)
-        .order_by(PaperPage.page_no)
-    ).all()
-    return [(page_no, markdown or "") for page_no, markdown in rows]
-
-
-def join_pages(pages: list[tuple[int, str]]) -> tuple[str, dict[int, tuple[int, int]]]:
-    """Pages' markdown joined like the old `raw_content`, with each page's
-    (start, end) offsets."""
-    chunks: list[str] = []
-    offsets: dict[int, tuple[int, int]] = {}
-    cursor = 0
-    for page_no, markdown in pages:
-        if not markdown:
-            continue
-        if chunks:
-            chunks.append(PAGE_SEPARATOR)
-            cursor += len(PAGE_SEPARATOR)
-        offsets[page_no] = (cursor, cursor + len(markdown))
-        chunks.append(markdown)
-        cursor += len(markdown)
-    return "".join(chunks), offsets
-
-
 def _page_at(offsets: dict[int, tuple[int, int]], offset: int) -> Optional[int]:
     for page_no, (start, end) in offsets.items():
         if start <= offset < end:
@@ -222,8 +192,9 @@ class Highlights(Stage[list[GeneratedHighlight]]):
     model_slot = "ingest.highlights"
 
     async def run(self, ctx: StageContext) -> list[GeneratedHighlight]:
-        pages = await ctx.read(lambda s: load_page_markdown(s, ctx.paper_id))
-        text, offsets = join_pages(pages)
+        # Offsets are into `content.full_text`, like every other reader's.
+        pages = await ctx.read(lambda s: content.pages(s, ctx.paper_id))
+        text, offsets = content.full_text(pages)
         if not text.strip():
             skip("The paper has no text to pick highlights from")
 

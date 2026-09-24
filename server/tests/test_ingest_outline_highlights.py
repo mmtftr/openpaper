@@ -15,6 +15,8 @@ from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from app.core.deadline import Deadline
+from app.ingest import content
+from app.ingest.content import Page
 from app.ingest.stages import highlights as highlights_stage
 from app.ingest.stages import outline as outline_stage
 from app.ingest.stages.base import StageContext, StageSkipped
@@ -276,9 +278,9 @@ def pick(text, kind="result", note="Why it matters."):
 @pytest.fixture
 def paper_text(monkeypatch):
     monkeypatch.setattr(
-        highlights_stage,
-        "load_page_markdown",
-        lambda s, paper_id: [(1, PAGE_1), (2, PAGE_2)],
+        highlights_stage.content,
+        "pages",
+        lambda s, paper_id: [Page(1, PAGE_1), Page(2, PAGE_2)],
     )
     serve_pdf(monkeypatch, highlights_stage, highlights_pdf())
 
@@ -306,7 +308,7 @@ def test_highlights_are_picked_anchored_and_placed(paper_text, model):
     assert (method.type, method.page_number) == ("method", 1)
     assert method.position is not None
     assert method.position["rects"][0]["pageNumber"] == 1
-    text, _ = highlights_stage.join_pages([(1, PAGE_1), (2, PAGE_2)])
+    text, _ = content.full_text([Page(1, PAGE_1), Page(2, PAGE_2)])
     assert text[method.start_offset : method.end_offset] == method.text
 
     assert result.page_number == 2 and result.position is not None
@@ -327,17 +329,30 @@ def test_highlights_are_capped_at_five(paper_text, model):
 
 def test_highlights_skip_a_paper_without_text(monkeypatch, model):
     monkeypatch.setattr(
-        highlights_stage, "load_page_markdown", lambda s, paper_id: [(1, ""), (2, "")]
+        highlights_stage.content,
+        "pages",
+        lambda s, paper_id: [Page(1, ""), Page(2, "")],
     )
     with pytest.raises(StageSkipped):
         asyncio.run(highlights_stage.Highlights().run(make_ctx("highlights")))
     assert model.calls == 0
 
 
-def test_join_pages_matches_the_old_raw_content_shape():
-    text, offsets = highlights_stage.join_pages([(1, "ab"), (2, ""), (3, "cd")])
-    assert text == "ab\n\ncd"
-    assert offsets == {1: (0, 2), 3: (4, 6)}
+def test_highlight_offsets_count_empty_pages_like_full_text(monkeypatch, model):
+    """An empty page still takes its separator in `content.full_text`, which
+    every other reader of the offsets uses."""
+    pages = [Page(1, ""), Page(2, PAGE_1), Page(3, PAGE_2)]
+    monkeypatch.setattr(highlights_stage.content, "pages", lambda s, paper_id: pages)
+    serve_pdf(monkeypatch, highlights_stage, highlights_pdf())
+    model.fn = answer(
+        {"highlights": [pick("Accuracy improves by **12 points** on every benchmark.")]}
+    )
+
+    [hit] = asyncio.run(highlights_stage.Highlights().run(make_ctx("highlights")))
+
+    text, offsets = content.full_text(pages)
+    assert hit.start_offset is not None and hit.start_offset >= offsets[3][0]
+    assert text[hit.start_offset : hit.end_offset] == hit.text
 
 
 def test_position_is_validated_as_scaled_position():
