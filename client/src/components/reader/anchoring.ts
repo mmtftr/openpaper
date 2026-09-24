@@ -577,7 +577,7 @@ export async function locateQuoteOnPage(
 export async function locateQuote(
 	pdfDoc: PDFDocumentProxy,
 	quote: string,
-	hintPage?: number,
+	hintPage?: number | null,
 	options: { signal?: AbortSignal; beforePage?: () => Promise<void> } = {}
 ): Promise<{ page: number; rects: PercentRect[] } | null> {
 	const total = pdfDoc.numPages;

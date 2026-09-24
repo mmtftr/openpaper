@@ -1,7 +1,6 @@
 "use client";
 
-import { fetchFromApi } from "@/lib/api";
-import type { SearchResults } from "@/lib/schema";
+import { api, unwrap } from "@/lib/api/client";
 import { extractArxivId } from "./helpers";
 
 /**
@@ -46,27 +45,6 @@ export type ResolveOutcome =
 	| { paper: PaperInfo; matchedBy: "library" | "openalex" }
 	| "unavailable"
 	| null;
-
-interface OpenAlexAuthorship {
-	author?: { display_name?: string | null } | null;
-}
-
-interface OpenAlexWork {
-	id: string;
-	title: string;
-	doi?: string | null;
-	abstract?: string | null;
-	publication_date?: string | null;
-	publication_year?: number | null;
-	authorships?: OpenAlexAuthorship[] | null;
-	topics?: { display_name?: string | null }[] | null;
-	open_access?: { is_oa?: boolean; oa_url?: string | null } | null;
-	primary_location?: {
-		landing_page_url?: string | null;
-		pdf_url?: string | null;
-		source?: { display_name?: string | null } | null;
-	} | null;
-}
 
 function normalizeTitle(value: string): string {
 	return value
@@ -165,9 +143,8 @@ async function searchLibrary(
 	referenceText: string,
 	signal?: AbortSignal
 ): Promise<PaperInfo | null> {
-	const results: SearchResults = await fetchFromApi(
-		`/api/search/local?q=${encodeURIComponent(query)}&limit=5`,
-		{ signal }
+	const results = await unwrap(
+		api.GET("/api/search/local/", { params: { query: { q: query, limit: 5 } }, signal })
 	);
 	for (const paper of results?.papers ?? []) {
 		if (!paper.title) continue;
@@ -191,9 +168,8 @@ async function searchOpenAlex(
 	referenceText: string,
 	signal?: AbortSignal
 ): Promise<PaperInfo | null> {
-	const response: { results?: OpenAlexWork[] } = await fetchFromApi(
-		`/api/search/global/search?query=${encodeURIComponent(query)}&page=1`,
-		{ method: "POST", signal }
+	const response = await unwrap(
+		api.POST("/api/search/global/search", { params: { query: { query, page: 1 } }, signal })
 	);
 	for (const work of response?.results ?? []) {
 		if (!work.title || !titleMatches(work.title, referenceText)) continue;

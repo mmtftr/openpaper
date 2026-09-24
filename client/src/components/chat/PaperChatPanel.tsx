@@ -25,7 +25,8 @@ import {
 
 import { useChat } from "@ai-sdk/react";
 
-import { fetchFromApi } from "@/lib/api";
+import useSWR from "swr";
+import { api, unwrap, type Schemas } from "@/lib/api/client";
 import {
     ChatUIMessage,
     citationsFromMessage,
@@ -154,11 +155,21 @@ const CONTEXT_MODE_LS_KEY = "openpaper:paper-context-mode";
 const SELECTED_MODEL_LS_KEY = "openpaper:paper-chat-model";
 const REASONING_EFFORT_LS_KEY = "openpaper:paper-reasoning-effort";
 
-interface ConversationSummary {
-    id: string;
-    title: string | null;
-    updated_at: string | null;
-}
+type ConversationSummary = Schemas["PaperConversationSummary"];
+
+const listConversations = (paperId: string) =>
+    unwrap(
+        api.GET("/api/paper/conversations", {
+            params: { query: { paper_id: paperId } },
+        })
+    );
+
+const createConversation = (paperId: string) =>
+    unwrap(
+        api.POST("/api/conversation/paper/{paper_id}", {
+            params: { path: { paper_id: paperId } },
+        })
+    );
 
 const conversationStorageKey = (paperId: string) =>
     `openpaper:active-conversation:${paperId}`;
@@ -331,11 +342,7 @@ export function PaperChatPanel({
         async function init() {
             let list: ConversationSummary[] = [];
             try {
-                const response = await fetchFromApi(
-                    `/api/paper/conversations?paper_id=${id}`,
-                    { method: "GET" }
-                );
-                if (Array.isArray(response)) list = response;
+                list = await listConversations(id);
             } catch (err) {
                 console.error("Error fetching conversations:", err);
             }
@@ -363,10 +370,7 @@ export function PaperChatPanel({
             }
 
             try {
-                const created = await fetchFromApi(
-                    `/api/conversation/paper/${id}`,
-                    { method: "POST" }
-                );
+                const created = await createConversation(id);
                 if (cancelled) return;
                 setConversations([
                     {
@@ -401,13 +405,7 @@ export function PaperChatPanel({
 
     const refreshConversations = useCallback(async () => {
         try {
-            const response = await fetchFromApi(
-                `/api/paper/conversations?paper_id=${id}`,
-                { method: "GET" }
-            );
-            if (Array.isArray(response)) {
-                setConversations(response);
-            }
+            setConversations(await listConversations(id));
         } catch (err) {
             console.error("Error refreshing conversations:", err);
         }
@@ -428,10 +426,7 @@ export function PaperChatPanel({
     const handleNewChat = useCallback(async () => {
         if (isStreaming) stop();
         try {
-            const created = await fetchFromApi(
-                `/api/conversation/paper/${id}`,
-                { method: "POST" }
-            );
+            const created = await createConversation(id);
             const summary: ConversationSummary = {
                 id: created.id,
                 title: created.title ?? null,
@@ -459,9 +454,11 @@ export function PaperChatPanel({
         if (!target) return;
         setPendingDeleteId(null);
         try {
-            await fetchFromApi(`/api/conversation/${target}`, {
-                method: "DELETE",
-            });
+            await unwrap(
+                api.DELETE("/api/conversation/{conversation_id}", {
+                    params: { path: { conversation_id: target } },
+                })
+            );
         } catch (err) {
             console.error("Error deleting conversation:", err);
             toast.error("Could not delete that chat.");
@@ -478,10 +475,7 @@ export function PaperChatPanel({
                 setConversationId(next.id);
             } else {
                 try {
-                    const created = await fetchFromApi(
-                        `/api/conversation/paper/${id}`,
-                        { method: "POST" }
-                    );
+                    const created = await createConversation(id);
                     setConversations([
                         {
                             id: created.id,
@@ -506,41 +500,39 @@ export function PaperChatPanel({
         session.ensureHistoryLoaded();
     }, [user, session]);
 
-    useEffect(() => {
-        if (!id) return;
-        async function fetchAvailableModels() {
-            try {
-                const response = await fetchFromApi(`/api/message/models`);
-                const models: ModelOption[] = Array.isArray(response.models)
-                    ? response.models
-                    : [];
-                if (models.length === 0) return;
-                setAvailableModels(models);
-                const defaultModel = models.find(
-                    (m) =>
-                        m.id === response.default &&
-                        (!response.default_provider ||
-                            m.provider === response.default_provider)
-                );
-                const fallback = modelKey(defaultModel ?? models[0]);
-                // Honor the persisted choice if it's still offered; otherwise
-                // fall back. This keeps the picker stable across reloads
-                // instead of snapping back to the server default each time.
-                // (Legacy stored values are bare model ids — upgrade them to
-                // the provider-qualified key.)
-                setSelectedModel((current) => {
-                    if (current && models.some((m) => modelKey(m) === current)) {
-                        return current;
-                    }
-                    const legacy = models.find((m) => m.id === current);
-                    return legacy ? modelKey(legacy) : fallback;
-                });
-            } catch (err) {
-                console.error("Error fetching available models:", err);
-            }
+    const { data: chatModels } = useSWR(
+        id ? "/api/message/models" : null,
+        () => unwrap(api.GET("/api/message/models")),
+        {
+            onError: (err) =>
+                console.error("Error fetching available models:", err),
         }
-        fetchAvailableModels();
-    }, [id]);
+    );
+    useEffect(() => {
+        if (!chatModels) return;
+        const models = chatModels.models;
+        if (models.length === 0) return;
+        setAvailableModels(models);
+        const defaultModel = models.find(
+            (m) =>
+                m.id === chatModels.default &&
+                (!chatModels.default_provider ||
+                    m.provider === chatModels.default_provider)
+        );
+        const fallback = modelKey(defaultModel ?? models[0]);
+        // Honor the persisted choice if it's still offered; otherwise
+        // fall back. This keeps the picker stable across reloads
+        // instead of snapping back to the server default each time.
+        // (Legacy stored values are bare model ids — upgrade them to
+        // the provider-qualified key.)
+        setSelectedModel((current) => {
+            if (current && models.some((m) => modelKey(m) === current)) {
+                return current;
+            }
+            const legacy = models.find((m) => m.id === current);
+            return legacy ? modelKey(legacy) : fallback;
+        });
+    }, [chatModels]);
 
     const selectedModelOption = useMemo(
         () => availableModels.find((m) => modelKey(m) === selectedModel),
@@ -604,7 +596,7 @@ export function PaperChatPanel({
                                   data: {
                                       citations: references.map(
                                           (ref, index) => ({
-                                              key: `${index + 1}`,
+                                              key: index + 1,
                                               reference: ref,
                                           })
                                       ),
@@ -1484,16 +1476,16 @@ const PaperMessage = memo(function PaperMessage({
                 handleCitationClickRef.current(
                     key,
                     msgIdx,
-                    citation?.paper_id,
-                    citation?.page
+                    citation?.paper_id ?? undefined,
+                    citation?.page ?? undefined
                 );
                 return;
             }
             setSourcesOpen(true);
             setPendingPdfJump({
                 key,
-                paperId: citation?.paper_id,
-                page: citation?.page,
+                paperId: citation?.paper_id ?? undefined,
+                page: citation?.page ?? undefined,
             });
         },
         [citations, index]

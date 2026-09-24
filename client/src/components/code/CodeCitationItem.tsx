@@ -82,7 +82,7 @@ export function CodeCitationItem({
                         ? "text-foreground"
                         : "text-muted-foreground/70 italic"
                 )}
-                title={citation.file}
+                title={citation.file ?? undefined}
             >
                 {label}
             </span>

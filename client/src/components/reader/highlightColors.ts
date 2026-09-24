@@ -30,7 +30,7 @@ export const HIGHLIGHT_COLOR_SWATCHES: {
  * source of truth for both halves.
  */
 export function getUserHighlightFill(
-	color: HighlightColor | undefined,
+	color: HighlightColor | null | undefined,
 	isActive: boolean
 ): string {
 	return `var(--hl-${color || "blue"}${isActive ? "-active" : ""})`;

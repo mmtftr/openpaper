@@ -1,61 +1,15 @@
-import { z } from "zod";
-
-import { API_BASE_URL } from "@/lib/api";
+import { api, ApiRequestError, unwrap, type Schemas } from "@/lib/api/client";
 
 /**
- * Typed client for the repo-inspection endpoints
+ * Typed calls for the repo-inspection endpoints
  * (`/api/paper/{id}/repo{,/tree,/file}`).
- *
- * Responses are parsed with lenient zod schemas: unknown keys pass through
- * untouched, but a shape that can't be used at all fails loudly at the
- * boundary instead of blowing up deep inside a component.
  */
 
-export type RepoStatus = "pending" | "ingesting" | "ready" | "error";
-
-const repoStatusSchema = z
-    .enum(["pending", "ingesting", "ready", "error"])
-    .catch("pending");
-
-const paperRepoSchema = z.looseObject({
-    status: repoStatusSchema,
-    owner: z.string(),
-    repo: z.string(),
-    ref: z.string().nullish().transform((v) => v ?? ""),
-    commit_sha: z.string().nullish().transform((v) => v ?? null),
-    error: z.string().nullish().transform((v) => v ?? null),
-    file_count: z.number().nullish().transform((v) => v ?? null),
-    total_bytes: z.number().nullish().transform((v) => v ?? null),
-    updated_at: z.string().nullish().transform((v) => v ?? ""),
-});
-
-export type PaperRepo = z.infer<typeof paperRepoSchema>;
-
-const repoTreeFileSchema = z.looseObject({
-    path: z.string(),
-    size: z.number().nullish().transform((v) => v ?? 0),
-});
-
-export type RepoTreeFile = z.infer<typeof repoTreeFileSchema>;
-
-const repoTreeSchema = z.looseObject({
-    owner: z.string().nullish().transform((v) => v ?? ""),
-    repo: z.string().nullish().transform((v) => v ?? ""),
-    ref: z.string().nullish().transform((v) => v ?? ""),
-    commit_sha: z.string().nullish().transform((v) => v ?? null),
-    files: z.array(repoTreeFileSchema).nullish().transform((v) => v ?? []),
-});
-
-export type RepoTree = z.infer<typeof repoTreeSchema>;
-
-const repoFileSchema = z.looseObject({
-    path: z.string(),
-    content: z.string().nullish().transform((v) => v ?? ""),
-    size: z.number().nullish().transform((v) => v ?? 0),
-    github_url: z.string().nullish().transform((v) => v ?? null),
-});
-
-export type RepoFile = z.infer<typeof repoFileSchema>;
+export type RepoStatus = Schemas["RepoStatus"];
+export type PaperRepo = Schemas["RepoStatusResponse"];
+export type RepoTreeFile = Schemas["RepoTreeFile"];
+export type RepoTree = Schemas["RepoTreeResponse"];
+export type RepoFile = Schemas["RepoFileResponse"];
 
 /** Files past this size render as plain text — shiki on a 200KB blob janks. */
 export const PLAIN_TEXT_BYTE_THRESHOLD = 200 * 1024;
@@ -69,55 +23,11 @@ export function looksLikeGithubRepoUrl(url: string): boolean {
 }
 
 /**
- * Error from a repo endpoint, carrying the HTTP status. The UI branches on
- * `status` (404 = "not connected" / "not in the snapshot") — `fetchFromApi`
- * only surfaces the server's `detail` string, which can't be branched on.
+ * True when a repo call failed with this HTTP status. The UI branches on it
+ * (404 = "not connected" / "not in the snapshot").
  */
-export class RepoApiError extends Error {
-    readonly status: number;
-
-    constructor(message: string, status: number) {
-        super(message);
-        this.name = "RepoApiError";
-        this.status = status;
-    }
-}
-
 export function isRepoApiStatus(error: unknown, status: number): boolean {
-    return error instanceof RepoApiError && error.status === status;
-}
-
-/** fetch + the codebase's error-detail extraction, keeping the status code. */
-async function repoRequest(
-    path: string,
-    options: RequestInit = {}
-): Promise<unknown> {
-    const response = await fetch(`${API_BASE_URL}${path}`, {
-        ...options,
-        headers: {
-            ...(options.body ? { "Content-Type": "application/json" } : {}),
-            ...options.headers,
-        },
-        credentials: "include",
-    });
-
-    if (!response.ok) {
-        let message = `API error: ${response.status}`;
-        try {
-            const body = await response.json();
-            const detail = body?.detail ?? body?.message ?? body?.error;
-            if (detail) {
-                message =
-                    typeof detail === "string" ? detail : JSON.stringify(detail);
-            }
-        } catch {
-            message = `API error: ${response.status} ${response.statusText}`;
-        }
-        throw new RepoApiError(message, response.status);
-    }
-
-    if (response.status === 204) return null;
-    return response.json();
+    return error instanceof ApiRequestError && error.status === status;
 }
 
 /**
@@ -126,10 +36,11 @@ async function repoRequest(
  */
 export async function getPaperRepo(paperId: string): Promise<PaperRepo | null> {
     try {
-        const response = await repoRequest(
-            `/api/paper/${encodeURIComponent(paperId)}/repo`
+        return await unwrap(
+            api.GET("/api/paper/{paper_id}/repo", {
+                params: { path: { paper_id: paperId } },
+            })
         );
-        return paperRepoSchema.parse(response);
     } catch (error) {
         // "No repo connected" is a normal state, not a failure to surface.
         if (isRepoApiStatus(error, 404)) return null;
@@ -138,38 +49,37 @@ export async function getPaperRepo(paperId: string): Promise<PaperRepo | null> {
 }
 
 /** Connect a GitHub repo and kick ingestion. 409 / 422 surface as errors. */
-export async function connectPaperRepo(
-    paperId: string,
-    url: string
-): Promise<PaperRepo> {
-    const response = await repoRequest(
-        `/api/paper/${encodeURIComponent(paperId)}/repo`,
-        { method: "POST", body: JSON.stringify({ url }) }
+export function connectPaperRepo(paperId: string, url: string): Promise<PaperRepo> {
+    return unwrap(
+        api.POST("/api/paper/{paper_id}/repo", {
+            params: { path: { paper_id: paperId } },
+            body: { url },
+        })
     );
-    return paperRepoSchema.parse(response);
 }
 
 export async function disconnectPaperRepo(paperId: string): Promise<void> {
-    await repoRequest(`/api/paper/${encodeURIComponent(paperId)}/repo`, {
-        method: "DELETE",
-    });
+    await unwrap(
+        api.DELETE("/api/paper/{paper_id}/repo", {
+            params: { path: { paper_id: paperId } },
+        })
+    );
 }
 
-export async function getRepoTree(paperId: string): Promise<RepoTree> {
-    const response = await repoRequest(
-        `/api/paper/${encodeURIComponent(paperId)}/repo/tree`
+export function getRepoTree(paperId: string): Promise<RepoTree> {
+    return unwrap(
+        api.GET("/api/paper/{paper_id}/repo/tree", {
+            params: { path: { paper_id: paperId } },
+        })
     );
-    return repoTreeSchema.parse(response);
 }
 
-export async function getRepoFile(
-    paperId: string,
-    path: string
-): Promise<RepoFile> {
-    const response = await repoRequest(
-        `/api/paper/${encodeURIComponent(paperId)}/repo/file?path=${encodeURIComponent(path)}`
+export function getRepoFile(paperId: string, path: string): Promise<RepoFile> {
+    return unwrap(
+        api.GET("/api/paper/{paper_id}/repo/file", {
+            params: { path: { paper_id: paperId }, query: { path } },
+        })
     );
-    return repoFileSchema.parse(response);
 }
 
 /**

@@ -1,5 +1,6 @@
 import type { UIMessage, UIMessagePart, UIDataTypes, UITools } from "ai";
 
+import type { Schemas } from "@/lib/api/client";
 import { Citation } from "@/lib/schema";
 
 /**
@@ -14,34 +15,26 @@ import { Citation } from "@/lib/schema";
  * reloaded conversation still shows what went wrong. `errorText` is camelCase
  * on the wire (it travels through the UIMessage `metadata` field as-is).
  */
-export interface ChatMessageMetadata {
-    interrupted?: boolean;
-    errorText?: string;
-}
+export type ChatMessageMetadata = Schemas["ChatMessageMetadata"];
 
-export type ChatUIMessage = UIMessage<ChatMessageMetadata>;
+/**
+ * OpenPaper's custom `data-*` parts on the chat / quick-question streams
+ * (`Schemas["OpenPaperDataPart"]`), keyed by the name after `data-`.
+ */
+export type ChatDataTypes = {
+    citations: Schemas["CitationsData"];
+    "retry-status": Schemas["RetryStatusData"];
+};
+
+export type ChatUIMessage = UIMessage<ChatMessageMetadata, ChatDataTypes>;
 export type ChatUIMessagePart = UIMessagePart<UIDataTypes, UITools>;
-
-interface CitationsData {
-    citations?: Array<{
-        key: string | number;
-        reference: string;
-        page?: number;
-        paper_id?: string;
-        // Code citations carry `file` instead of `page`.
-        file?: string;
-        start_line?: number | null;
-        end_line?: number | null;
-        github_url?: string | null;
-        verified?: boolean;
-    }>;
-}
 
 /** Citations from the message's `data-citations` part, keys normalized to strings. */
 export function citationsFromMessage(message: ChatUIMessage): Citation[] {
     for (const part of message.parts) {
         if (part.type === "data-citations") {
-            const data = (part as { data?: CitationsData }).data;
+            // History rows are stored JSON, so `data` is still read defensively.
+            const data = part.data as Partial<Schemas["CitationsData"]> | undefined;
             return (data?.citations ?? []).map((c) => ({
                 ...c,
                 key: String(c.key),
@@ -451,13 +444,7 @@ export function retryTargetFromMessages(
  * Transient `data-retry-status` part: the server retrying a failed provider
  * call in-place. Never persisted — it only ever reaches `onData`.
  */
-export interface RetryStatus {
-    state: "retrying" | "recovered";
-    attempt?: number;
-    maxAttempts?: number;
-    delayMs?: number;
-    error?: string;
-}
+export type RetryStatus = Schemas["RetryStatusData"];
 
 const positiveInt = (value: unknown): number | undefined =>
     typeof value === "number" && Number.isFinite(value) && value > 0

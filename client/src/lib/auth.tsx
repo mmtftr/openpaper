@@ -1,8 +1,13 @@
 "use client"
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { fetchFromApi } from './api';
+import { api, unwrap } from '@/lib/api/client';
 
+/**
+ * Compat — the server's `Schemas["CurrentUser"]` has `name` / `picture`
+ * nullable; these keep the old non-null shape until the pages and top-level
+ * components that read them handle null.
+ */
 export interface BasicUser {
 	name: string;
 	picture: string;
@@ -55,9 +60,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 		async function checkAuth() {
 			try {
-				const response = await fetchFromApi('/api/auth/me');
+				const response = await unwrap(api.GET('/api/auth/me'));
 				if (response.success && response.user) {
-					setUser(response.user);
+					setUser(response.user as User);
 				} else {
 					// Auth check failed, clear the user
 					setUser(null);
@@ -79,7 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	const logout = async (allDevices = false) => {
 		try {
 			setLoading(true);
-			await fetchFromApi(`/api/auth/logout?all_devices=${allDevices}`);
+			await unwrap(api.GET('/api/auth/logout', { params: { query: { all_devices: allDevices } } }));
 			setUser(null);
 		} catch (err) {
 			console.error('Logout failed:', err);

@@ -1,5 +1,5 @@
 import { toast } from "sonner";
-import { fetchFromApi } from "@/lib/api";
+import { api, unwrap } from "@/lib/api/client";
 import { PaperStatus, PaperStatusEnum } from "@/components/utils/PdfStatus";
 
 // Common interface for papers (can be PaperItem or PaperResult)
@@ -248,11 +248,12 @@ export const handleStatusChange = async <T extends PaperBase>(
     setPaper: (paperId: string, paper: T) => void
 ): Promise<void> => {
     try {
-        const url = `/api/paper/status?status=${status}&paper_id=${paper?.id}`;
-        const response: T = await fetchFromApi(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
+        const record = await unwrap(api.POST("/api/paper/status", {
+            params: { query: { status, paper_id: paper.id } },
+        }));
+        // The caller's list holds its own paper shape; the server answers
+        // with the full `PaperRecord`, which replaces the entry as before.
+        const response = record as unknown as T;
 
         if (status === PaperStatusEnum.COMPLETED) {
             toast.success(

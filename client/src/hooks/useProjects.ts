@@ -1,8 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { fetchFromApi } from "@/lib/api";
+import { useCallback } from "react";
+import useSWR from "swr";
+import { api, unwrap } from "@/lib/api/client";
 import { Project, PaperItem } from "@/lib/schema";
+
+// Compat: callers still hold the hand-written `Project` / `PaperItem`, which
+// the generated responses don't match exactly (`string | null` vs `string`).
 
 interface UseProjectsResult {
     projects: Project[];
@@ -12,33 +16,18 @@ interface UseProjectsResult {
 }
 
 export function useProjects(): UseProjectsResult {
-    const [projects, setProjects] = useState<Project[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<Error | null>(null);
-
-    const fetchProjects = async () => {
-        setIsLoading(true);
-        setError(null);
-        try {
-            const response = await fetchFromApi("/api/projects");
-            setProjects(response || []);
-        } catch (err) {
-            setError(err instanceof Error ? err : new Error("Failed to fetch projects"));
-            console.error("Error fetching projects:", err);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    useEffect(() => {
-        fetchProjects();
-    }, []);
+    const { data, error, isLoading, mutate } = useSWR("/api/projects", async () =>
+        (await unwrap(api.GET("/api/projects"))) as Project[]
+    );
+    const refetch = useCallback(async () => {
+        await mutate();
+    }, [mutate]);
 
     return {
-        projects,
+        projects: data ?? [],
         isLoading,
-        error,
-        refetch: fetchProjects,
+        error: error ?? null,
+        refetch,
     };
 }
 
@@ -50,38 +39,22 @@ interface UseProjectResult {
 }
 
 export function useProject(projectId?: string): UseProjectResult {
-    const [project, setProject] = useState<Project | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<Error | null>(null);
-
-    const fetchProject = async () => {
-        if (!projectId) {
-            setProject(null);
-            setIsLoading(false);
-            return;
-        }
-        setIsLoading(true);
-        setError(null);
-        try {
-            const response = await fetchFromApi(`/api/projects/${projectId}`);
-            setProject(response);
-        } catch (err) {
-            setError(err instanceof Error ? err : new Error(`Failed to fetch project ${projectId}`));
-            console.error(`Error fetching project ${projectId}:`, err);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    useEffect(() => {
-        fetchProject();
-    }, [projectId]);
+    const { data, error, isLoading, mutate } = useSWR(
+        projectId ? ["/api/projects/{project_id}", projectId] : null,
+        async ([, id]: [string, string]) =>
+            (await unwrap(
+                api.GET("/api/projects/{project_id}", { params: { path: { project_id: id } } })
+            )) as Project
+    );
+    const refetch = useCallback(async () => {
+        await mutate();
+    }, [mutate]);
 
     return {
-        project,
+        project: data ?? null,
         isLoading,
-        error,
-        refetch: fetchProject,
+        error: error ?? null,
+        refetch,
     };
 }
 
@@ -93,38 +66,23 @@ interface UseProjectPapersResult {
 }
 
 export function useProjectPapers(projectId?: string): UseProjectPapersResult {
-    const [papers, setPapers] = useState<PaperItem[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<Error | null>(null);
-
-    const fetchPapers = useCallback(async () => {
-        if (!projectId) {
-            setPapers([]);
-            setIsLoading(false);
-            return;
+    const { data, error, isLoading, mutate } = useSWR(
+        projectId ? ["/api/projects/papers/{project_id}", projectId] : null,
+        async ([, id]: [string, string]) => {
+            const { papers } = await unwrap(
+                api.GET("/api/projects/papers/{project_id}", { params: { path: { project_id: id } } })
+            );
+            return papers as PaperItem[];
         }
-        setIsLoading(true);
-        setError(null);
-        try {
-            const response = await fetchFromApi(`/api/projects/papers/${projectId}`);
-            setPapers(response.papers || []);
-        } catch (err) {
-            setError(err instanceof Error ? err : new Error(`Failed to fetch papers for project ${projectId}`));
-            console.error(`Error fetching papers for project ${projectId}:`, err);
-        } finally {
-            setIsLoading(false);
-        }
-    }, [projectId]);
-
-    useEffect(() => {
-        fetchPapers();
-    }, [fetchPapers]);
+    );
+    const refetch = useCallback(async () => {
+        await mutate();
+    }, [mutate]);
 
     return {
-        papers,
+        papers: data ?? [],
         isLoading,
-        error,
-        refetch: fetchPapers,
+        error: error ?? null,
+        refetch,
     };
 }
-

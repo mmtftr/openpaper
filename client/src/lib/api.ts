@@ -1,5 +1,12 @@
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
+/**
+ * Legacy untyped fetch helpers, kept only for pages / components not yet moved
+ * to the typed client. New code: `api` + `unwrap` from `@/lib/api/client`.
+ */
+import { API_BASE_URL } from "@/lib/api/client";
 
+export { API_BASE_URL };
+
+/** @deprecated Use `unwrap(api.GET|POST|...(...))` from `@/lib/api/client`. */
 export async function fetchFromApi(endpoint: string, options: RequestInit = {}) {
     const headers: HeadersInit = {};
 
@@ -48,6 +55,7 @@ export async function fetchFromApi(endpoint: string, options: RequestInit = {}) 
     return response.json();
 }
 
+/** @deprecated Stream with raw `fetch` against `API_BASE_URL` from `@/lib/api/client`. */
 export async function fetchStreamFromApi(
     endpoint: string,
     options: RequestInit = {}
@@ -93,6 +101,7 @@ export async function fetchStreamFromApi(
     return response.body;
 }
 
+/** @deprecated Use `api.GET("/api/projects/papers/from/{paper_id}")`. */
 export async function getProjectsForPaper(paperId: string) {
     return fetchFromApi(`/api/projects/papers/from/${paperId}`);
 }

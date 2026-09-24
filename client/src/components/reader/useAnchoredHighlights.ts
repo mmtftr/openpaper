@@ -22,7 +22,7 @@ export interface AnchoredHighlightsResult {
 }
 
 const KEY_SEP = "\u001f";
-function identityOf(highlight: PaperHighlight, index: number, hint?: number): string {
+function identityOf(highlight: PaperHighlight, index: number, hint?: number | null): string {
 	return [highlight.id ?? `idx:${index}`, highlight.page_number ?? "", hint ?? "", highlight.raw_text ?? ""].join(KEY_SEP);
 }
 

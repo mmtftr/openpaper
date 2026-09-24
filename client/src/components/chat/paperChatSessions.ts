@@ -5,7 +5,7 @@ import {
     type UIMessageChunk,
 } from "ai";
 
-import { API_BASE_URL, fetchFromApi } from "@/lib/api";
+import { api, API_BASE_URL, unwrap, type Schemas } from "@/lib/api/client";
 import {
     ChatUIMessage,
     isTruncatedAssistantMessage,
@@ -13,7 +13,6 @@ import {
     RetryStatus,
 } from "@/lib/chatMessages";
 import { bumpAgentDocWrites } from "@/lib/paperDocRevision";
-import type { ContextMode, ReasoningEffort } from "@/components/chat/chatOptions";
 
 /**
  * Paper-chat state that must outlive `PaperChatPanel`.
@@ -27,16 +26,15 @@ import type { ContextMode, ReasoningEffort } from "@/components/chat/chatOptions
  * the transcript survives tab switches. Sessions live for the page's lifetime.
  */
 
-/** Dynamic request fields, read by the transport at send time. */
-export interface ChatRequestExtras {
-    paper_id: string;
-    conversation_id: string | null;
-    model?: string;
-    llm_provider?: string;
-    reasoning_effort?: ReasoningEffort;
-    context_mode?: ContextMode;
-    user_references?: string[];
-}
+/**
+ * Dynamic `PaperChatRequest` fields, read by the transport at send time. The
+ * conversation id is null only on a paper's placeholder session, which never
+ * sends.
+ */
+export type ChatRequestExtras = Pick<
+    Schemas["PaperChatRequest"],
+    "paper_id" | "model" | "llm_provider" | "reasoning_effort" | "context_mode" | "user_references"
+> & { conversation_id: string | null };
 
 export interface TruncatedTurn {
     messageId: string;
@@ -248,11 +246,17 @@ export class PaperChatSession {
         this.setState({ loadingHistory: true });
         let fetchedCount = 0;
         try {
-            const response = await fetchFromApi(
-                `/api/conversation/${this.conversationId}?page=${this.state.nextHistoryPage}`,
-                { method: "GET" }
+            const response = await unwrap(
+                api.GET("/api/conversation/{conversation_id}", {
+                    params: {
+                        path: { conversation_id: this.conversationId },
+                        query: { page: this.state.nextHistoryPage },
+                    },
+                })
             );
-            const fetched: ChatUIMessage[] = response.messages || [];
+            // The server's `UIMessage` schema is the AI SDK's message typed
+            // loosely (parts as generic dicts, `metadata` as unknown).
+            const fetched = (response.messages ?? []) as unknown as ChatUIMessage[];
             fetchedCount = fetched.length;
             if (fetched.length < HISTORY_PAGE_SIZE) {
                 this.setState({ hasMoreHistory: false });

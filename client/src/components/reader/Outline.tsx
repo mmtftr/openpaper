@@ -6,17 +6,9 @@ import { ChevronDown, ChevronRight, List } from "lucide-react";
 import type { PDFDocumentProxy } from "./pdfjs";
 import { pdfDocAtom } from "./atoms";
 import { viewerApiAtom } from "./useViewer";
-import { fetchFromApi } from "@/lib/api";
+import { api as apiClient, unwrap, type Schemas } from "@/lib/api/client";
 
-interface GeneratedOutlineEntry {
-	title: string;
-	level: number;
-	page: number;
-	top_percent?: number | null;
-	children?: GeneratedOutlineEntry[];
-}
-
-function generatedItems(entries: GeneratedOutlineEntry[]): OutlineItem[] {
+function generatedItems(entries: Schemas["OutlineEntry"][]): OutlineItem[] {
 	return entries.map((entry) => ({
 		title: entry.title,
 		dest: null,
@@ -158,9 +150,11 @@ export default function Outline({ displayedPaperId }: { displayedPaperId: string
 					return;
 				}
 				setGenerated(true);
-				const entries: GeneratedOutlineEntry[] = await fetchFromApi(
-					`/api/paper/outline?id=${encodeURIComponent(displayedPaperId)}`,
-					{ signal: controller.signal }
+				const entries = await unwrap(
+					apiClient.GET("/api/paper/outline", {
+						params: { query: { id: displayedPaperId } },
+						signal: controller.signal,
+					})
 				);
 				if (!cancelled) setItems(generatedItems(entries));
 			})
