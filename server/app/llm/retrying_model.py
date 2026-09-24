@@ -54,6 +54,7 @@ from typing import (
 
 import httpx
 import httpx2
+from app.schemas.chat_stream import retry_status_data
 from pydantic_ai.exceptions import (
     ModelAPIError,
     ModelHTTPError,
@@ -389,14 +390,10 @@ class RetryingModel(WrapperModel):
 
 def retry_status_payload(status: RetryStatus) -> Dict[str, Any]:
     """`RetryStatus` -> the camelCase `data-retry-status` payload."""
-    if status.state == "recovered":
-        return {"state": "recovered"}
-    payload: Dict[str, Any] = {
-        "state": status.state,
-        "attempt": status.attempt,
-        "maxAttempts": status.max_attempts,
-        "delayMs": status.delay_ms,
-    }
-    if status.error:
-        payload["error"] = status.error
-    return payload
+    return retry_status_data(
+        status.state,
+        attempt=status.attempt,
+        max_attempts=status.max_attempts,
+        delay_ms=status.delay_ms,
+        error=status.error,
+    )

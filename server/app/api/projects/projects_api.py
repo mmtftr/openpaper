@@ -9,9 +9,10 @@ from app.database.crud.projects.project_crud import (
 )
 from app.database.database import get_db
 from app.database.telemetry import track_event
+from app.schemas.common import MessageResponse
+from app.schemas.project import ProjectResponse
 from app.schemas.user import CurrentUser
-from fastapi import APIRouter, Depends
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -30,160 +31,102 @@ class UpdateProjectRequest(BaseModel):
     description: str | None = None
 
 
-@projects_router.post("")
-async def create_project(
+@projects_router.post("", status_code=201)
+def create_project(
     request: CreateProjectRequest,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-) -> JSONResponse:
+) -> ProjectResponse:
     """Create a new project"""
-    try:
-        project = project_crud.create(
-            db,
-            obj_in=ProjectCreate(
-                title=request.title,
-                description=request.description,
-            ),
-            user=current_user,
-        )
-
-        if not project:
-            raise ValueError("Failed to create project, please check the input data.")
-
-        track_event("project_created", user_id=str(current_user.id))
-
-        return JSONResponse(
-            status_code=201,
-            content=project.to_dict(),
-        )
-    except Exception as e:
-        logger.error(f"Error creating project: {e}")
-        return JSONResponse(
+    project = project_crud.create(
+        db,
+        obj_in=ProjectCreate(
+            title=request.title,
+            description=request.description,
+        ),
+        user=current_user,
+    )
+    if not project:
+        raise HTTPException(
             status_code=400,
-            content={"message": f"Failed to create project: {str(e)}"},
+            detail="Failed to create project, please check the input data.",
         )
+
+    track_event("project_created", user_id=str(current_user.id))
+    return ProjectResponse.model_validate(project)
 
 
 @projects_router.get("")
-async def get_projects(
+def get_projects(
     db: Session = Depends(get_db),
     detailed: bool = False,
     limit: int | None = None,
     current_user: CurrentUser = Depends(get_required_user),
-) -> JSONResponse:
-    """Get all projects for the current user"""
-    try:
-        response_data = []
-
-        if detailed:
-            annotated_projects = project_crud.get_all_projects_by_user_with_metadata(
-                db, user=current_user, limit=limit
-            )
-            response_data = [project.model_dump() for project in annotated_projects]
-        else:
-            projects = project_crud.get_multi_by_user(db, user=current_user)
-            response_data = [project.to_dict() for project in projects]
-
-        return JSONResponse(
-            status_code=200,
-            content=response_data,
+) -> list[ProjectResponse]:
+    """All of the current user's projects; `detailed=true` adds each
+    project's paper count (newest-updated first, optionally `limit`ed)."""
+    if detailed:
+        return project_crud.get_all_projects_by_user_with_metadata(
+            db, user=current_user, limit=limit
         )
-    except Exception as e:
-        logger.error(f"Error fetching projects: {e}")
-        return JSONResponse(
-            status_code=400,
-            content={"message": f"Failed to fetch projects: {str(e)}"},
-        )
+    return [
+        ProjectResponse.model_validate(project)
+        for project in project_crud.get_multi_by_user(db, user=current_user)
+    ]
+
+
+def _project_not_found(project_id: uuid.UUID, action: str) -> HTTPException:
+    return HTTPException(
+        status_code=404,
+        detail=f"Project with ID {project_id} not found or user does not have permission to {action}.",
+    )
 
 
 @projects_router.get("/{project_id}")
-async def get_project(
-    project_id: str,
+def get_project(
+    project_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-) -> JSONResponse:
+) -> ProjectResponse:
     """Get a single project by ID"""
-    try:
-        project = project_crud.get(db, id=uuid.UUID(project_id), user=current_user)
-        if not project:
-            return JSONResponse(
-                status_code=404,
-                content={"message": f"Project with ID {project_id} not found."},
-            )
-        return JSONResponse(
-            status_code=200,
-            content=project.to_dict(),
+    project = project_crud.get(db, id=project_id, user=current_user)
+    if not project:
+        raise HTTPException(
+            status_code=404, detail=f"Project with ID {project_id} not found."
         )
-    except Exception as e:
-        logger.error(f"Error fetching project: {e}")
-        return JSONResponse(
-            status_code=400,
-            content={"message": f"Failed to fetch project: {str(e)}"},
-        )
+    return ProjectResponse.model_validate(project)
 
 
 @projects_router.patch("/{project_id}")
-async def update_project(
-    project_id: str,
+def update_project(
+    project_id: uuid.UUID,
     request: UpdateProjectRequest,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-) -> JSONResponse:
+) -> ProjectResponse:
     """Update an existing project"""
-    try:
-        project = project_crud.update(
-            db,
-            id=uuid.UUID(project_id),
-            obj_in=ProjectUpdate(**request.model_dump(exclude_unset=True)),
-            user=current_user,
-        )
+    project = project_crud.update(
+        db,
+        id=project_id,
+        obj_in=ProjectUpdate(**request.model_dump(exclude_unset=True)),
+        user=current_user,
+    )
+    if not project:
+        raise _project_not_found(project_id, "update")
 
-        if not project:
-            return JSONResponse(
-                status_code=404,
-                content={
-                    "message": f"Project with ID {project_id} not found or user does not have permission to update."
-                },
-            )
-
-        track_event("project_updated", user_id=str(current_user.id))
-
-        return JSONResponse(status_code=200, content=project.to_dict())
-    except Exception as e:
-        logger.error(f"Error updating project: {e}")
-        return JSONResponse(
-            status_code=400,
-            content={"message": f"Failed to update project: {str(e)}"},
-        )
+    track_event("project_updated", user_id=str(current_user.id))
+    return ProjectResponse.model_validate(project)
 
 
 @projects_router.delete("/{project_id}")
-async def delete_project(
-    project_id: str,
+def delete_project(
+    project_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-) -> JSONResponse:
+) -> MessageResponse:
     """Delete a specific project"""
-    try:
-        project = project_crud.remove(db, id=uuid.UUID(project_id), user=current_user)
+    if not project_crud.remove(db, id=project_id, user=current_user):
+        raise _project_not_found(project_id, "delete")
 
-        if not project:
-            return JSONResponse(
-                status_code=404,
-                content={
-                    "message": f"Project with ID {project_id} not found or user does not have permission to delete."
-                },
-            )
-
-        track_event("project_deleted", user_id=str(current_user.id))
-
-        return JSONResponse(
-            status_code=200,
-            content={"message": "Project deleted successfully"},
-        )
-    except Exception as e:
-        logger.error(f"Error deleting project: {e}")
-        return JSONResponse(
-            status_code=400,
-            content={"message": f"Failed to delete project: {str(e)}"},
-        )
+    track_event("project_deleted", user_id=str(current_user.id))
+    return MessageResponse(message="Project deleted successfully")

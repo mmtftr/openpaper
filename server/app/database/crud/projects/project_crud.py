@@ -9,6 +9,7 @@ from app.database.models import (
     Project,
     ProjectPaper,
 )
+from app.schemas.project import ProjectResponse
 from app.schemas.user import CurrentUser
 from pydantic import BaseModel
 from sqlalchemy import func
@@ -30,13 +31,6 @@ class ProjectCreate(ProjectBase):
 
 class ProjectUpdate(ProjectBase):
     pass
-
-
-class AnnotatedProject(ProjectBase):
-    id: Optional[str] = None
-    num_papers: int = 0
-    updated_at: Optional[str] = None
-    created_at: Optional[str] = None
 
 
 class ProjectCRUD(ProjectBaseCRUD[Project, ProjectCreate, ProjectUpdate]):
@@ -66,7 +60,7 @@ class ProjectCRUD(ProjectBaseCRUD[Project, ProjectCreate, ProjectUpdate]):
 
     def get_all_projects_by_user_with_metadata(
         self, db: Session, user: CurrentUser, limit: Optional[int] = None
-    ) -> List[AnnotatedProject]:
+    ) -> List[ProjectResponse]:
         """
         Get all projects for a user with metadata (num_papers) in a single query.
         """
@@ -87,20 +81,14 @@ class ProjectCRUD(ProjectBaseCRUD[Project, ProjectCreate, ProjectUpdate]):
                 .all()
             )
 
-            # Convert the results to AnnotatedProject objects
+            # Convert the results to ProjectResponse objects
             annotated_projects = []
             for (
                 project,
                 num_papers,
             ) in query:
-                annotated_project = AnnotatedProject(
-                    id=str(project.id),
-                    title=project.title,
-                    description=project.description,
-                    num_papers=num_papers,
-                    updated_at=str(project.updated_at) if project.updated_at else None,
-                    created_at=str(project.created_at) if project.created_at else None,
-                )
+                annotated_project = ProjectResponse.model_validate(project)
+                annotated_project.num_papers = num_papers
                 annotated_projects.append(annotated_project)
 
             return annotated_projects

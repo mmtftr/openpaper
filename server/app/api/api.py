@@ -1,8 +1,6 @@
-from pathlib import Path
-
 from dotenv import load_dotenv
 from fastapi import APIRouter
-from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 load_dotenv()
 
@@ -10,11 +8,14 @@ load_dotenv()
 router = APIRouter()
 
 
+class HealthResponse(BaseModel):
+    status: str
+    message: str
+
+
 @router.get("/health")
-async def health_check():
+def health_check() -> HealthResponse:
     """
     Health check endpoint to verify the API is running
     """
-    return JSONResponse(
-        status_code=200, content={"status": "healthy", "message": "Service is running"}
-    )
+    return HealthResponse(status="healthy", message="Service is running")

@@ -33,7 +33,7 @@ class HighlightCrud(CRUDBase[Highlight, HighlightCreate, HighlightUpdate]):
 
     def get_highlights_by_paper_id(
         self, db: Session, *, paper_id: str, user: Optional[CurrentUser] = None
-    ):
+    ) -> list[Highlight]:
         """Get highlights associated with document"""
         query = db.query(Highlight).filter(Highlight.paper_id == paper_id)
 

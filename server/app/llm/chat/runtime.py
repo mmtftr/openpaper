@@ -76,6 +76,12 @@ from app.llm.chat.title import rename_conversation
 from app.llm.model_registry import LLMProvider, get_registry
 from app.llm.model_slots import resolve_slot
 from app.llm.retrying_model import RetryingModel, RetryStatus, retry_status_payload
+from app.schemas.chat_stream import (
+    CITATIONS_PART_ID,
+    CITATIONS_PART_TYPE,
+    RETRY_STATUS_PART_TYPE,
+    citations_data,
+)
 from app.schemas.user import CurrentUser
 from pydantic_ai import UsageLimits
 from pydantic_ai.messages import ModelMessagesTypeAdapter
@@ -99,7 +105,7 @@ CLIENT_MESSAGE_ID_KEY = "client_message_id"
 #    "data":{"state":"retrying","attempt":2,"maxAttempts":3,
 #            "delayMs":2000,"error":"..."}}
 #   {"type":"data-retry-status","transient":true,"data":{"state":"recovered"}}
-RETRY_STATUS_CHUNK_TYPE = "data-retry-status"
+RETRY_STATUS_CHUNK_TYPE = RETRY_STATUS_PART_TYPE
 
 # Sentinel pushed onto the chunk queue when the protocol stream is done.
 _STREAM_END = object()
@@ -628,7 +634,9 @@ async def run_paper_chat(
 
         if citations:
             yield DataChunk(
-                type="data-citations", id="citations", data={"citations": citations}
+                type=CITATIONS_PART_TYPE,
+                id=CITATIONS_PART_ID,
+                data=citations_data(citations),
             )
             try:
                 reconciled = await reconcile_citations(
@@ -649,9 +657,9 @@ async def run_paper_chat(
                             user=current_user,
                         )
                     yield DataChunk(
-                        type="data-citations",
-                        id="citations",
-                        data={"citations": reconciled},
+                        type=CITATIONS_PART_TYPE,
+                        id=CITATIONS_PART_ID,
+                        data=citations_data(reconciled),
                     )
             except Exception as exc:
                 logger.warning("Citation reconciliation failed (non-fatal): %s", exc)

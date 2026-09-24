@@ -40,6 +40,13 @@ from app.database.models import Message
 from app.helpers.s3 import s3_service
 from app.llm.chat.evidence import strip_evidence_blocks
 from app.llm.chat.stream import EvidenceFilter, truncate_tool_output
+from app.schemas.chat_stream import (
+    CITATIONS_PART_ID,
+    CITATIONS_PART_TYPE,
+    citations_data,
+    message_metadata,
+)
+from pydantic import ValidationError
 from pydantic_ai.messages import (
     ModelMessage,
     ModelMessagesTypeAdapter,
@@ -628,9 +635,14 @@ def _citations_part(references: Any) -> Optional[DataUIPart]:
     citations = references.get("citations")
     if not citations:
         return None
-    return DataUIPart(
-        type="data-citations", id="citations", data={"citations": citations}
-    )
+    try:
+        data = citations_data(citations)
+    except ValidationError:
+        # A stored row predating the current citation shape: serve it as-is
+        # rather than failing the whole conversation page.
+        logger.warning("Stored citations do not match ChatCitation; sent unvalidated")
+        data = {"citations": citations}
+    return DataUIPart(type=CITATIONS_PART_TYPE, id=CITATIONS_PART_ID, data=data)
 
 
 def _clean_assistant_parts(parts: List[UIMessagePart]) -> List[UIMessagePart]:
@@ -710,15 +722,15 @@ def _interrupted_metadata(message: Message) -> Optional[Dict[str, Any]]:
     bucket = getattr(message, "bucket", None)
     if not isinstance(bucket, dict) or not bucket.get(BUCKET_INTERRUPTED_KEY):
         return None
-    metadata: Dict[str, Any] = {"interrupted": True}
     error = bucket.get(BUCKET_ERROR_KEY)
+    error_text: Optional[str] = None
     if isinstance(error, dict):
         text = error.get("message")
         if isinstance(text, str) and text:
-            metadata["errorText"] = text
+            error_text = text
     elif isinstance(error, str) and error:
-        metadata["errorText"] = error
-    return metadata
+        error_text = error
+    return message_metadata(interrupted=True, error_text=error_text)
 
 
 def serialize_ui_messages(rows: Sequence[Message]) -> List[Dict[str, Any]]:

@@ -1,6 +1,6 @@
 import logging
 import uuid
-from typing import Any, Optional
+from typing import Optional
 
 from app.auth.dependencies import get_required_user
 from app.database.crud.highlight_crud import (
@@ -11,9 +11,10 @@ from app.database.crud.highlight_crud import (
 from app.database.database import get_db
 from app.database.models import RoleType
 from app.database.telemetry import track_event
+from app.schemas.common import MessageResponse
+from app.schemas.highlight import HighlightColor, HighlightResponse, ScaledPosition
 from app.schemas.user import CurrentUser
-from fastapi import APIRouter, Depends
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -24,10 +25,10 @@ highlight_router = APIRouter()
 
 
 class CreateHighlightRequest(BaseModel):
-    paper_id: str
+    paper_id: uuid.UUID
     raw_text: str
-    position: Optional[dict[str, Any]] = None  # ScaledPosition JSON
-    color: Optional[str] = None  # Highlight color: yellow, green, blue, pink, purple
+    position: Optional[ScaledPosition] = None
+    color: Optional[HighlightColor] = None
     # Legacy fields - kept for backwards compatibility
     start_offset: Optional[int] = None
     end_offset: Optional[int] = None
@@ -36,158 +37,120 @@ class CreateHighlightRequest(BaseModel):
 
 class UpdateHighlightRequest(BaseModel):
     raw_text: str
-    position: Optional[dict[str, Any]] = None  # ScaledPosition JSON
-    color: Optional[str] = None  # Highlight color: yellow, green, blue, pink, purple
+    position: Optional[ScaledPosition] = None
+    color: Optional[HighlightColor] = None
     # Legacy fields - kept for backwards compatibility
     start_offset: Optional[int] = None
     end_offset: Optional[int] = None
 
 
-@highlight_router.post("")
-async def create_highlight(
+def _position_json(position: Optional[ScaledPosition]) -> Optional[dict]:
+    return position.to_json() if position is not None else None
+
+
+@highlight_router.post("", status_code=201)
+def create_highlight(
     request: CreateHighlightRequest,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-) -> JSONResponse:
+) -> HighlightResponse:
     """Create a new highlight for a document"""
-    try:
-        highlight = highlight_crud.create(
-            db,
-            obj_in=HighlightCreate(
-                paper_id=uuid.UUID(request.paper_id),
-                raw_text=request.raw_text,
-                start_offset=request.start_offset,
-                end_offset=request.end_offset,
-                page_number=request.page_number,
-                position=request.position,
-                role=RoleType.USER,
-                color=request.color,
-            ),
-            user=current_user,
-        )
-
-        if not highlight:
-            raise ValueError("Failed to create highlight, please check the input data.")
-
-        track_event("highlight_created", user_id=str(current_user.id))
-
-        return JSONResponse(
-            status_code=201,
-            content=highlight.to_dict(),
-        )
-    except Exception as e:
-        logger.error(f"Error creating highlight: {e}")
-        return JSONResponse(
+    highlight = highlight_crud.create(
+        db,
+        obj_in=HighlightCreate(
+            paper_id=request.paper_id,
+            raw_text=request.raw_text,
+            start_offset=request.start_offset,
+            end_offset=request.end_offset,
+            page_number=request.page_number,
+            position=_position_json(request.position),
+            role=RoleType.USER,
+            color=request.color,
+        ),
+        user=current_user,
+    )
+    if not highlight:
+        raise HTTPException(
             status_code=400,
-            content={"message": f"Failed to create highlight: {str(e)}"},
+            detail="Failed to create highlight, please check the input data.",
         )
+
+    track_event("highlight_created", user_id=str(current_user.id))
+    return HighlightResponse.model_validate(highlight)
 
 
 @highlight_router.get("/{paper_id}")
-async def get_document_highlights(
-    paper_id: str,
+def get_document_highlights(
+    paper_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-) -> JSONResponse:
+) -> list[HighlightResponse]:
     """Get all highlights for a specific document"""
-    try:
-        highlights = highlight_crud.get_highlights_by_paper_id(
-            db, paper_id=paper_id, user=current_user
-        )
-        return JSONResponse(
-            status_code=200,
-            content=[highlight.to_dict() for highlight in highlights],
-        )
-    except Exception as e:
-        logger.error(f"Error fetching highlights: {e}")
-        return JSONResponse(
-            status_code=400,
-            content={"message": f"Failed to fetch highlights: {str(e)}"},
-        )
+    highlights = highlight_crud.get_highlights_by_paper_id(
+        db, paper_id=str(paper_id), user=current_user
+    )
+    return [HighlightResponse.model_validate(highlight) for highlight in highlights]
 
 
 @highlight_router.delete("/{highlight_id}")
-async def delete_highlight(
-    highlight_id: str,
+def delete_highlight(
+    highlight_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-) -> JSONResponse:
+) -> MessageResponse:
     """Delete a specific highlight"""
-    try:
-        # First verify the highlight exists and belongs to the user
-        existing_highlight = highlight_crud.get(db, id=highlight_id, user=current_user)
-        if not existing_highlight:
-            return JSONResponse(
-                status_code=404,
-                content={"message": f"Highlight with ID {highlight_id} not found."},
-            )
-
-        if existing_highlight.role == RoleType.ASSISTANT:
-            return JSONResponse(
-                status_code=403,
-                content={"message": "Cannot delete assistant highlights."},
-            )
-
-        highlight_crud.remove(db, id=highlight_id)
-        return JSONResponse(
-            status_code=200,
-            content={"message": "Highlight deleted successfully"},
+    existing_highlight = highlight_crud.get(db, id=highlight_id, user=current_user)
+    if not existing_highlight:
+        raise HTTPException(
+            status_code=404, detail=f"Highlight with ID {highlight_id} not found."
         )
-    except Exception as e:
-        logger.error(f"Error deleting highlight: {e}")
-        return JSONResponse(
-            status_code=404,
-            content={
-                "message": f"Highlight not found or couldn't be deleted: {str(e)}"
-            },
+
+    if existing_highlight.role == RoleType.ASSISTANT:
+        raise HTTPException(
+            status_code=403, detail="Cannot delete assistant highlights."
         )
+
+    if not highlight_crud.remove(db, id=highlight_id):
+        raise HTTPException(status_code=500, detail="Failed to delete highlight.")
+    return MessageResponse(message="Highlight deleted successfully")
 
 
 @highlight_router.patch("/{highlight_id}")
-async def update_highlight(
-    highlight_id: str,
+def update_highlight(
+    highlight_id: uuid.UUID,
     request: UpdateHighlightRequest,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-) -> JSONResponse:
+) -> HighlightResponse:
     """Update an existing highlight"""
-    try:
-        existing_highlight = highlight_crud.get(db, id=highlight_id, user=current_user)
-        if not existing_highlight:
-            raise ValueError(f"Highlight with ID {highlight_id} not found.")
-
-        if existing_highlight.role == RoleType.ASSISTANT:
-            return JSONResponse(
-                status_code=403,
-                content={"message": "Cannot update assistant highlights."},
-            )
-
-        highlight = highlight_crud.update(
-            db,
-            db_obj=existing_highlight,
-            obj_in=HighlightUpdate(
-                paper_id=existing_highlight.paper_id,
-                raw_text=request.raw_text,
-                start_offset=request.start_offset,
-                end_offset=request.end_offset,
-                position=request.position,
-                color=request.color,
-            ),
+    existing_highlight = highlight_crud.get(db, id=highlight_id, user=current_user)
+    if not existing_highlight:
+        raise HTTPException(
+            status_code=404, detail=f"Highlight with ID {highlight_id} not found."
         )
 
-        if not highlight:
-            raise ValueError("Failed to update highlight, please check the input data.")
+    if existing_highlight.role == RoleType.ASSISTANT:
+        raise HTTPException(
+            status_code=403, detail="Cannot update assistant highlights."
+        )
 
-        track_event("highlight_updated", user_id=str(current_user.id))
-
-        return JSONResponse(status_code=200, content=highlight.to_dict())
-    except ValueError as e:
-
-        logger.error(f"Highlight not found or invalid data: {e}")
-        return JSONResponse(status_code=404, content={"message": str(e)})
-    except Exception as e:
-        logger.error(f"Error updating highlight: {e}")
-        return JSONResponse(
+    highlight = highlight_crud.update(
+        db,
+        db_obj=existing_highlight,
+        obj_in=HighlightUpdate(
+            paper_id=existing_highlight.paper_id,
+            raw_text=request.raw_text,
+            start_offset=request.start_offset,
+            end_offset=request.end_offset,
+            position=_position_json(request.position),
+            color=request.color,
+        ),
+    )
+    if not highlight:
+        raise HTTPException(
             status_code=400,
-            content={"message": f"Failed to update highlight: {str(e)}"},
+            detail="Failed to update highlight, please check the input data.",
         )
+
+    track_event("highlight_updated", user_id=str(current_user.id))
+    return HighlightResponse.model_validate(highlight)
