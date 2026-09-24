@@ -679,7 +679,8 @@ def search_paper(
 ) -> Dict[str, Any]:
     try:
         pattern = _TimedPattern(query, SEARCH_TIME_BUDGET_S)
-    except regex.error as e:
+    except (regex.error, ValueError, KeyError) as e:
+        # `regex` raises ValueError/KeyError for a few malformed inline flags.
         return {"error": f"Invalid regex: {e}"}
     try:
         return _search_paper(

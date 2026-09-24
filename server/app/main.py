@@ -53,7 +53,17 @@ def _safe_instrument(label: str, instrument) -> None:
         logger.warning("Skipping logfire instrumentation %s: %s", label, exc)
 
 
-_safe_instrument("pydantic", lambda: logfire.instrument_pydantic(record="failure"))
+def _logfire_request_attributes(request, attributes):
+    """Keep FastAPI argument spans but drop their content: parsed request
+    arguments (webhook OCR payloads, chat bodies) and validation-error inputs."""
+    errors = [
+        {k: v for k, v in err.items() if k != "input"}
+        for err in attributes.get("errors") or []
+    ]
+    return {"errors": errors}
+
+
+_safe_instrument("pydantic", lambda: logfire.instrument_pydantic(record="metrics"))
 # Model calls: spans with model, timing and token usage, but no prompt or
 # response content (prompts carry full paper text and page images).
 _safe_instrument(
@@ -69,7 +79,12 @@ app = FastAPI(
     description="A web application for uploading and annotating papers.",
     version="1.0.0",
 )
-_safe_instrument("fastapi", lambda: logfire.instrument_fastapi(app, capture_headers=True))
+_safe_instrument(
+    "fastapi",
+    lambda: logfire.instrument_fastapi(
+        app, capture_headers=True, request_attributes_mapper=_logfire_request_attributes
+    ),
+)
 
 client_domain = os.getenv("CLIENT_DOMAIN", "http://localhost:3000")
 

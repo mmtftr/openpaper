@@ -29,3 +29,9 @@ def test_normal_pattern_still_matches(monkeypatch):
 def test_invalid_pattern_reports_error(monkeypatch):
     _patch_single_page(monkeypatch, "anything")
     assert "Invalid regex" in st.search_paper("p", "(", None, None)["error"]
+
+
+def test_malformed_inline_flags_report_error(monkeypatch):
+    _patch_single_page(monkeypatch, "foo")
+    for pattern in ["(?u)(?L)foo", "(?V0)(?V1)foo"]:
+        assert "Invalid regex" in st.search_paper("p", pattern, None, None)["error"]

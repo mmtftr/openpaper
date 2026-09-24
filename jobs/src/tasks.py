@@ -77,6 +77,43 @@ def run_async_safely(coro: Coroutine[Any, Any, T]) -> T:
 
 
 
+# With acks_late + task_reject_on_worker_lost, a task whose worker process
+# dies (OOM, segfault) is redelivered. Cap that so a PDF that reliably kills
+# the worker fails instead of looping forever (re-running OCR every time).
+MAX_TASK_ATTEMPTS = 2
+
+
+def _count_attempt(task_id: str) -> int:
+    """Increment and return this task's attempt count (kept in Redis)."""
+    try:
+        client = celery_app.backend.client
+        key = f"openpaper:task-attempts:{task_id}"
+        attempts = int(client.incr(key))
+        client.expire(key, 24 * 3600)
+        return attempts
+    except Exception as e:  # never block processing on the counter
+        logger.warning(f"Could not count attempts for task {task_id}: {e}")
+        return 1
+
+
+def _send_failure_webhook(task_id: str, webhook_url: str, error: str) -> None:
+    failure_payload = {
+        "task_id": task_id,
+        "status": "failed",
+        "result": None,
+        "error": error,
+    }
+    try:
+        requests.post(
+            webhook_url,
+            json=failure_payload,
+            timeout=60,
+            headers={"Content-Type": "application/json"},
+        ).raise_for_status()
+    except requests.RequestException as e:
+        logger.error(f"Failed to send failure webhook for task {task_id}: {e}")
+
+
 @celery_app.task(bind=True, name="upload_and_process_file")
 def upload_and_process_file(
     self,
@@ -96,6 +133,13 @@ def upload_and_process_file(
             self.update_state(state="PROGRESS", meta={"status": new_status})
         except Exception as e:
             logger.error(f"Failed to update task {task_id} status: {e}. New status: {new_status}")
+
+    attempts = _count_attempt(task_id)
+    if attempts > MAX_TASK_ATTEMPTS:
+        error = f"Processing crashed the worker {attempts - 1} times; giving up on this PDF"
+        logger.error(f"Task {task_id}: {error}")
+        _send_failure_webhook(task_id, webhook_url, error)
+        return {"task_id": task_id, "status": "failed", "result": None, "error": error}
 
     try:
         logger.info(f"Starting PDF processing for task {task_id}")
@@ -149,22 +193,7 @@ def upload_and_process_file(
 
     except Exception as exc:
         logger.error(f"Task {task_id} failed: {exc}", exc_info=True)
-        # Send failure webhook
-        failure_payload = {
-            "task_id": task_id,
-            "status": "failed",
-            "result": None,
-            "error": str(exc),
-        }
-        try:
-            requests.post(
-                webhook_url,
-                json=failure_payload,
-                timeout=60,
-                headers={"Content-Type": "application/json"},
-            ).raise_for_status()
-        except requests.RequestException as e:
-            logger.error(f"Failed to send failure webhook for task {task_id}: {e}")
+        _send_failure_webhook(task_id, webhook_url, str(exc))
 
         # Re-raise the exception to mark task as failed in Celery
         raise exc

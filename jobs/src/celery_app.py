@@ -13,7 +13,7 @@ logfire.configure(
     send_to_logfire="if-token-present",
 )
 # No request/response bodies or prompts: they carry full PDFs and page images.
-logfire.instrument_pydantic(record="failure")
+logfire.instrument_pydantic(record="metrics")
 logfire.instrument_celery()
 logfire.instrument_httpx()
 
