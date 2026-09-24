@@ -3,7 +3,7 @@
 These drive the real runtime — model wrapping, the pump task / queue that
 decouples chunk delivery from the retry backoff, `on_complete` persistence,
 the error path and the partial-turn safety net — against a scripted model.
-Everything with I/O (DB, paper context, telemetry, quota) is monkeypatched;
+Everything with I/O (DB, paper context, telemetry) is monkeypatched;
 what is exercised is the streaming machinery and what comes out on the wire.
 """
 
@@ -22,7 +22,7 @@ from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.models.wrapper import WrapperModel
 
-from app.database.models import ConversableType, SubscriptionPlan
+from app.database.models import ConversableType
 from app.llm.chat import runtime as runtime_module
 from app.llm.chat.runtime import (
     CHUNK_QUEUE_SIZE,
@@ -230,15 +230,6 @@ class _Fixture:
         )
         # Fast, deterministic backoff — the schedule itself is unit-tested.
         mp.setattr(runtime_module, "RetryingModel", fake_retrying)
-
-        import app.helpers.subscription_limits as limits
-
-        mp.setattr(limits, "can_user_chat", lambda db, user: (True, None))
-        mp.setattr(
-            limits,
-            "get_user_subscription_plan",
-            lambda db, user: SubscriptionPlan.BASIC,
-        )
 
         import app.llm.operations as operations_module
 

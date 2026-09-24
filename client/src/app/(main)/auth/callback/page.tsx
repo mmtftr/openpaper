@@ -3,26 +3,19 @@
 import { Info, Loader2 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { OPOnboarding } from "@/components/OPOnboarding";
 
 function CallbackContent() {
 
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const [error, setError] = useState<string | null>(null);
-	const [showWelcome, setShowWelcome] = useState(false);
 
 	useEffect(() => {
 		// Process the OAuth callback
 		const params = new URLSearchParams(window.location.search);
 		const success = params.get('success') === 'true';
-		const welcome = params.get('welcome') === 'true';
-		setShowWelcome(welcome);
 
-		if (welcome) {
-			return
-		}
-		else if (success) {
+		if (success) {
 			const returnTo = localStorage.getItem('returnTo') || '/';
 			localStorage.removeItem('returnTo');
 			router.push(returnTo);
@@ -44,21 +37,6 @@ function CallbackContent() {
 					<h2 className="text-xl font-medium">Authentication Failed</h2>
 					<p className="text-muted-foreground">{error}</p>
 					<p className="mt-4 text-sm text-muted-foreground">Redirecting to login page...</p>
-				</div>
-			</div>
-		);
-	}
-
-	if (showWelcome) {
-		return (
-			<div className="flex flex-col items-center justify-start min-h-[calc(100vh-64px)] p-4 md:pt-16">
-				<div className="container mx-auto flex flex-col items-center justify-start">
-					<div className="w-full md:max-w-1/2">
-						<h2 className="text-2xl font-bold text-center mb-4">Welcome to Open Paper</h2>
-						<p className="text-muted-foreground mb-8 text-left">We want to make it 10x easier for you to read over large sets of documents, without sacrificing quality.</p>
-						<p className="text-muted-foreground mb-8 text-left">A couple of questions below will help us craft a better experience for you.</p>
-						<OPOnboarding />
-					</div>
 				</div>
 			</div>
 		);

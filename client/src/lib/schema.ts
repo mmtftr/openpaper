@@ -129,34 +129,6 @@ export enum JobStatus {
 
 export type JobStatusType = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 
-export const SubscriptionStatus = {
-    ACTIVE: 'active',
-    CANCELED: 'canceled',
-    PAST_DUE: 'past_due',
-    INCOMPLETE: 'incomplete',
-    TRIALING: 'trialing',
-    UNPAID: 'unpaid',
-} as const;
-
-export type SubscriptionStatusType = typeof SubscriptionStatus[keyof typeof SubscriptionStatus];
-
-export interface UserSubscription {
-    has_subscription: boolean;
-    had_subscription: boolean;
-    requires_payment_update: boolean;
-    subscription: {
-        status: SubscriptionStatusType;
-        interval: "month" | "year";
-        current_period_end: string;
-        current_period_start: string;
-        cancel_at_period_end: boolean;
-    };
-    scheduled_change?: {
-        new_interval: "month" | "year";
-        effective_date: string;
-    } | null;
-}
-
 export interface HighlightResult {
     id: string;
     raw_text: string;
@@ -251,16 +223,6 @@ export interface PaperItem {
     publisher?: string
 }
 
-export interface CreditUsage {
-    used: number;
-    remaining: number;
-    total: number;
-    usagePercentage: number;
-    showWarning: boolean;
-    isNearLimit: boolean;
-    isCritical: boolean;
-}
-
 export interface AudioOverview {
     id: string;
     conversable_id: string;
@@ -301,40 +263,3 @@ export interface MinimalJob {
     fileName: string;
 }
 
-export interface SubscriptionLimits {
-    paper_uploads: number;
-    knowledge_base_size: number;
-    chat_credits_weekly: number;
-    audio_overviews_weekly: number;
-    discover_searches_weekly: number;
-    projects: number;
-    model: string[];
-}
-
-export interface SubscriptionUsage {
-    paper_uploads: number;
-    paper_uploads_remaining: number;
-    knowledge_base_size: number;
-    knowledge_base_size_remaining: number;
-    chat_credits_used: number;
-    chat_credits_remaining: number;
-    audio_overviews_used: number;
-    audio_overviews_remaining: number;
-    projects: number;
-    projects_remaining: number;
-    discover_searches_used: number;
-    discover_searches_remaining: number;
-}
-
-export interface SubscriptionData {
-    plan: 'basic' | 'researcher';
-    limits: SubscriptionLimits;
-    usage: SubscriptionUsage;
-}
-
-export interface UseSubscriptionReturn {
-    subscription: SubscriptionData | null;
-    loading: boolean;
-    error: string | null;
-    refetch: () => Promise<void>;
-}

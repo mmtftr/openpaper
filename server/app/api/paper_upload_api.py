@@ -16,7 +16,7 @@ The client can poll the job status using the same job_id throughout the process.
 
 import logging
 from datetime import datetime, timezone
-from typing import Optional, Union
+from typing import Optional
 from uuid import UUID
 
 from app.api.webhook_api import handle_failed_upload
@@ -32,10 +32,6 @@ from app.database.models import JobStatus, PaperUploadJob
 from app.database.telemetry import track_event
 from app.helpers.parser import validate_pdf_content, validate_url_and_fetch_pdf
 from app.helpers.pdf_jobs import jobs_client
-from app.helpers.subscription_limits import (
-    can_user_access_knowledge_base,
-    can_user_upload_paper,
-)
 from app.schemas.user import CurrentUser
 from dotenv import load_dotenv
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Request, UploadFile
@@ -149,7 +145,7 @@ async def upload_pdf_from_url(
     """
 
     # If this is a supplementary upload, verify the parent paper belongs to
-    # the user. Supplementaries don't count against the subscription limit.
+    # the user.
     supplementary_parent_id: Optional[UUID] = None
     if supplementary_of:
         supplementary_parent_id = UUID(supplementary_of)
@@ -159,17 +155,6 @@ async def upload_pdf_from_url(
         if not parent_paper:
             return JSONResponse(
                 status_code=404, content={"message": "Parent paper not found"}
-            )
-    else:
-        # Check subscription limits before proceeding
-        err_message = await check_subscription_limits(current_user, db)
-        if err_message:
-            return JSONResponse(
-                status_code=403,
-                content={
-                    "message": err_message,
-                    "error_code": "SUBSCRIPTION_LIMIT_EXCEEDED",
-                },
             )
 
     # Validate the URL and fetch PDF content
@@ -235,7 +220,7 @@ async def upload_pdf(
     Upload a PDF file
     """
     # If this is a supplementary upload, verify the parent paper belongs to
-    # the user. Supplementaries don't count against the subscription limit.
+    # the user.
     supplementary_parent_id: Optional[UUID] = None
     if supplementary_of:
         supplementary_parent_id = UUID(supplementary_of)
@@ -245,17 +230,6 @@ async def upload_pdf(
         if not parent_paper:
             return JSONResponse(
                 status_code=404, content={"message": "Parent paper not found"}
-            )
-    else:
-        # Check subscription limits before proceeding
-        err_message = await check_subscription_limits(current_user, db)
-        if err_message:
-            return JSONResponse(
-                status_code=403,
-                content={
-                    "message": err_message,
-                    "error_code": "SUBSCRIPTION_LIMIT_EXCEEDED",
-                },
             )
 
     # Read the file contents BEFORE adding to background task. We need this because the UploadFile object becomes inaccessible after the request is processed.
@@ -311,25 +285,6 @@ async def upload_pdf(
             "job_id": str(paper_upload_job.id),
         },
     )
-
-
-async def check_subscription_limits(
-    current_user: CurrentUser,
-    db: Session,
-) -> Union[str, None]:
-    """
-    Check if the user can upload a new paper based on their subscription limits.
-    Returns a JSONResponse with an error message if limits are exceeded.
-    """
-    can_upload, error_message = can_user_upload_paper(db, current_user)
-    if not can_upload and error_message:
-        return error_message
-
-    can_access, error_message = can_user_access_knowledge_base(db, current_user)
-    if not can_access and error_message:
-        return error_message
-
-    return None
 
 
 async def upload_raw_file_microservice(

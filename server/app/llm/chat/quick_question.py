@@ -2,10 +2,7 @@
 
 Deliberately NOT a chat turn. There is no conversation, no message
 persistence, no sandbox and no citations — the client opens a popover over a
-selection in the code viewer, gets one streamed answer, and closes it. The
-only row it writes is a `chat_usage_events` entry: chat credits are metered
-from persisted message text, so without it a user under quota could ask quick
-questions forever.
+selection in the code viewer, gets one streamed answer, and closes it.
 
 It does get a small, read-only view of the rest of the repo: the three
 `RepoPrelude` helpers (tree / read / grep) registered as plain tools by
@@ -13,8 +10,8 @@ It does get a small, read-only view of the rest of the repo: the three
 lives one file away doesn't have to be re-asked in chat. No Monty sandbox —
 see that module for why.
 
-What it DOES share with chat: the same auth and quota gates, the same model
-registry and plan gating, the same transient-failure retry budget
+What it DOES share with chat: the same auth, the same model
+registry, the same transient-failure retry budget
 (`RetryingModel`, minus chat's retry-status side channel — this stream is a
 plain pull loop) and per-request client teardown, and the same Vercel
 UIMessage stream encoding, so the client consumes it with the identical
@@ -39,7 +36,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
 
-from app.database.crud.chat_usage_crud import record_chat_usage
 from app.database.telemetry import track_event
 from app.llm.chat.paper import _select_preload, build_paper_chat_context
 from app.llm.chat.quick_question_tools import (
@@ -409,11 +405,6 @@ async def run_quick_question(
     Raises QuickQuestionError for every pre-stream failure so the endpoint
     can turn it into a real HTTP status instead of a broken SSE stream.
     """
-    from app.helpers.subscription_limits import (
-        can_user_chat,
-        get_user_subscription_plan,
-    )
-    from app.database.models import SubscriptionPlan
     from app.llm.base import LLMProvider
 
     text = str(question or "").strip()
@@ -435,10 +426,6 @@ async def run_quick_question(
     except ValueError as exc:
         raise QuickQuestionError(str(exc), 404)
 
-    allowed, quota_error = can_user_chat(db, current_user)
-    if not allowed:
-        raise QuickQuestionError(quota_error or "Chat limit reached.", 403)
-
     snapshot_file = load_quick_question_code(
         paper_id=paper_id, file_path=file_path
     )
@@ -458,15 +445,10 @@ async def run_quick_question(
         except ValueError:
             raise QuickQuestionError(f"Unknown provider '{provider}'.", 422)
 
-    plan = get_user_subscription_plan(db, current_user)
-    if plan != SubscriptionPlan.RESEARCHER:
-        spec = registry.resolve()
-        reasoning_effort = None
-    else:
-        try:
-            spec = registry.resolve(provider_enum, model)
-        except ValueError as exc:
-            raise QuickQuestionError(str(exc), 422)
+    try:
+        spec = registry.resolve(provider_enum, model)
+    except ValueError as exc:
+        raise QuickQuestionError(str(exc), 422)
 
     try:
         pai_model = registry.build_model(spec)
@@ -558,18 +540,6 @@ async def run_quick_question(
             )
         except Exception:
             pass
-        # Charge the quota. Nothing here persists a message, and the weekly
-        # meter is computed from persisted content — without this row a user
-        # under quota could ask quick questions forever. Same rate as a chat
-        # turn: question + answer characters.
-        if delivered:
-            stream_state = adapter.last_event_stream
-            answer_chars = len(stream_state.accumulated_text) if stream_state else 0
-            record_chat_usage(
-                user_id=current_user.id,
-                kind="quick_question",
-                chars=len(text) + answer_chars,
-            )
         # Close the NATIVE stream directly: closing only the outer protocol
         # generator leaves the provider HTTP stream running (and billing).
         try:

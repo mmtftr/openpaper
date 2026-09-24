@@ -2,8 +2,8 @@
 
 `run_paper_chat` wires everything together for one turn:
 
-1. Validates the request (conversation ownership, trigger, quota,
-   model entitlement) — failures raise before any streaming starts.
+1. Validates the request (conversation ownership, trigger, model)
+   — failures raise before any streaming starts.
 2. Persists the user row up front (client UIMessage id = idempotency key).
 3. Runs the agent through `OpenPaperAdapter` / `OpenPaperEventStream`
    (evidence holdback, tool-output caps) with server-side history from
@@ -284,7 +284,6 @@ async def run_paper_chat(
 
     Raises ChatRequestError for pre-stream validation failures.
     """
-    from app.helpers.subscription_limits import can_user_chat
     from app.llm.base import LLMProvider
 
     start_time = datetime.now(timezone.utc)
@@ -305,17 +304,12 @@ async def run_paper_chat(
             "Conversation does not belong to this paper.", status_code=400
         )
 
-    allowed, quota_error = can_user_chat(db, current_user)
-    if not allowed:
-        raise ChatRequestError(quota_error or "Chat limit reached.", status_code=403)
-
     user_message = _last_user_message(run_input)
     user_query = _message_text(user_message)
     if not user_query:
         raise ChatRequestError("Empty message.")
 
-    # Model selection: resolve against the registry; entitlement is enforced
-    # server-side (non-researcher plans use the default model only).
+    # Model selection: resolve against the registry.
     registry = get_registry()
     provider_enum: Optional[LLMProvider] = None
     if provider:
@@ -323,18 +317,10 @@ async def run_paper_chat(
             provider_enum = LLMProvider(provider.lower())
         except ValueError:
             raise ChatRequestError(f"Unknown provider '{provider}'.")
-    from app.helpers.subscription_limits import get_user_subscription_plan
-    from app.database.models import SubscriptionPlan
-
-    plan = get_user_subscription_plan(db, current_user)
-    if plan != SubscriptionPlan.RESEARCHER:
-        spec = registry.resolve()
-        reasoning_effort = None
-    else:
-        try:
-            spec = registry.resolve(provider_enum, model)
-        except ValueError as exc:
-            raise ChatRequestError(str(exc))
+    try:
+        spec = registry.resolve(provider_enum, model)
+    except ValueError as exc:
+        raise ChatRequestError(str(exc))
 
     try:
         chat_context = build_paper_chat_context(

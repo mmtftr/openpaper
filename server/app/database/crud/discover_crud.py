@@ -1,7 +1,6 @@
 """CRUD operations for DiscoverSearch."""
 
 import logging
-from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from uuid import UUID
 
@@ -85,26 +84,6 @@ class DiscoverSearchCRUD:
                 f"Error fetching discover search {search_id}: {e}", exc_info=True
             )
             return None
-
-    def get_searches_this_week(self, db: Session, *, user: CurrentUser) -> int:
-        """Count discover searches by this user in the current week (Monday-based)."""
-        try:
-            now = datetime.now(timezone.utc)
-            # Monday of current week
-            monday = now - timedelta(days=now.weekday())
-            monday = monday.replace(hour=0, minute=0, second=0, microsecond=0)
-
-            return (
-                db.query(DiscoverSearch)
-                .filter(
-                    DiscoverSearch.user_id == user.id,
-                    DiscoverSearch.created_at >= monday,
-                )
-                .count()
-            )
-        except Exception as e:
-            logger.error(f"Error counting weekly discover searches: {e}", exc_info=True)
-            return 0
 
 
 discover_search_crud = DiscoverSearchCRUD()

@@ -2,12 +2,11 @@
 
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { AlertCircle, ArrowLeft, Loader2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { fetchFromApi } from "@/lib/api";
@@ -291,14 +290,6 @@ function LoginContent() {
 						)}
 					</div>
 				</CardContent>
-				<CardFooter className="text-sm text-muted-foreground text-start">
-					<div className="flex flex-wrap gap-1 justify-start">
-						<span>By signing in, you agree to our</span>
-						<Link href="/tos" className="text-primary hover:underline">Terms of Service</Link>
-						<span>and</span>
-						<Link href="/privacy" className="text-primary hover:underline">Privacy Policy</Link>
-					</div>
-				</CardFooter>
 			</Card>
 		</div>
 	);

@@ -7,7 +7,7 @@ import { Separator } from "@/components/ui/separator";
 import { AuthProvider } from "@/lib/auth";
 
 import { Toaster } from "@/components/ui/sonner";
-import { AnalyticsProvider, ThemeProvider } from "@/lib/providers";
+import { ThemeProvider } from "@/lib/providers";
 
 import { SidebarController } from "@/components/utils/SidebarAutoCollapse";
 import Image from "next/image";
@@ -77,46 +77,43 @@ export default function RootLayout({
     `,
 					}}
 				/>
-				<script defer data-domain="openpaper.ai" src="https://plausible.io/js/script.js"></script>
 			</head>
 			<body
 				className={`${geistSans.variable} ${geistMono.variable} antialiased`}
 			>
 				<ThemeProvider>
 					<AuthProvider>
-						<AnalyticsProvider>
-							<SidebarProvider>
-								<AppSidebar />
-								<SidebarInset>
-									<PaperHeaderProvider>
-										<header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-											<SidebarTrigger className="-ml-1" />
-											<Separator orientation="vertical" className="mr-2 h-4" />
-											<Link href="/" className="flex flex-1 items-center gap-2 hover:opacity-80 transition-opacity">
-												<Image
-													src="/openpaper.svg"
-													width={24}
-													height={24}
-													alt="Open Paper Logo"
-												/>
-												<span className="text-sm font-semibold">Open Paper</span>
-											</Link>
-											{/* Desktop buttons */}
-											<div className="hidden md:flex items-center gap-2">
-												<ManageProjectsButton />
-												<HeaderPaperStatusButton />
-												<CitePaperButton />
-											</div>
-											{/* Mobile menu */}
-											<MobilePaperMenu />
-										</header>
-										<SidebarController>
-											{children}
-										</SidebarController>
-									</PaperHeaderProvider>
-								</SidebarInset>
-							</SidebarProvider>
-						</AnalyticsProvider>
+						<SidebarProvider>
+							<AppSidebar />
+							<SidebarInset>
+								<PaperHeaderProvider>
+									<header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+										<SidebarTrigger className="-ml-1" />
+										<Separator orientation="vertical" className="mr-2 h-4" />
+										<Link href="/" className="flex flex-1 items-center gap-2 hover:opacity-80 transition-opacity">
+											<Image
+												src="/openpaper.svg"
+												width={24}
+												height={24}
+												alt="Open Paper Logo"
+											/>
+											<span className="text-sm font-semibold">Open Paper</span>
+										</Link>
+										{/* Desktop buttons */}
+										<div className="hidden md:flex items-center gap-2">
+											<ManageProjectsButton />
+											<HeaderPaperStatusButton />
+											<CitePaperButton />
+										</div>
+										{/* Mobile menu */}
+										<MobilePaperMenu />
+									</header>
+									<SidebarController>
+										{children}
+									</SidebarController>
+								</PaperHeaderProvider>
+							</SidebarInset>
+						</SidebarProvider>
 					</AuthProvider>
 				</ThemeProvider>
 				<Toaster

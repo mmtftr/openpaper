@@ -202,37 +202,15 @@ services:
       minio-init:
         condition: service_completed_successfully
 
-  flower:
-    build:
-      context: ./jobs
-      dockerfile: Dockerfile
-    env_file:
-      - ./jobs/.env
-    environment:
-      CELERY_BROKER_URL: pyamqp://guest:guest@rabbitmq:5672//
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
-    command: .venv/bin/python -m celery --app src.celery_app flower --port=5555
-    ports:
-      - "5555:5555"
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    profiles:
-      - observability
-
   client:
     build:
       context: ./client
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://${BASE_HOSTNAME:-localhost}:12001}
-        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
         NEXT_PUBLIC_MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-50}
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://${BASE_HOSTNAME:-localhost}:12001}
-      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
       NEXT_PUBLIC_MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-50}
     ports:
       - "127.0.0.1:12000:3000"

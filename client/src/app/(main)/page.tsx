@@ -10,14 +10,10 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { MessageCircleWarning } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import Link from "next/link";
 import EnigmaticLoadingExperience from "@/components/EnigmaticLoadingExperience";
 import { PaperItem, PaperUploadJobStatusResponse, Project } from "@/lib/schema";
-import { toast } from "sonner";
-import { useSubscription, isStorageAtLimit, isPaperUploadAtLimit, isPaperUploadNearLimit, isStorageNearLimit } from "@/hooks/useSubscription";
 import { uploadFiles, uploadFromUrlWithFallback } from "@/lib/uploadUtils";
 
 // New components for redesigned home
@@ -26,7 +22,6 @@ import { QuickActions } from "@/components/QuickActions";
 import { ProjectsPreview } from "@/components/ProjectsPreview";
 import { RecentPapersGrid } from "@/components/RecentPapersGrid";
 import { HomeEmptyState } from "@/components/HomeEmptyState";
-import { BlogPostToast } from "@/components/BlogPostToast";
 
 const DEFAULT_PAPER_UPLOAD_ERROR_MESSAGE = "We encountered an error processing your request. Please check the file or URL and try again.";
 
@@ -38,26 +33,10 @@ export default function Home() {
 	const [isLoadingData, setIsLoadingData] = useState(true);
 	const [showErrorAlert, setShowErrorAlert] = useState(false);
 	const [errorAlertMessage, setErrorAlertMessage] = useState(DEFAULT_PAPER_UPLOAD_ERROR_MESSAGE);
-	const [showPricingOnError, setShowPricingOnError] = useState(false);
 
 	const { user, loading: authLoading } = useAuth();
-	const { subscription, loading: subscriptionLoading } = useSubscription();
 	const router = useRouter();
 	const [isDragging, setIsDragging] = useState(false);
-
-	// Compute if upload is blocked due to subscription limits
-	const isUploadBlocked = !subscriptionLoading && (isPaperUploadAtLimit(subscription) || isStorageAtLimit(subscription));
-
-	// Handler to show error when upload is blocked
-	const handleUploadBlocked = () => {
-		if (isPaperUploadAtLimit(subscription)) {
-			setErrorAlertMessage("You've reached your paper upload limit. Please upgrade your plan to upload more papers.");
-		} else if (isStorageAtLimit(subscription)) {
-			setErrorAlertMessage("You've reached your storage limit. Please upgrade your plan or delete some papers to continue.");
-		}
-		setShowPricingOnError(true);
-		setShowErrorAlert(true);
-	};
 
 	const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
 		e.preventDefault();
@@ -86,15 +65,6 @@ export default function Home() {
 		e.stopPropagation();
 		setIsDragging(false);
 
-		// Check if upload is blocked before processing files
-		if (isUploadBlocked) {
-			handleUploadBlocked();
-			if (e.dataTransfer) {
-				e.dataTransfer.items.clear();
-			}
-			return;
-		}
-
 		const files = Array.from(e.dataTransfer.files).filter(
 			file => file.type === 'application/pdf'
 		);
@@ -107,62 +77,6 @@ export default function Home() {
 			e.dataTransfer.items.clear();
 		}
 	};
-
-	// Toast notifications for subscription limits (once per session)
-	useEffect(() => {
-		const LIMIT_TOAST_SHOWN_KEY = "subscription_limit_toast_shown";
-
-		if (!subscriptionLoading && subscription && user) {
-			// Only show toast once per session
-			if (sessionStorage.getItem(LIMIT_TOAST_SHOWN_KEY)) {
-				return;
-			}
-
-			let toastShown = false;
-
-			if (isStorageAtLimit(subscription)) {
-				toast.error("Storage limit reached", {
-					description: "You've used your available storage. Upgrade for more space, or free up room by removing papers.",
-					action: {
-						label: "Upgrade",
-						onClick: () => window.location.href = "/pricing"
-					},
-				});
-				toastShown = true;
-			} else if (isPaperUploadAtLimit(subscription)) {
-				toast.error("Upload limit reached", {
-					description: "You've used your available paper uploads. Upgrade for more, or remove existing papers.",
-					action: {
-						label: "Upgrade",
-						onClick: () => window.location.href = "/pricing"
-					},
-				});
-				toastShown = true;
-			} else if (isStorageNearLimit(subscription)) {
-				toast.warning("Storage nearly full", {
-					description: "You're getting close to your storage limit.",
-					action: {
-						label: "Upgrade",
-						onClick: () => window.location.href = "/pricing"
-					},
-				});
-				toastShown = true;
-			} else if (isPaperUploadNearLimit(subscription)) {
-				toast.warning("Upload limit approaching", {
-					description: "You're getting close to your paper upload limit.",
-					action: {
-						label: "Upgrade",
-						onClick: () => window.location.href = "/pricing"
-					},
-				});
-				toastShown = true;
-			}
-
-			if (toastShown) {
-				sessionStorage.setItem(LIMIT_TOAST_SHOWN_KEY, "true");
-			}
-		}
-	}, [subscription, subscriptionLoading, user]);
 
 	// Loading experience state
 	const [elapsedTime, setElapsedTime] = useState(0);
@@ -314,20 +228,6 @@ export default function Home() {
 	const handleUploadStart = async (files: File[]) => {
 		if (files.length === 0) return;
 
-		// Check subscription limits before attempting upload
-		if (isPaperUploadAtLimit(subscription)) {
-			setShowErrorAlert(true);
-			setErrorAlertMessage("You've reached your paper upload limit. Please upgrade your plan to upload more papers.");
-			setShowPricingOnError(true);
-			return;
-		}
-		if (isStorageAtLimit(subscription)) {
-			setShowErrorAlert(true);
-			setErrorAlertMessage("You've reached your storage limit. Please upgrade your plan or delete some papers to continue.");
-			setShowPricingOnError(true);
-			return;
-		}
-
 		const file = files[0];
 		setIsUploading(true);
 		setFileSize(file.size);
@@ -344,18 +244,10 @@ export default function Home() {
 			setShowErrorAlert(true);
 			if (error instanceof Error) {
 				setErrorAlertMessage(error.message);
-				// Show upgrade option for limit-related errors
-				if (error.message.toLowerCase().includes('limit') || error.message.toLowerCase().includes('upgrade')) {
-					setShowPricingOnError(true);
-				} else {
-					setShowPricingOnError(false);
-				}
 			} else if (typeof error === 'object' && error !== null) {
 				setErrorAlertMessage(JSON.stringify(error));
-				setShowPricingOnError(false);
 			} else {
 				setErrorAlertMessage(String(error));
-				setShowPricingOnError(false);
 			}
 			setIsUploading(false);
 		}
@@ -363,20 +255,6 @@ export default function Home() {
 
 	// Handle URL import with custom loading experience
 	const handleUrlImportStart = async (url: string) => {
-		// Check subscription limits before attempting upload
-		if (isPaperUploadAtLimit(subscription)) {
-			setShowErrorAlert(true);
-			setErrorAlertMessage("You've reached your paper upload limit. Please upgrade your plan to upload more papers.");
-			setShowPricingOnError(true);
-			return;
-		}
-		if (isStorageAtLimit(subscription)) {
-			setShowErrorAlert(true);
-			setErrorAlertMessage("You've reached your storage limit. Please upgrade your plan or delete some papers to continue.");
-			setShowPricingOnError(true);
-			return;
-		}
-
 		setIsUploading(true);
 		setFileSize(null);
 		setCeleryMessage(null);
@@ -389,18 +267,10 @@ export default function Home() {
 			setShowErrorAlert(true);
 			if (error instanceof Error) {
 				setErrorAlertMessage(error.message);
-				// Show upgrade option for limit-related errors
-				if (error.message.toLowerCase().includes('limit') || error.message.toLowerCase().includes('upgrade')) {
-					setShowPricingOnError(true);
-				} else {
-					setShowPricingOnError(false);
-				}
 			} else if (typeof error === 'object' && error !== null) {
 				setErrorAlertMessage(JSON.stringify(error));
-				setShowPricingOnError(false);
 			} else {
 				setErrorAlertMessage(String(error));
-				setShowPricingOnError(false);
 			}
 			setIsUploading(false);
 		}
@@ -411,7 +281,7 @@ export default function Home() {
 	}
 
 	if (!user) {
-		router.push('/home');
+		router.push('/login');
 		return null;
 	}
 
@@ -423,7 +293,6 @@ export default function Home() {
 
 	return (
 		<div className="min-h-[calc(100vh-64px)] bg-gradient-to-b from-background to-muted/20 flex flex-col">
-			<BlogPostToast />
 			<div
 				className={`max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 flex-1 w-full rounded-xl transition-colors duration-200 ${isDragging ? 'bg-primary/5 ring-2 ring-primary ring-dashed' : ''}`}
 				onDragEnter={handleDragEnter}
@@ -445,8 +314,6 @@ export default function Home() {
 						onUploadComplete={refreshData}
 						onUploadStart={handleUploadStart}
 						onUrlImportStart={handleUrlImportStart}
-						isUploadBlocked={isUploadBlocked}
-						onUploadBlocked={handleUploadBlocked}
 					/>
 				) : (
 					<div className="space-y-12">
@@ -457,8 +324,6 @@ export default function Home() {
 								onProjectCreated={refreshData}
 								onUploadStart={handleUploadStart}
 								onUrlImportStart={handleUrlImportStart}
-								isUploadBlocked={isUploadBlocked}
-								onUploadBlocked={handleUploadBlocked}
 							/>
 						</section>
 
@@ -480,15 +345,6 @@ export default function Home() {
 				<div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 					<div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
 						<div className="flex items-center gap-4">
-							<Link href="/blog/manifesto" className="hover:text-foreground transition-colors">
-								Manifesto
-							</Link>
-							<Link href="/blog" className="hover:text-foreground transition-colors">
-								Blog
-							</Link>
-							<Link href="/about" className="hover:text-foreground transition-colors">
-								About
-							</Link>
 							<a
 								href="https://github.com/khoj-ai/openpaper"
 								target="_blank"
@@ -506,18 +362,11 @@ export default function Home() {
 			{showErrorAlert && (
 				<Dialog open={showErrorAlert} onOpenChange={setShowErrorAlert}>
 					<DialogContent>
-						<DialogTitle>{showPricingOnError ? "Upload Limit Reached" : "Upload Failed"}</DialogTitle>
+						<DialogTitle>Upload Failed</DialogTitle>
 						<DialogDescription className="space-y-4 inline-flex items-center">
 							<MessageCircleWarning className="h-6 w-6 text-slate-500 mr-2 flex-shrink-0" />
 							{errorAlertMessage ?? DEFAULT_PAPER_UPLOAD_ERROR_MESSAGE}
 						</DialogDescription>
-						<div className="flex justify-end mt-4">
-							{showPricingOnError && (
-								<Button variant="default" asChild className="mr-2 bg-blue-500 hover:bg-blue-200 dark:bg-blue-600 dark:hover:bg-blue-700 text-white">
-									<Link href="/pricing">Upgrade</Link>
-								</Button>
-							)}
-						</div>
 					</DialogContent>
 				</Dialog>
 			)}

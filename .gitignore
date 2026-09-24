@@ -24,7 +24,6 @@ client/coverage
 # next.js
 client/.next/
 client/out/
-client/public/blog-latest.json
 
 # production
 client/build

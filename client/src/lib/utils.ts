@@ -111,3 +111,13 @@ export function getInitials(name: string): string {
 
 	return initials;
 }
+
+export const formatFileSize = (sizeInKb: number): string => {
+	if (sizeInKb < 1024) {
+		return `${sizeInKb.toFixed(1)} KB`;
+	} else if (sizeInKb < 1024 * 1024) {
+		return `${(sizeInKb / 1024).toFixed(1)} MB`;
+	} else {
+		return `${(sizeInKb / (1024 * 1024)).toFixed(1)} GB`;
+	}
+};

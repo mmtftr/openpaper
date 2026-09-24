@@ -68,7 +68,7 @@ class PaperChatBody(BaseModel):
         Literal["adaptive", "comprehensive", "full", "raw"]
     ] = None
     # PDF text selections attached by the user. Bounded: they flow into the
-    # model prompt but are not metered as chat credits.
+    # model prompt.
     user_references: Optional[list[str]] = Field(
         default=None, max_length=20
     )

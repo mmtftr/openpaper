@@ -60,11 +60,8 @@ export function isAbortError(error: unknown): boolean {
  * Short, non-technical line for a failure, mapped from the status code.
  *
  * The endpoint's own `detail` strings are already written for humans ("No code
- * repository is connected to this paper yet.", "Chat limit reached."), so they
- * are preferred where they exist and the mapping only supplies a fallback.
- *
- * Note 403: the endpoint answers quota exhaustion with 403, not the 429 the
- * wire contract describes — both are treated as "out of quota" here.
+ * repository is connected to this paper yet."), so they are preferred where
+ * they exist and the mapping only supplies a fallback.
  */
 export function quickQuestionErrorMessage(error: unknown): string {
     if (error instanceof QuickQuestionError) {
@@ -74,12 +71,6 @@ export function quickQuestionErrorMessage(error: unknown): string {
         switch (error.status) {
             case 401:
                 return "You're not signed in anymore — reload the page and try again.";
-            case 403:
-            case 429:
-                return (
-                    usable ||
-                    "You've used up your chat quota for now, so this question can't be answered."
-                );
             case 404:
                 return usable || "That file isn't in this repo snapshot anymore.";
             case 409:

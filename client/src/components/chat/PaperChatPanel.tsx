@@ -10,7 +10,6 @@ import {
 } from "react";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 import type { Components } from "react-markdown";
-import Link from "next/link";
 import { toast } from "sonner";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -26,7 +25,6 @@ import {
     CircleStopIcon,
     CornerDownRightIcon,
     CpuIcon,
-    LockIcon,
     MessageSquarePlusIcon,
     MessagesSquareIcon,
     RefreshCwIcon,
@@ -36,7 +34,6 @@ import {
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 
-import { CreditUsage } from "@/lib/schema";
 import { API_BASE_URL, fetchFromApi } from "@/lib/api";
 import {
     ChatUIMessage,
@@ -54,12 +51,6 @@ import {
 } from "@/lib/chatMessages";
 import { setPaperChatStreaming } from "@/lib/paperDocEvents";
 import { useAuth } from "@/lib/auth";
-import {
-    useSubscription,
-    getChatCreditUsagePercentage,
-    isChatCreditAtLimit,
-    isChatCreditNearLimit,
-} from "@/hooks/useSubscription";
 import {
     getAlphaHashToBackgroundColor,
     getInitials,
@@ -85,11 +76,6 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-    HoverCard,
-    HoverCardContent,
-    HoverCardTrigger,
-} from "@/components/ui/hover-card";
 import {
     Collapsible,
     CollapsibleContent,
@@ -297,7 +283,6 @@ export function PaperChatPanel({
     headerSlot,
 }: PaperChatPanelProps) {
     const { user } = useAuth();
-    const { subscription, refetch: refetchSubscription } = useSubscription();
 
     const [conversationId, setConversationId] = useState<string | null>(null);
     const [conversations, setConversations] = useState<ConversationSummary[]>(
@@ -314,7 +299,6 @@ export function PaperChatPanel({
         string | null
     >(null);
 
-    const [creditUsage, setCreditUsage] = useState<CreditUsage | null>(null);
     const [selectedModel, setSelectedModel] = useState<string>(() => {
         if (typeof window === "undefined") return "";
         return window.localStorage.getItem(SELECTED_MODEL_LS_KEY) ?? "";
@@ -339,7 +323,6 @@ export function PaperChatPanel({
         if (typeof window === "undefined") return;
         window.localStorage.setItem(REASONING_EFFORT_LS_KEY, reasoningEffort);
     }, [reasoningEffort]);
-    const [nextMonday, setNextMonday] = useState(new Date());
 
     // Context mode for the agentic chat surface. Defaults to Adaptive on
     // Mistral-parsed papers and Raw on pymupdf-parsed papers; user choice
@@ -447,9 +430,6 @@ export function PaperChatPanel({
             setRetryStatus(parsed.state === "retrying" ? parsed : null);
         },
         onFinish: ({ message, isAbort, isDisconnect, isError, finishReason }) => {
-            refetchSubscription().catch((err) =>
-                console.error("Error refetching subscription:", err)
-            );
             // An abort is the user's own stop button; isError/isDisconnect
             // already set `error`, which the error UI renders. (A server
             // `error` chunk always lands here as isError — the SDK throws on
@@ -796,53 +776,6 @@ export function PaperChatPanel({
         fetchAvailableModels();
     }, [id]);
 
-    useEffect(() => {
-        const date = new Date();
-        date.setDate(date.getDate() + ((1 + 7 - date.getDay()) % 7));
-        setNextMonday(date);
-    }, []);
-
-    useEffect(() => {
-        if (!subscription) {
-            setCreditUsage(null);
-            return;
-        }
-        const { chat_credits_used, chat_credits_remaining } =
-            subscription.usage;
-        const total = chat_credits_used + chat_credits_remaining;
-        const usagePercentage = getChatCreditUsagePercentage(subscription);
-
-        const TOAST_KEY = "chat_credit_limit_toast_shown";
-        if (
-            isChatCreditAtLimit(subscription) &&
-            !sessionStorage.getItem(TOAST_KEY)
-        ) {
-            toast.error(
-                "Nice! You've used your chat credits for the week. Upgrade your plan to continue chatting.",
-                {
-                    duration: 5000,
-                    action: {
-                        label: "Upgrade",
-                        onClick: () => {
-                            window.location.href = "/pricing";
-                        },
-                    },
-                }
-            );
-            sessionStorage.setItem(TOAST_KEY, "true");
-        }
-
-        setCreditUsage({
-            used: chat_credits_used,
-            remaining: chat_credits_remaining,
-            total,
-            usagePercentage,
-            showWarning: isChatCreditNearLimit(subscription),
-            isNearLimit: isChatCreditNearLimit(subscription),
-            isCritical: isChatCreditNearLimit(subscription, 95),
-        });
-    }, [subscription]);
-
     const selectedModelOption = useMemo(
         () => availableModels.find((m) => modelKey(m) === selectedModel),
         [availableModels, selectedModel]
@@ -1021,14 +954,6 @@ export function PaperChatPanel({
         },
         [userMessageReferences, setUserMessageReferences]
     );
-
-    const isCreditMaxed = (creditUsage?.usagePercentage ?? 0) >= 100;
-
-    const isGated =
-        subscription !== null &&
-        subscription !== undefined &&
-        subscription.plan !== undefined &&
-        subscription.plan !== "researcher";
 
     const modelLabel = selectedModelOption?.name ?? "Model";
 
@@ -1498,7 +1423,7 @@ export function PaperChatPanel({
                                 setCurrentMessage(e.currentTarget.value)
                             }
                             placeholder="Ask something about this paper."
-                            disabled={isStreaming || isCreditMaxed}
+                            disabled={isStreaming}
                         />
                     </PromptInputBody>
                     <PromptInputFooter>
@@ -1526,48 +1451,6 @@ export function PaperChatPanel({
                                         <DropdownMenuItem disabled>
                                             No models available
                                         </DropdownMenuItem>
-                                    ) : isGated ? (
-                                        <>
-                                            {modelsByProvider.map(
-                                                ([provider, items], gi) => (
-                                                    <div key={provider}>
-                                                        {gi > 0 && (
-                                                            <DropdownMenuSeparator />
-                                                        )}
-                                                        <DropdownMenuLabel className="text-xs text-muted-foreground">
-                                                            {providerLabel(
-                                                                provider
-                                                            )}
-                                                        </DropdownMenuLabel>
-                                                        {items.map((m) => (
-                                                            <DropdownMenuItem
-                                                                key={modelKey(m)}
-                                                                onClick={() => {
-                                                                    window.location.href =
-                                                                        "/pricing";
-                                                                }}
-                                                                className="flex items-center justify-between text-muted-foreground"
-                                                            >
-                                                                <span className="truncate">
-                                                                    {m.name}
-                                                                </span>
-                                                                <LockIcon className="h-3 w-3 shrink-0" />
-                                                            </DropdownMenuItem>
-                                                        ))}
-                                                    </div>
-                                                )
-                                            )}
-                                            <DropdownMenuSeparator />
-                                            <DropdownMenuItem
-                                                onClick={() => {
-                                                    window.location.href =
-                                                        "/pricing";
-                                                }}
-                                                className="flex items-center justify-center bg-primary text-primary-foreground focus:bg-primary/90 font-medium"
-                                            >
-                                                Upgrade to select models
-                                            </DropdownMenuItem>
-                                        </>
                                     ) : (
                                         modelsByProvider.map(
                                             ([provider, items], gi) => (
@@ -1728,52 +1611,12 @@ export function PaperChatPanel({
                                 isStreaming
                                     ? false
                                     : !currentMessage.trim() ||
-                                      isCreditMaxed ||
                                       !conversationId
                             }
                         />
                     </PromptInputFooter>
                 </PromptInput>
 
-                {creditUsage && creditUsage.showWarning && (
-                    <div
-                        className={cn(
-                            "text-xs px-1 flex justify-between",
-                            creditUsage.isCritical
-                                ? "text-red-600 dark:text-red-400"
-                                : "text-amber-600 dark:text-amber-400"
-                        )}
-                    >
-                        <span className="font-semibold">
-                            {creditUsage.used} credits used
-                        </span>
-                        <div>
-                            <HoverCard>
-                                <HoverCardTrigger asChild>
-                                    <span className="font-semibold cursor-help">
-                                        {creditUsage.remaining} credits
-                                        remaining
-                                    </span>
-                                </HoverCardTrigger>
-                                <HoverCardContent
-                                    side="top"
-                                    className="w-48"
-                                >
-                                    <p className="text-sm">
-                                        Resets on{" "}
-                                        {nextMonday.toLocaleDateString()}
-                                    </p>
-                                </HoverCardContent>
-                            </HoverCard>
-                            <Link
-                                href="/pricing"
-                                className="ml-1 text-blue-500 hover:text-blue-700"
-                            >
-                                Upgrade
-                            </Link>
-                        </div>
-                    </div>
-                )}
             </div>
         </div>
         </CodeViewerProvider>

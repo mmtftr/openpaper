@@ -80,24 +80,6 @@ class AuthProvider(str, Enum):
     # MICROSOFT = "microsoft"
 
 
-# BASIC plans are not considered active subscriptions.
-# They are used for users who have not yet subscribed.
-class SubscriptionPlan(str, Enum):
-    BASIC = "basic"
-    RESEARCHER = "researcher"
-
-
-# When a user has a RESEARCHER (or more advanced) subscription,
-# they can have one of the following statuses.
-class SubscriptionStatus(str, Enum):
-    ACTIVE = "active"
-    CANCELED = "canceled"
-    PAST_DUE = "past_due"
-    INCOMPLETE = "incomplete"
-    TRIALING = "trialing"
-    UNPAID = "unpaid"
-
-
 class User(Base):
     __tablename__ = "users"
 
@@ -142,21 +124,6 @@ class User(Base):
     )
     paper_upload_jobs = relationship(
         "PaperUploadJob", back_populates="user", cascade="all, delete-orphan"
-    )
-
-    # The associated subscription for the user.
-    subscription = relationship(
-        "Subscription",
-        back_populates="user",
-        uselist=False,
-        cascade="all, delete-orphan",
-    )
-
-    onboarding = relationship(
-        "Onboarding",
-        back_populates="user",
-        uselist=False,
-        cascade="all, delete-orphan",
     )
 
     paper_tags = relationship(
@@ -239,29 +206,6 @@ class Message(Base):
 
     user = relationship("User", back_populates="messages")
     conversation = relationship("Conversation", back_populates="messages")
-
-
-class ChatUsageEvent(Base):
-    """One paid model exchange that persisted no `messages` row.
-
-    The weekly chat-credit meter sums message characters; ephemeral endpoints
-    (the code-viewer quick question) would otherwise never advance it. See
-    `app.database.crud.chat_usage_crud`.
-    """
-
-    __tablename__ = "chat_usage_events"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    kind = Column(String, nullable=False)
-    chars = Column(Integer, nullable=False, default=0)
-    created_at = Column(
-        DateTime(timezone=True), server_default=text("now()"), nullable=False
-    )
 
 
 class ConversableType(str, Enum):
@@ -666,73 +610,6 @@ class Annotation(Base):
     # Relationships
     user = relationship("User", back_populates="annotations")
     highlight = relationship("Highlight", back_populates="annotations")
-
-
-class Subscription(Base):
-    __tablename__ = "subscriptions"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        unique=True,
-    )
-
-    # Subscription details
-    plan = Column(String, nullable=False, default=SubscriptionPlan.BASIC)
-    status = Column(String, nullable=False, default=SubscriptionStatus.ACTIVE)
-
-    # Billing period
-    current_period_start = Column(DateTime(timezone=True), nullable=True)
-    current_period_end = Column(DateTime(timezone=True), nullable=True)
-
-    # Stripe integration fields
-    stripe_customer_id = Column(String, nullable=True)
-    stripe_subscription_id = Column(String, nullable=True)
-    stripe_price_id = Column(String, nullable=True)
-
-    # Cancel at period end flag
-    cancel_at_period_end = Column(Boolean, default=False)
-
-    # Stripe Subscription Schedule ID (for deferred interval changes)
-    stripe_schedule_id = Column(String, nullable=True)
-
-    # When the subscription was canceled, if it was
-    canceled_at = Column(DateTime(timezone=True), nullable=True)
-
-    # Relationship with User
-    user = relationship("User", back_populates="subscription")
-
-
-class Onboarding(Base):
-    __tablename__ = "onboarding"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-    # Basic user information
-    name = Column(String, nullable=True)
-    email = Column(String, nullable=True)
-    company = Column(String, nullable=True)
-
-    # Research fields (stored as comma-separated string)
-    research_fields = Column(String, nullable=True)
-    research_fields_other = Column(String, nullable=True)
-
-    # Job titles (stored as comma-separated string)
-    job_titles = Column(String, nullable=True)
-    job_titles_other = Column(String, nullable=True)
-
-    # Reading frequency
-    reading_frequency = Column(String, nullable=True)
-
-    # Referral source
-    referral_source = Column(String, nullable=True)
-    referral_source_other = Column(String, nullable=True)
-
-    user = relationship("User", back_populates="onboarding")
 
 
 class DiscoverSearch(Base):

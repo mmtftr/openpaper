@@ -93,8 +93,5 @@ class CurrentUser(BaseModel):
     picture: Optional[str] = None
     is_email_verified: bool = False
 
-    # is_active describes if the user account is on the RESEARCHER or BASIC plan
-    is_active: bool = False
-
     class ConfigDict:
         from_attributes = True

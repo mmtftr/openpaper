@@ -151,65 +151,6 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
         # Combine and return
         return reading_papers + todo_papers
 
-    def get_size_of_knowledge_base(self, db: Session, *, user: CurrentUser) -> int:
-        """
-        Get the total size of the user's knowledge base in KB.
-        This includes all papers that have completed uploads.
-        """
-        from app.helpers.s3 import s3_service
-
-        # First, get papers with missing size_in_kb and update them
-        papers_without_size = (
-            db.query(Paper)
-            .outerjoin(PaperUploadJob, Paper.upload_job_id == PaperUploadJob.id)
-            .filter(
-                Paper.user_id == user.id,
-                (
-                    Paper.upload_job_id.is_(None)  # No upload job (direct uploads)
-                    | (
-                        PaperUploadJob.status == JobStatus.COMPLETED
-                    )  # Or job is completed
-                ),
-                Paper.size_in_kb.is_(None),  # Only papers without size_in_kb
-                Paper.s3_object_key.isnot(None),  # Must have S3 object key
-                Paper.supplementary_of_paper_id.is_(None),
-            )
-            .all()
-        )
-
-        # Update papers that don't have size_in_kb set
-        for paper in papers_without_size:
-            if paper.s3_object_key:
-                paper_size_in_kb = s3_service.get_file_size_in_kb(
-                    str(paper.s3_object_key)
-                )
-                if paper_size_in_kb:
-                    # Update the paper's size_in_kb field in the database
-                    update_paper = PaperUpdate(size_in_kb=paper_size_in_kb)
-                    self.update(db, db_obj=paper, obj_in=update_paper)
-
-        # Now get all completed papers and sum their sizes
-        papers_with_size = (
-            db.query(Paper.size_in_kb)
-            .outerjoin(PaperUploadJob, Paper.upload_job_id == PaperUploadJob.id)
-            .filter(
-                Paper.user_id == user.id,
-                (
-                    Paper.upload_job_id.is_(None)  # No upload job (direct uploads)
-                    | (
-                        PaperUploadJob.status == JobStatus.COMPLETED
-                    )  # Or job is completed
-                ),
-                Paper.size_in_kb.isnot(None),  # Only papers with size_in_kb
-                Paper.supplementary_of_paper_id.is_(None),
-            )
-            .all()
-        )
-
-        # Sum all the sizes efficiently
-        total_size = sum(size[0] for size in papers_with_size if size[0] is not None)
-        return total_size
-
     def get_by_upload_job_id(
         self, db: Session, *, upload_job_id: str, user: CurrentUser
     ) -> Optional[Paper]:
@@ -218,27 +159,6 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
             db.query(Paper)
             .filter(Paper.upload_job_id == upload_job_id, Paper.user_id == user.id)
             .first()
-        )
-
-    def get_total_paper_count(self, db: Session, *, user: CurrentUser) -> int:
-        """
-        Get the total number of papers uploaded by a user.
-        This includes all papers that have completed uploads.
-        """
-        return (
-            db.query(Paper)
-            .outerjoin(PaperUploadJob, Paper.upload_job_id == PaperUploadJob.id)
-            .filter(
-                Paper.user_id == user.id,
-                (
-                    Paper.upload_job_id.is_(None)  # No upload job (direct uploads)
-                    | (
-                        PaperUploadJob.status == JobStatus.COMPLETED
-                    )  # Or job is completed
-                ),
-                Paper.supplementary_of_paper_id.is_(None),
-            )
-            .count()
         )
 
     def get_multi_uploads_completed(

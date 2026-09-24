@@ -15,16 +15,10 @@ from app.auth.utils import (
 from app.database.crud.annotation_crud import annotation_crud
 from app.database.crud.highlight_crud import highlight_crud
 from app.database.crud.message_crud import message_crud
-from app.database.crud.subscription_crud import subscription_crud
 from app.database.crud.user_crud import user as user_crud
 from app.database.database import get_db
 from app.database.models import PaperStatus, User
 from app.database.telemetry import track_event
-from app.helpers.abuse_detection import check_signup_abuse, send_abuse_alert
-from app.helpers.email import (
-    add_to_default_audience,
-    send_onboarding_email,
-)
 from app.schemas.user import CurrentUser, UserUpdate
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel
@@ -92,7 +86,6 @@ async def update_profile(
     user_crud.update(db=db, db_obj=db_user, obj_in=UserUpdate(name=name))
     db.refresh(db_user)
 
-    is_user_active = subscription_crud.is_user_active(db, db_user)
     updated_current_user = CurrentUser(
         id=uuid.UUID(str(db_user.id)),
         email=str(db_user.email),
@@ -100,7 +93,6 @@ async def update_profile(
         is_admin=bool(db_user.is_admin),
         picture=str(db_user.picture) if db_user.picture else None,
         is_email_verified=bool(db_user.is_email_verified),
-        is_active=is_user_active,
     )
 
     return AuthResponse(
@@ -187,14 +179,6 @@ async def email_signin(
             db_user = user_crud.create_email_user(db, email=email)
             logger.info(f"Created new email user: {email}")
             newly_created = True
-
-            # Check for suspected signup abuse
-            try:
-                abuse_matches = check_signup_abuse(db, db_user)
-                if abuse_matches:
-                    send_abuse_alert(db_user, abuse_matches)
-            except Exception as e:
-                logger.error(f"Error during abuse check: {e}", exc_info=True)
 
         # Generate verification code
         code, expires_at = email_auth_client.generate_verification_data()
@@ -321,13 +305,6 @@ async def email_verify(
 
         # Create redirect URL
         redirect_url = f"{client_domain}/auth/callback?success=true"
-
-        if new_user:
-            redirect_url += "&welcome=true"
-            add_to_default_audience(email=email, name=None)
-            send_onboarding_email(
-                email=str(db_user.email), name=str(db_user.name) or None
-            )
 
         # Create JSON response with redirect info
         response_data = {

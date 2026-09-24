@@ -324,18 +324,6 @@ def test_a_long_line_in_a_small_file_marks_the_context_truncated():
     assert "[line truncated]" in code.body
 
 
-def test_quick_question_usage_is_never_fatal(monkeypatch):
-    """The usage write runs from the stream's `finally`; a DB outage there
-    must not turn a delivered answer into an error."""
-    from app.database.crud import chat_usage_crud
-
-    def _boom():
-        raise RuntimeError("db down")
-
-    monkeypatch.setattr("app.database.database.SessionLocal", _boom)
-    assert chat_usage_crud.record_chat_usage(user_id="u", kind="quick_question", chars=10) is False
-
-
 # =========================================================================
 # repo lookup tools
 # =========================================================================
@@ -506,14 +494,12 @@ def _parse_sse(encoded: List[str]) -> List[dict]:
 @pytest.fixture()
 def quick_question_run(ready_snapshot, monkeypatch):
     """Drive the real `run_quick_question` against a scripted model."""
-    from app.database.models import SubscriptionPlan
     from app.llm.model_registry import ModelSpec
     from app.llm.provider import LLMProvider
-    import app.helpers.subscription_limits as limits
 
     qq = ready_snapshot
     recorded = SimpleNamespace(
-        events=[], usage=[], user=SimpleNamespace(id=uuid.uuid4()), chunks=[]
+        events=[], user=SimpleNamespace(id=uuid.uuid4()), chunks=[]
     )
     spec = ModelSpec(
         id="scripted", provider=LLMProvider.OPENAI, display_name="Scripted"
@@ -531,17 +517,6 @@ def quick_question_run(ready_snapshot, monkeypatch):
         qq,
         "track_event",
         lambda name, **kwargs: recorded.events.append((name, kwargs)),
-    )
-    monkeypatch.setattr(
-        qq,
-        "record_chat_usage",
-        lambda **kwargs: recorded.usage.append(kwargs) is None,
-    )
-    monkeypatch.setattr(limits, "can_user_chat", lambda db, user: (True, None))
-    monkeypatch.setattr(
-        limits,
-        "get_user_subscription_plan",
-        lambda db, user: SubscriptionPlan.BASIC,
     )
 
     def run(model, *, question="What does this do?"):
@@ -614,8 +589,6 @@ def test_a_tool_call_round_trips_through_the_stream(quick_question_run):
     assert event == "quick_question_asked"
     assert properties["tool_calls"] == 1
     assert properties["delivered"] is True
-    # Quota is still charged: question + answer characters.
-    assert recorded.usage and recorded.usage[0]["kind"] == "quick_question"
 
 
 def test_an_over_eager_model_still_gets_an_answer_out(quick_question_run):
