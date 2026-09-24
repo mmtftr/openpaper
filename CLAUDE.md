@@ -35,6 +35,12 @@ creation, so it silently keeps the old values:
 docker compose up -d --force-recreate server
 ```
 
+The server image installs exactly what `server/uv.lock` pins (`uv export
+--frozen` in `server/Dockerfile`), not a fresh resolve of `pyproject.toml`.
+Resolution is capped by `[tool.uv] exclude-newer` in `server/pyproject.toml`
+(a release-age cooldown) — a dependency bump needs that date moved forward
+and `uv lock` re-run, and never a date younger than about a week.
+
 ## Azure OpenAI model deployments
 
 `OPENAI_MODELS` (`server/.env`) lists the Azure-backed models shown in the
@@ -82,7 +88,7 @@ together.
 
 It is currently the default (`DEFAULT_LLM_PROVIDER=codex_proxy`) because
 **`gpt-6-astra` is not deployed on the Azure resource** but the proxy serves
-it. Two non-obvious facts about that proxy:
+it. Non-obvious facts about that proxy:
 
 - `gpt-6-astra` does **not** appear in its `GET /v1/models` list yet works
   (streaming, tools, image input, `reasoning_effort` all verified live) — so
@@ -91,6 +97,14 @@ it. Two non-obvious facts about that proxy:
   output still works only because pydantic-ai defaults to tool-output
   (`final_result` tool); don't move any caller to native JSON-schema output
   while this provider is the default.
+- It **never sends token usage on streaming responses** (it keeps usage from
+  `response.completed` but only adds it to non-streaming bodies, even with
+  `stream_options.include_usage`), so streamed chats on this provider record
+  0 tokens. Non-streaming calls report usage. The fix belongs in the proxy
+  (`~/.local/bin/codex-raycast-proxy`), not the server.
+- It rejects `gpt-5.4-mini`, so `ModelType.FAST` work that must succeed
+  (e.g. the outline cleanup in `app/llm/paper_outline.py`) routes to the
+  Azure/OpenAI provider explicitly.
 
 `DEFAULT_LLM_PROVIDER` is read by both the chat `ModelRegistry` and
 `BaseLLMClient`, so it also routes non-chat work (summaries, titles, data

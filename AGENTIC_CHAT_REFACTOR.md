@@ -29,8 +29,9 @@ refactor lands.
   turn in `messages.bucket.pai_messages` (existing format, unchanged — figure
   bytes stripped/rehydrated as today).
 - **Wire format = Vercel AI SDK v6 UIMessage / UIMessage stream**, produced by
-  `pydantic_ai.ui.vercel_ai.VercelAIAdapter` (pydantic-ai 1.89.1, already
-  pinned). No hand-assembled SSE.
+  `pydantic_ai.ui.vercel_ai.VercelAIAdapter` (designed on pydantic-ai 1.89.1;
+  upgraded to 2.44.0 on 2026-09-24 with the wire format unchanged). No
+  hand-assembled SSE.
   - Live turn: `adapter.run_stream(...)` → text/reasoning/tool-input/tool-output
     chunks, encoded SSE, header `x-vercel-ai-ui-message-stream: v1`.
   - History: assistant rows' `pai_messages` →
