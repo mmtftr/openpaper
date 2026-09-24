@@ -25,8 +25,9 @@ import {
     SidebarMenuButton,
     SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { useEffect, useState } from "react";
-import { fetchFromApi } from "@/lib/api";
+import { useMemo } from "react";
+import useSWR from "swr";
+import { api, unwrap } from "@/lib/api/client";
 import { useRouter } from "next/navigation";
 import { useAuth, User } from "@/lib/auth";
 import { Avatar } from "@/components/ui/avatar";
@@ -44,7 +45,6 @@ import {
 } from "@/components/ui/sheet";
 import { useTheme } from "next-themes";
 import Link from "next/link";
-import { Conversation, PaperItem, Project } from "@/lib/schema";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { CollapsibleSidebarMenu } from "./CollapsibleSidebarMenu";
 
@@ -131,44 +131,32 @@ const UserMenuContent = ({
 export function AppSidebar() {
     const router = useRouter();
     const { user, logout } = useAuth();
-    const [allPapers, setAllPapers] = useState<PaperItem[]>([]);
-    const [projects, setProjects] = useState<Project[]>([]);
     const { resolvedTheme, setTheme } = useTheme();
     const darkMode = resolvedTheme === "dark";
     const toggleDarkMode = () => setTheme(darkMode ? "light" : "dark");
     const isMobile = useIsMobile();
 
-    useEffect(() => {
-        if (!user) {
-            setAllPapers([]);
-            return;
-        }
-
-        const fetchData = async () => {
-            try {
-                const [papersResponse, projectsResponse] = await Promise.all([
-                    fetchFromApi("/api/paper/active"),
-                    fetchFromApi("/api/projects"),
-                ]);
-
-                if (papersResponse.papers) {
-                    const sortedPapers = papersResponse.papers.sort((a: PaperItem, b: PaperItem) => {
-                        return new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime();
-                    });
-                    setAllPapers(sortedPapers);
-                } else {
-                    setAllPapers([]);
-                }
-                setProjects(projectsResponse || []);
-            } catch (error) {
-                console.error("Error fetching sidebar data:", error);
-                setAllPapers([]);
-                setProjects([]);
-            }
-        };
-
-        fetchData();
-    }, [user]);
+    const onFetchError = (error: unknown) => console.error("Error fetching sidebar data:", error);
+    const { data: activePapers } = useSWR(
+        user ? ["/api/paper/active"] : null,
+        () => unwrap(api.GET("/api/paper/active")),
+        { onError: onFetchError },
+    );
+    const { data: projectsData } = useSWR(
+        user ? ["/api/projects"] : null,
+        () => unwrap(api.GET("/api/projects")),
+        { onError: onFetchError },
+    );
+    const allPapers = useMemo(
+        () =>
+            user && activePapers
+                ? [...activePapers.papers].sort(
+                    (a, b) => new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime(),
+                )
+                : [],
+        [user, activePapers],
+    );
+    const projects = user && projectsData ? projectsData : [];
 
 
     const handleLogout = async () => {

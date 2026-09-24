@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Project } from "@/lib/schema";
+import { api, unwrap, type Schemas } from "@/lib/api/client";
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -17,13 +17,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { fetchFromApi } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 
 
 export function ProjectCard({ project, onProjectUpdate, onUnlink, compact = false }: {
-	project: Project;
+	project: Schemas["ProjectResponse"];
 	onProjectUpdate?: () => void;
 	onUnlink?: () => void;
 	compact?: boolean;
@@ -31,15 +30,15 @@ export function ProjectCard({ project, onProjectUpdate, onUnlink, compact = fals
 	const [showDeleteAlert, setShowDeleteAlert] = useState(false);
 	const [showEditAlert, setShowEditAlert] = useState(false);
 	const [showUnlinkAlert, setShowUnlinkAlert] = useState(false);
-	const [currentTitle, setCurrentTitle] = useState(project.title);
+	const [currentTitle, setCurrentTitle] = useState(project.title ?? '');
 	const [currentDescription, setCurrentDescription] = useState(project.description || '');
 	const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
 	const deleteProject = async () => {
 		try {
-			const response = await fetchFromApi(`/api/projects/${project.id}`, {
-				method: 'DELETE',
-			});
+			const response = await unwrap(api.DELETE("/api/projects/{project_id}", {
+				params: { path: { project_id: project.id } },
+			}));
 			if (response) {
 				setShowDeleteAlert(false);
 				onProjectUpdate?.();
@@ -54,16 +53,13 @@ export function ProjectCard({ project, onProjectUpdate, onUnlink, compact = fals
 
 	const handleUpdateProject = async () => {
 		try {
-			const response = await fetchFromApi(`/api/projects/${project.id}`, {
-				method: 'PATCH',
-				headers: {
-					'Content-Type': 'application/json',
-				},
-				body: JSON.stringify({
+			const response = await unwrap(api.PATCH("/api/projects/{project_id}", {
+				params: { path: { project_id: project.id } },
+				body: {
 					title: currentTitle,
 					description: currentDescription,
-				}),
-			});
+				},
+			}));
 			if (response) {
 				setShowEditAlert(false);
 				onProjectUpdate?.();
@@ -77,7 +73,7 @@ export function ProjectCard({ project, onProjectUpdate, onUnlink, compact = fals
 	};
 
 	const handleEditClick = () => {
-		setCurrentTitle(project.title);
+		setCurrentTitle(project.title ?? '');
 		setCurrentDescription(project.description || '');
 		setShowEditAlert(true);
 		setIsDropdownOpen(false);
@@ -252,7 +248,7 @@ export function ProjectCard({ project, onProjectUpdate, onUnlink, compact = fals
 			<AlertDialog open={showEditAlert} onOpenChange={(isOpen) => {
 				setShowEditAlert(isOpen);
 				if (!isOpen) {
-					setCurrentTitle(project.title);
+					setCurrentTitle(project.title ?? '');
 					setCurrentDescription(project.description || '');
 				}
 			}}>

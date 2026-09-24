@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
+import useSWR from "swr";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { fetchFromApi } from "@/lib/api";
-import { PaperTag } from "@/lib/schema";
+import { api, unwrap } from "@/lib/api/client";
 import { toast } from "sonner";
 import { PlusCircle } from "lucide-react";
 
@@ -16,23 +16,19 @@ interface TagSelectorProps {
 }
 
 export function TagSelector({ paperIds, onTagsApplied }: TagSelectorProps) {
-    const [tags, setTags] = useState<PaperTag[]>([]);
+    const { data: tags = [], mutate: mutateTags } = useSWR(
+        ["/api/paper/tag/"],
+        () => unwrap(api.GET("/api/paper/tag/")),
+        {
+            onError: (error) => {
+                console.error("Failed to fetch tags", error);
+                toast.error("Failed to load tags.");
+            },
+        },
+    );
     const [searchTerm, setSearchTerm] = useState("");
     const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
     const [newTagName, setNewTagName] = useState("");
-
-    useEffect(() => {
-        const getTags = async () => {
-            try {
-                const allTags = await fetchFromApi("/api/paper/tag/");
-                setTags(allTags);
-            } catch (error) {
-                console.error("Failed to fetch tags", error);
-                toast.error("Failed to load tags.");
-            }
-        };
-        getTags();
-    }, []);
 
     const filteredTags = useMemo(() => {
         return tags.filter((tag) =>
@@ -53,11 +49,10 @@ export function TagSelector({ paperIds, onTagsApplied }: TagSelectorProps) {
     const handleCreateTag = async () => {
         if (!newTagName.trim()) return;
         try {
-            const newTag = await fetchFromApi("/api/paper/tag/", {
-                method: "POST",
-                body: JSON.stringify({ name: newTagName }),
-            });
-            setTags([...tags, newTag]);
+            const newTag = await unwrap(api.POST("/api/paper/tag/", {
+                body: { name: newTagName },
+            }));
+            mutateTags((current) => [...(current ?? []), newTag], { revalidate: false });
             setNewTagName("");
             toast.success(`Tag "${newTag.name}" created.`);
         } catch (error) {
@@ -68,13 +63,12 @@ export function TagSelector({ paperIds, onTagsApplied }: TagSelectorProps) {
 
     const handleApplyTags = async () => {
         try {
-            await fetchFromApi("/api/paper/tag/bulk", {
-                method: "POST",
-                body: JSON.stringify({
+            await unwrap(api.POST("/api/paper/tag/bulk", {
+                body: {
                     paper_ids: paperIds,
                     tag_ids: Array.from(selectedTags),
-                }),
-            });
+                },
+            }));
             onTagsApplied();
         } catch (error) {
             console.error("Failed to apply tags", error);

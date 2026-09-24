@@ -12,15 +12,27 @@ import {
 } from "@/components/ui/select";
 import { citationStyles, copyToClipboard, PaperBase } from '@/components/utils/paperUtils';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { fetchFromApi } from '@/lib/api';
-import { PaperData, PaperItem } from '@/lib/schema';
+import { api, unwrap } from '@/lib/api/client';
 import { Check, Copy, Loader, Quote } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import useSWR from 'swr';
 import { toast } from 'sonner';
 
+/** The citation fields of any paper shape the API returns (detail, library, project list). */
+interface CitablePaper {
+    id?: string;
+    title?: string | null;
+    authors?: string[] | null;
+    publish_date?: string | null;
+    created_at?: string | null;
+    journal?: string | null;
+    publisher?: string | null;
+    doi?: string | null;
+}
+
 interface CitePaperButtonProps {
-    paper?: (PaperData | PaperItem)[];
+    paper?: CitablePaper[];
     paperId?: string;
     minimalist?: boolean;
     variant?: "ghost" | "outline";
@@ -30,7 +42,6 @@ interface CitePaperButtonProps {
 export function CitePaperButton({ paper, paperId: providedPaperId, minimalist = false, variant = "ghost", iconOnly = false }: CitePaperButtonProps) {
     const pathname = usePathname();
     const [derivedPaperId, setDerivedPaperId] = useState<string | null>(null);
-    const [paperData, setPaperData] = useState<(PaperData | PaperItem)[] | null>(paper || null);
     const [isOpen, setIsOpen] = useState(false);
     const [selectedStyle, setSelectedStyle] = useState<string>(() => {
         if (typeof window !== 'undefined') {
@@ -44,11 +55,21 @@ export function CitePaperButton({ paper, paperId: providedPaperId, minimalist = 
     const [copied, setCopied] = useState(false);
     const isMobile = useIsMobile();
 
-    // Check if we're in bibliography mode (more than one paper)
-    const isBibliography = paperData && paperData.length > 1;
-
     // Determine the paper ID to use (only for single paper mode)
     const effectivePaperId = providedPaperId || derivedPaperId;
+
+    // Without paper data from props, fetch the paper once the dialog opens.
+    const fetchPaperId = !(paper && paper.length > 0) && isOpen ? effectivePaperId : null;
+    const { data: fetchedPaper } = useSWR(
+        fetchPaperId ? ["/api/paper", fetchPaperId] : null,
+        ([, id]) => unwrap(api.GET("/api/paper", { params: { query: { id } } })),
+        { keepPreviousData: true, onError: () => toast.error("Failed to fetch paper details.") },
+    );
+    const paperData: CitablePaper[] | null =
+        paper && paper.length > 0 ? paper : fetchedPaper ? [fetchedPaper] : paper ?? null;
+
+    // Check if we're in bibliography mode (more than one paper)
+    const isBibliography = paperData && paperData.length > 1;
 
     // Save selected style to localStorage whenever it changes
     useEffect(() => {
@@ -58,11 +79,8 @@ export function CitePaperButton({ paper, paperId: providedPaperId, minimalist = 
     }, [selectedStyle]);
 
     useEffect(() => {
-        // If paper prop is provided, use it directly
-        if (paper) {
-            setPaperData(paper);
-            return;
-        }
+        // Paper data from props is used directly
+        if (paper) return;
 
         // Otherwise, try to derive paper ID from pathname (single paper mode only)
         if (pathname && !providedPaperId) {
@@ -74,25 +92,6 @@ export function CitePaperButton({ paper, paperId: providedPaperId, minimalist = 
             }
         }
     }, [pathname, paper, providedPaperId]);
-
-    useEffect(() => {
-        // Skip fetch if we already have paper data from props
-        if (paper && paper.length > 0) return;
-
-        if (!effectivePaperId || !isOpen) return;
-
-        const fetchPaperData = async () => {
-            try {
-                const data = await fetchFromApi(`/api/paper?id=${effectivePaperId}`);
-                // Wrap single paper in array
-                setPaperData([data]);
-            } catch {
-                toast.error("Failed to fetch paper details.");
-            }
-        };
-
-        fetchPaperData();
-    }, [effectivePaperId, isOpen, paper]);
 
     if (!effectivePaperId && !paper) {
         return null;
@@ -137,18 +136,15 @@ export function CitePaperButton({ paper, paperId: providedPaperId, minimalist = 
                         const selectedStyleObj = citationStyles.find(s => s.name === selectedStyle);
                         if (!selectedStyleObj || !paperData) return null;
 
-                        const paperAsPaperBase = (p: PaperData | PaperItem, id?: string): PaperBase => {
-                            const combined = p as Partial<PaperData> & Partial<PaperItem>;
-                            return {
-                                id: id || combined.id || '',
-                                title: combined.title || '',
-                                authors: combined.authors || [],
-                                created_at: combined.publish_date || combined.created_at,
-                                journal: combined.journal,
-                                publisher: combined.publisher,
-                                doi: combined.doi,
-                            };
-                        };
+                        const paperAsPaperBase = (p: CitablePaper, id?: string): PaperBase => ({
+                            id: id || p.id || '',
+                            title: p.title || '',
+                            authors: p.authors || [],
+                            created_at: p.publish_date || p.created_at || undefined,
+                            journal: p.journal ?? undefined,
+                            publisher: p.publisher ?? undefined,
+                            doi: p.doi ?? undefined,
+                        });
 
                         // Generate citation(s) - special handling for single paper (length === 1)
                         let citation: string;

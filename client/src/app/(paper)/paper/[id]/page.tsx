@@ -2,9 +2,10 @@
 
 import { PdfReader, RenderedHighlightPosition, type HighlightJumpRequest, type TextSearchRequest } from '@/components/reader';
 import { Button } from '@/components/ui/button';
-import { fetchFromApi } from '@/lib/api';
+import { api, unwrap, type Schemas } from '@/lib/api/client';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import useSWR from 'swr';
 
 
 import {
@@ -17,12 +18,10 @@ import { toast } from "sonner";
 import { useAnnotations } from '@/hooks/PdfAnnotation';
 import { useHighlighterHighlights } from '@/hooks/PdfHighlighterHighlights';
 
-import {
-    PaperData,
-    PaperHighlight,
-    PaperUploadJobStatusResponse,
-    SupplementaryMaterialSummary,
-} from '@/lib/schema';
+// PaperData / SupplementaryMaterialSummary: the reader/chat components' prop
+// types. TODO(B1 merge): drop the casts below once lib/schema aliases them to
+// the generated PaperDetail / SupplementaryMaterialItem.
+import { PaperData, PaperHighlight, SupplementaryMaterialSummary } from '@/lib/schema';
 
 import { PaperSidebar } from '@/components/PaperSidebar';
 import { useAuth } from '@/lib/auth';
@@ -54,6 +53,11 @@ const DocTool = {
     icon: FileText,
 }
 
+type PaperDetail = Schemas["PaperDetail"];
+
+const getPaper = (paperId: string) =>
+    unwrap(api.GET("/api/paper", { params: { query: { id: paperId } } }));
+
 const PaperToolset = {
     nav: [
         ChatTool,
@@ -71,7 +75,7 @@ export default function PaperView() {
     // `paperData` always refers to the *parent* paper. When the route id is a
     // supplementary, an effect below resolves the parent and re-fetches into
     // this slot. The chat / doc panels bind to this.
-    const [paperData, setPaperData] = useState<PaperData | null>(null);
+    const [paperData, setPaperData] = useState<PaperDetail | null>(null);
     const [loading, setLoading] = useState(true);
     // The id of the parent paper (= route id for normal papers; = paperData.supplementary_of_paper_id
     // when the user landed directly on a supplementary's URL).
@@ -85,8 +89,7 @@ export default function PaperView() {
     });
     // PaperData for the currently displayed PDF. When displayedPaperId === parentPaperId,
     // we just reuse `paperData`. Otherwise we fetch the supplementary's PaperData here.
-    const [displayedPaperData, setDisplayedPaperData] = useState<PaperData | null>(null);
-    const [supplementaryMaterials, setSupplementaryMaterials] = useState<SupplementaryMaterialSummary[] | null>(null);
+    const [displayedPaperData, setDisplayedPaperData] = useState<PaperDetail | null>(null);
 
     // Highlights and annotations belong to the PDF being shown, not the parent:
     // a supplementary's highlights render on (and new ones attach to) the
@@ -281,8 +284,10 @@ export default function PaperView() {
 
     const pollJobStatus = async (jobId: string) => {
         try {
-            const response: PaperUploadJobStatusResponse = await fetchFromApi(`/api/paper/upload/status/${jobId}`);
-            setLoadingMessage(response.celery_progress_message);
+            const response = await unwrap(api.GET("/api/paper/upload/status/{job_id}", {
+                params: { path: { job_id: jobId } },
+            }));
+            setLoadingMessage(response.celery_progress_message ?? null);
 
             if (response.status === 'completed') {
                 setJobId(null);
@@ -449,7 +454,7 @@ export default function PaperView() {
 
         async function fetchPaper() {
             try {
-                const response: PaperData = await fetchFromApi(`/api/paper?id=${id}`);
+                const response = await getPaper(id);
                 if (response.supplementary_of_paper_id) {
                     // The route id is a supplementary. Rewrite the URL so the user
                     // sees /paper/<parent>?display=<supp> and re-fetch the parent's
@@ -475,7 +480,7 @@ export default function PaperView() {
                     setDisplayedPaperData(response);
                     displayedPaperDataIdRef.current = id;
                     try {
-                        const parentResponse: PaperData = await fetchFromApi(`/api/paper?id=${newParentId}`);
+                        const parentResponse = await getPaper(newParentId);
                         setPaperData(parentResponse);
                     } catch (parentErr) {
                         console.error('Error fetching parent paper:', parentErr);
@@ -519,7 +524,7 @@ export default function PaperView() {
         let cancelled = false;
         async function fetchDisplayed() {
             try {
-                const response: PaperData = await fetchFromApi(`/api/paper?id=${displayedPaperId}`);
+                const response = await getPaper(displayedPaperId);
                 if (!cancelled) {
                     setDisplayedPaperData(response);
                     displayedPaperDataIdRef.current = displayedPaperId;
@@ -534,21 +539,15 @@ export default function PaperView() {
         };
     }, [displayedPaperId, parentPaperId]);
 
-    // Fetch the supplementary list whenever the parent id is known.
+    // The supplementary list, whenever the parent id is known.
+    const { data: supplementaryMaterials, mutate: mutateSupplementaryMaterials } = useSWR(
+        parentPaperId ? ["/api/paper/{paper_id}/supplementary", parentPaperId] : null,
+        ([, paperId]) => unwrap(api.GET("/api/paper/{paper_id}/supplementary", { params: { path: { paper_id: paperId } } })),
+        { onError: (err) => console.error('Error fetching supplementary materials:', err) },
+    );
     const refetchSupplementaryMaterials = useCallback(async () => {
-        if (!parentPaperId) return;
-        try {
-            const response = await fetchFromApi(`/api/paper/${parentPaperId}/supplementary`);
-            setSupplementaryMaterials(Array.isArray(response) ? response : []);
-        } catch (err) {
-            console.error('Error fetching supplementary materials:', err);
-        }
-    }, [parentPaperId]);
-
-    useEffect(() => {
-        if (!parentPaperId) return;
-        refetchSupplementaryMaterials();
-    }, [parentPaperId, refetchSupplementaryMaterials]);
+        await mutateSupplementaryMaterials();
+    }, [mutateSupplementaryMaterials]);
 
     // Keep the `display` query param in sync as the user flips between PDFs.
     // history.replaceState (not router.replace) for the same reason described
@@ -587,7 +586,7 @@ export default function PaperView() {
     const refreshPdfUrl = useCallback(async (): Promise<string | null> => {
         if (!displayedPaperId) return null;
         try {
-            const response: PaperData = await fetchFromApi(`/api/paper?id=${displayedPaperId}`);
+            const response = await getPaper(displayedPaperId);
             if (response.file_url) {
                 if (displayedPaperId === parentPaperId) {
                     setPaperData(response);
@@ -666,7 +665,7 @@ export default function PaperView() {
         rightSideFunction,
         // Chat / doc are bound to the parent even when a supplementary PDF
         // is shown; the annotations list follows the displayed PDF.
-        paperData,
+        paperData: paperData as unknown as PaperData,
         annotations,
         highlights,
         handleHighlightClick,
@@ -715,7 +714,7 @@ export default function PaperView() {
                                     parentPaperId={parentPaperId}
                                     displayedPaperId={displayedPaperId}
                                     parentPaperTitle={paperData?.title ?? undefined}
-                                    supplementaryMaterials={supplementaryMaterials ?? []}
+                                    supplementaryMaterials={(supplementaryMaterials ?? []) as SupplementaryMaterialSummary[]}
                                     onChangeDisplayed={setDisplayedPaperId}
                                     onSupplementaryUploaded={refetchSupplementaryMaterials}
                                 />
@@ -723,7 +722,6 @@ export default function PaperView() {
                         </div>
                     ) : mobileView === 'markdown' ? (
                         <PaperMarkdownReader
-                            endpoint={`/api/paper/markdown?id=${encodeURIComponent(displayedPaperId)}`}
                             paperId={displayedPaperId}
                             title={effectiveDisplayedPaperData?.title ?? paperData.title}
                             parentPaperId={parentPaperId}
@@ -822,7 +820,7 @@ export default function PaperView() {
                                 parentPaperId={parentPaperId}
                                 displayedPaperId={displayedPaperId}
                                 parentPaperTitle={paperData?.title ?? undefined}
-                                supplementaryMaterials={supplementaryMaterials ?? []}
+                                supplementaryMaterials={(supplementaryMaterials ?? []) as SupplementaryMaterialSummary[]}
                                 onChangeDisplayed={setDisplayedPaperId}
                                 onSupplementaryUploaded={refetchSupplementaryMaterials}
                             />

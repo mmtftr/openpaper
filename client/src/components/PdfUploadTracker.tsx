@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { fetchFromApi } from "@/lib/api";
-import { PaperUploadJobStatusResponse, JobStatusType, MinimalJob } from "@/lib/schema";
+import { api, unwrap, type Schemas } from "@/lib/api/client";
+import { MinimalJob } from "@/lib/schema";
 import { CheckCircle2, ChevronDown, XCircle, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
+type JobStatusType = Schemas["JobStatus"];
+
 interface Job extends MinimalJob {
 	status: JobStatusType;
-	details?: PaperUploadJobStatusResponse;
+	details?: Schemas["UploadJobStatusResponse"];
 	paperId?: string;
 }
 
@@ -73,7 +75,9 @@ const PdfUploadTracker: React.FC<PdfUploadTrackerProps> = ({ initialJobs, onComp
 				if (job.status === 'pending' || job.status === 'running') {
 					hasPendingJobs = true;
 					try {
-						const statusResponse: PaperUploadJobStatusResponse = await fetchFromApi(`/api/paper/upload/status/${job.jobId}`);
+						const statusResponse = await unwrap(api.GET("/api/paper/upload/status/{job_id}", {
+							params: { path: { job_id: job.jobId } },
+						}));
 						setJobs(prevJobs => prevJobs.map(j => j.jobId === job.jobId ? {
 							...j,
 							status: statusResponse.status,

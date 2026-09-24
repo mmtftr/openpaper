@@ -1,21 +1,9 @@
 "use client"
 
 import { ExternalLink } from "lucide-react"
+import type { Schemas } from "@/lib/api/client"
 
-export interface DiscoverResult {
-    title: string
-    url: string
-    authors?: string[]
-    published_date?: string | null
-    text?: string | null
-    highlights?: string[]
-    highlight_scores?: number[]
-    favicon?: string | null
-    summary?: string | null
-    cited_by_count?: number | null
-    source?: string | null
-    institutions?: string[]
-}
+export type DiscoverResult = Schemas["DiscoverResult"]
 
 interface DiscoverResultCardProps {
     result: DiscoverResult
@@ -40,14 +28,14 @@ function sanitizeSnippet(text: string): string {
     return cleaned
 }
 
-function formatAuthors(authors?: string[]): string | null {
+function formatAuthors(authors?: string[] | null): string | null {
     if (!authors || authors.length === 0) return null
     if (authors.length === 1) return authors[0]
     if (authors.length === 2) return `${authors[0]} and ${authors[1]}`
     return `${authors[0]} et al.`
 }
 
-function formatInstitutions(institutions?: string[]): string | null {
+function formatInstitutions(institutions?: string[] | null): string | null {
     if (!institutions || institutions.length === 0) return null
     if (institutions.length === 1) return institutions[0]
     if (institutions.length === 2) return `${institutions[0]}, ${institutions[1]}`
@@ -73,7 +61,7 @@ export default function DiscoverResultCard({ result }: DiscoverResultCardProps) 
         <div className="py-4 border-b border-slate-200 dark:border-slate-800 last:border-b-0 group">
             <div className="space-y-1.5">
                 <a
-                    href={result.url}
+                    href={result.url ?? undefined}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="font-medium text-sm hover:underline flex items-start gap-1.5"

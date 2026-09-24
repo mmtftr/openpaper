@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { fetchFromApi } from "@/lib/api";
+import useSWR from "swr";
+import { api, unwrap } from "@/lib/api/client";
 import {
 	Dialog,
 	DialogContent,
@@ -13,7 +14,6 @@ import {
 import { MessageCircleWarning } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import EnigmaticLoadingExperience from "@/components/EnigmaticLoadingExperience";
-import { PaperItem, PaperUploadJobStatusResponse, Project } from "@/lib/schema";
 import { uploadFiles, uploadFromUrlWithFallback } from "@/lib/uploadUtils";
 
 // New components for redesigned home
@@ -28,14 +28,34 @@ const DEFAULT_PAPER_UPLOAD_ERROR_MESSAGE = "We encountered an error processing y
 export default function Home() {
 	const [isUploading, setIsUploading] = useState(false);
 
-	const [relevantPapers, setRelevantPapers] = useState<PaperItem[]>([]);
-	const [projects, setProjects] = useState<Project[]>([]);
-	const [isLoadingData, setIsLoadingData] = useState(true);
 	const [showErrorAlert, setShowErrorAlert] = useState(false);
 	const [errorAlertMessage, setErrorAlertMessage] = useState(DEFAULT_PAPER_UPLOAD_ERROR_MESSAGE);
 
 	const { user, loading: authLoading } = useAuth();
 	const router = useRouter();
+
+	// Relevant papers and projects, once signed in
+	const {
+		data: papersResponse,
+		isLoading: isLoadingPapers,
+		mutate: mutatePapers,
+	} = useSWR(
+		user ? ["/api/paper/relevant"] : null,
+		() => unwrap(api.GET("/api/paper/relevant")),
+		{ onError: (error) => console.error("Error fetching data:", error) },
+	);
+	const {
+		data: projectsResponse,
+		isLoading: isLoadingProjects,
+		mutate: mutateProjects,
+	} = useSWR(
+		user ? ["/api/projects", { detailed: true }] : null,
+		() => unwrap(api.GET("/api/projects", { params: { query: { detailed: true } } })),
+		{ onError: (error) => console.error("Error fetching data:", error) },
+	);
+	const relevantPapers = papersResponse?.papers ?? [];
+	const projects = projectsResponse ?? [];
+	const isLoadingData = isLoadingPapers || isLoadingProjects;
 	const [isDragging, setIsDragging] = useState(false);
 
 	const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
@@ -156,7 +176,9 @@ export default function Home() {
 	// Poll job status
 	const pollJobStatus = async (jobId: string) => {
 		try {
-			const response: PaperUploadJobStatusResponse = await fetchFromApi(`/api/paper/upload/status/${jobId}`);
+			const response = await unwrap(api.GET("/api/paper/upload/status/{job_id}", {
+				params: { path: { job_id: jobId } },
+			}));
 
 			if (response.celery_progress_message) {
 				setCeleryMessage(response.celery_progress_message);
@@ -182,46 +204,9 @@ export default function Home() {
 		}
 	};
 
-	// Fetch papers and projects
-	useEffect(() => {
-		if (!user) {
-			setIsLoadingData(false);
-			return;
-		}
-
-		const fetchData = async () => {
-			setIsLoadingData(true);
-			try {
-				const [papersResponse, projectsResponse] = await Promise.all([
-					fetchFromApi("/api/paper/relevant"),
-					fetchFromApi("/api/projects?detailed=true")
-				]);
-				setRelevantPapers(papersResponse?.papers || []);
-				setProjects(projectsResponse || []);
-			} catch (error) {
-				console.error("Error fetching data:", error);
-				setRelevantPapers([]);
-				setProjects([]);
-			} finally {
-				setIsLoadingData(false);
-			}
-		};
-
-		fetchData();
-	}, [user]);
-
 	const refreshData = async () => {
 		if (!user) return;
-		try {
-			const [papersResponse, projectsResponse] = await Promise.all([
-				fetchFromApi("/api/paper/relevant"),
-				fetchFromApi("/api/projects?detailed=true")
-			]);
-			setRelevantPapers(papersResponse?.papers || []);
-			setProjects(projectsResponse || []);
-		} catch (error) {
-			console.error("Error refreshing data:", error);
-		}
+		await Promise.all([mutatePapers(), mutateProjects()]);
 	};
 
 	// Handle file upload with custom loading experience

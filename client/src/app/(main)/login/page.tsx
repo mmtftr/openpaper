@@ -9,7 +9,7 @@ import { AlertCircle, ArrowLeft, Loader2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
-import { fetchFromApi } from "@/lib/api";
+import { api, unwrap } from "@/lib/api/client";
 import { Badge } from "@/components/ui/badge";
 
 function LoginContent() {
@@ -78,10 +78,9 @@ function LoginContent() {
 		setIsEmailLoading(true);
 		setEmailError(null);
 		try {
-			const data = await fetchFromApi('/api/auth/email/signin', {
-				method: 'POST',
-				body: JSON.stringify({ email }),
-			});
+			const data = await unwrap(api.POST('/api/auth/email/signin', {
+				body: { email },
+			}));
 			if (data.success) {
 				setError(null);
 				if (data.newly_created || data.needs_name) {
@@ -113,10 +112,9 @@ function LoginContent() {
 		setEmailError(null);
 		try {
 			const name = `${firstName} ${lastName}`;
-			const data = await fetchFromApi('/api/auth/email/fullname', {
-				method: 'POST',
-				body: JSON.stringify({ email, name }),
-			});
+			const data = await unwrap(api.POST('/api/auth/email/fullname', {
+				body: { email, name },
+			}));
 			if (data.success) {
 				setShowNameInput(false);
 				setShowOtp(true);
@@ -138,10 +136,9 @@ function LoginContent() {
 		setIsEmailLoading(true);
 		setEmailError(null);
 		try {
-			const data = await fetchFromApi('/api/auth/email/verify', {
-				method: 'POST',
-				body: JSON.stringify({ email, code }),
-			});
+			const data = await unwrap(api.POST('/api/auth/email/verify', {
+				body: { email, code },
+			}));
 
 			if (!data.success) {
 				setEmailError(data.message || 'Failed to verify code.');

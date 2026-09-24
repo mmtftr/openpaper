@@ -1,6 +1,7 @@
 "use client";
 
-import { PaperData, PaperItem } from "@/lib/schema";
+import { api, unwrap, type Schemas } from "@/lib/api/client";
+import type { LibraryPaper } from "./LibraryTable";
 import { Button } from "./ui/button";
 import { X, ExternalLink, Highlighter, Plus, FileText, Download, Pencil } from "lucide-react";
 import Link from "next/link";
@@ -10,9 +11,9 @@ import { getStatusIcon, PaperStatusEnum } from "@/components/utils/PdfStatus";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { PaperProjects } from "./PaperProjects";
 import { TagSelector } from "./TagSelector";
-import { fetchFromApi } from "@/lib/api";
 import { useHighlighterHighlights } from "@/hooks/PdfHighlighterHighlights";
 import { useEffect, useState, useRef, useCallback } from "react";
+import useSWR from "swr";
 import { CitePaperButton } from "./CitePaperButton";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
@@ -23,9 +24,9 @@ function autoResize(el: HTMLTextAreaElement) {
 }
 
 interface PaperPreviewProps {
-    paper: PaperItem;
+    paper: LibraryPaper;
     onClose: () => void;
-    setPaper: (paperId: string, updatedPaper: PaperItem) => void;
+    setPaper: (paperId: string, updatedPaper: LibraryPaper) => void;
 }
 
 function EditableField({
@@ -201,31 +202,33 @@ function EditableListField({
 export function PaperPreview({ paper, onClose, setPaper }: PaperPreviewProps) {
     const { highlights } = useHighlighterHighlights(paper.id);
     const [showAllHighlights, setShowAllHighlights] = useState(false);
-    const [loadedPaper, setLoadedPaper] = useState<PaperData | null>(null);
     const [previewLoaded, setPreviewLoaded] = useState(false);
 
+    // The full paper record (DOI, journal, publisher, file URL, ...).
+    const { data: loadedPaper, mutate: mutateLoadedPaper } = useSWR(
+        ["/api/paper", paper.id],
+        () => unwrap(api.GET("/api/paper", { params: { query: { id: paper.id } } })),
+        { onError: (error) => console.error("Failed to load paper data", error) },
+    );
+
     useEffect(() => {
-        // Fetch the full paper data to get tags and other details
-        setLoadedPaper(null);
         setPreviewLoaded(false);
-        fetchFromApi(`/api/paper?id=${paper.id}`)
-            .then(data => setLoadedPaper(data))
-            .catch(error => console.error("Failed to load paper data", error));
     }, [paper.id]);
 
     const highlightCount = highlights?.filter(highlight => highlight.role === 'user').length || 0;
 
-    const updateField = async (fields: Partial<PaperItem>) => {
+    const updateField = async (fields: Partial<LibraryPaper>) => {
         try {
-            await fetchFromApi(`/api/paper?paper_id=${paper.id}`, {
-                method: "PATCH",
-                body: JSON.stringify(fields),
-            });
+            await unwrap(api.PATCH("/api/paper", {
+                params: { query: { paper_id: paper.id } },
+                body: fields,
+            }));
             const updatedPaper = { ...paper, ...fields };
             setPaper(paper.id, updatedPaper);
-            if (loadedPaper) {
-                setLoadedPaper({ ...loadedPaper, ...fields } as PaperData);
-            }
+            mutateLoadedPaper(
+                (current) => current && ({ ...current, ...fields } as Schemas["PaperDetail"]),
+                { revalidate: false },
+            );
         } catch (error) {
             console.error("Failed to update paper", error);
             toast.error("Failed to update paper.");
@@ -234,9 +237,9 @@ export function PaperPreview({ paper, onClose, setPaper }: PaperPreviewProps) {
 
     const handleRemoveTag = async (tagId: string) => {
         try {
-            await fetchFromApi(`/api/paper/tag/papers/${paper.id}/tags/${tagId}`, {
-                method: "DELETE",
-            });
+            await unwrap(api.DELETE("/api/paper/tag/papers/{paper_id}/tags/{tag_id}", {
+                params: { path: { paper_id: paper.id, tag_id: tagId } },
+            }));
             const updatedPaper = {
                 ...paper,
                 tags: paper.tags?.filter(t => t.id !== tagId)
@@ -250,8 +253,8 @@ export function PaperPreview({ paper, onClose, setPaper }: PaperPreviewProps) {
 
     const onTagsApplied = () => {
         // Let's try to update the paper by refetching it.
-        fetchFromApi(`/api/paper?id=${paper.id}`).then(updatedPaper => {
-            setPaper(paper.id, updatedPaper);
+        unwrap(api.GET("/api/paper", { params: { query: { id: paper.id } } })).then(updatedPaper => {
+            setPaper(paper.id, updatedPaper as LibraryPaper);
         });
     };
 

@@ -3,7 +3,7 @@
 import { ArrowLeft, ArrowRight, BookOpen, Library, Loader2, Pencil, PlusCircle, Search, Sparkles, UploadCloud } from "lucide-react";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { fetchFromApi } from "@/lib/api";
+import { API_BASE_URL, api, errorDetail, unwrap, type Schemas } from "@/lib/api/client";
 import { PdfDropzone } from "@/components/PdfDropzone";
 import PaperCard from "@/components/PaperCard";
 import PdfUploadTracker from "@/components/PdfUploadTracker";
@@ -116,10 +116,15 @@ export default function ProjectPage() {
 			formData.append("file", file);
 
 			try {
-				const response = await fetchFromApi(`/api/paper/upload?project_id=${projectId}`, {
+				// Multipart upload: raw fetch (the typed client is JSON-only here).
+				const res = await fetch(`${API_BASE_URL}/api/paper/upload?project_id=${encodeURIComponent(projectId)}`, {
 					method: "POST",
 					body: formData,
+					credentials: "include",
 				});
+				const body = await res.json().catch(() => undefined);
+				if (!res.ok) throw new Error(errorDetail(body, res.status));
+				const response = body as Schemas["UploadStartedResponse"];
 				newJobs.push({ jobId: response.job_id, fileName: file.name });
 			} catch (err) {
 				setUploadError(`Failed to upload file: ${file.name}. Please try again.`);
@@ -165,16 +170,13 @@ export default function ProjectPage() {
 	const handleUpdateProject = async () => {
 		if (!project) return;
 		try {
-			const response = await fetchFromApi(`/api/projects/${project.id}`, {
-				method: 'PATCH',
-				headers: {
-					'Content-Type': 'application/json',
-				},
-				body: JSON.stringify({
+			const response = await unwrap(api.PATCH("/api/projects/{project_id}", {
+				params: { path: { project_id: project.id } },
+				body: {
 					title: currentTitle,
 					description: currentDescription,
-				}),
-			});
+				},
+			}));
 			if (response) {
 				refetchProject();
 				setShowEditAlert(false);
@@ -188,7 +190,7 @@ export default function ProjectPage() {
 
 	const handleEditClick = () => {
 		if (!project) return;
-		setCurrentTitle(project.title);
+		setCurrentTitle(project.title ?? '');
 		setCurrentDescription(project.description || '');
 		setShowEditAlert(true);
 	};

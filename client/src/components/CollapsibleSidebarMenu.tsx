@@ -12,7 +12,7 @@ import Link from "next/link";
 import { ArrowRight, ChevronDown } from "lucide-react";
 import React from "react";
 
-interface CollapsibleSidebarMenuProps<T extends { id: string; title?: string; }> {
+interface CollapsibleSidebarMenuProps<T extends { id: string; title?: string | null; }> {
     icon: React.ElementType;
     title: string;
     url: string;
@@ -20,13 +20,13 @@ interface CollapsibleSidebarMenuProps<T extends { id: string; title?: string; }>
     viewAllUrl: string;
     viewAllText: string;
     getItemUrl: (item: T) => string;
-    getItemName?: (item: T) => string;
+    getItemName?: (item: T) => string | null | undefined;
     defaultOpen?: boolean;
     maxItems?: number;
     tag?: string;
 }
 
-export function CollapsibleSidebarMenu<T extends { id: string; title?: string; }>({
+export function CollapsibleSidebarMenu<T extends { id: string; title?: string | null; }>({
     icon: Icon,
     title,
     url,

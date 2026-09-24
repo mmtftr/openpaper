@@ -1,14 +1,13 @@
 "use client"
 
-import { fetchFromApi } from "@/lib/api";
+import { api, unwrap } from "@/lib/api/client";
 import { useEffect, useState } from "react";
-import { PaperItem } from "@/lib/schema";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/lib/auth";
 import { Upload, Highlighter, Quote, FolderKanban } from "lucide-react";
 import { toast } from "sonner";
-import { LibraryTable } from "@/components/LibraryTable";
+import { LibraryTable, type LibraryPaper } from "@/components/LibraryTable";
 import { CreateProjectDialog } from "@/components/CreateProjectDialog";
 import { useRouter } from "next/navigation";
 import { UploadModal } from "@/components/UploadModal";
@@ -76,10 +75,10 @@ const PageSkeleton = () => (
 
 function PapersPageContent() {
     const { papers, isLoading, mutate } = usePapers();
-    const [filteredPapers, setFilteredPapers] = useState<PaperItem[]>([]);
+    const [filteredPapers, setFilteredPapers] = useState<LibraryPaper[]>([]);
     const router = useRouter();
     const [isCreateProjectDialogOpen, setCreateProjectDialogOpen] = useState(false);
-    const [papersForNewProject, setPapersForNewProject] = useState<PaperItem[]>([]);
+    const [papersForNewProject, setPapersForNewProject] = useState<LibraryPaper[]>([]);
     const [isUploadModalOpen, setUploadModalOpen] = useState(false);
 
     const handleUploadClick = () => {
@@ -97,9 +96,9 @@ function PapersPageContent() {
 
     const deletePaper = async (paperId: string) => {
         try {
-            await fetchFromApi(`/api/paper?id=${paperId}`, {
-                method: "DELETE",
-            });
+            await unwrap(api.DELETE("/api/paper", {
+                params: { query: { id: paperId } },
+            }));
             setFilteredPapers(filteredPapers.filter((paper) => paper.id !== paperId));
             toast.success("Paper deleted successfully");
         } catch (error) {
@@ -112,7 +111,7 @@ function PapersPageContent() {
         }
     }
 
-    const handleTableAction = (papers: PaperItem[], action: string) => {
+    const handleTableAction = (papers: LibraryPaper[], action: string) => {
         if (action !== "Make Project") return;
 
         if (papers.length === 0) {
@@ -127,17 +126,16 @@ function PapersPageContent() {
         const paperIds = papersForNewProject.map(p => p.id);
 
         try {
-            const project = await fetchFromApi("/api/projects", {
-                method: "POST",
-                body: JSON.stringify({ title, description }),
-            });
+            const project = await unwrap(api.POST("/api/projects", {
+                body: { title, description },
+            }));
             toast.success("Project created successfully!");
 
             if (paperIds.length > 0) {
-                await fetchFromApi(`/api/projects/papers/${project.id}`, {
-                    method: 'POST',
-                    body: JSON.stringify({ paper_ids: paperIds })
-                });
+                await unwrap(api.POST("/api/projects/papers/{project_id}", {
+                    params: { path: { project_id: project.id } },
+                    body: { paper_ids: paperIds },
+                }));
                 toast.success("Papers added to project successfully!");
             }
 

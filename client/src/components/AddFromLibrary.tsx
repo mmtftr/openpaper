@@ -1,10 +1,9 @@
 
 "use client";
 
-import { PaperItem } from "@/lib/schema";
-import { fetchFromApi } from "@/lib/api";
+import { api, unwrap } from "@/lib/api/client";
 import { toast } from "sonner";
-import { LibraryTable } from "./LibraryTable";
+import { LibraryTable, type LibraryPaper } from "./LibraryTable";
 
 interface AddFromLibraryProps {
     projectId: string;
@@ -15,15 +14,15 @@ interface AddFromLibraryProps {
 
 export default function AddFromLibrary({ projectId, onPapersAdded, projectPaperIds, onUploadClick }: AddFromLibraryProps) {
 
-    const handleAddPapers = (papers: PaperItem[], action: string) => {
+    const handleAddPapers = (papers: LibraryPaper[], action: string) => {
         if (action !== "Add") return;
 
         const paperIds = papers.map(p => p.id);
 
-        fetchFromApi(`/api/projects/papers/${projectId}`, {
-            method: 'POST',
-            body: JSON.stringify({ paper_ids: paperIds })
-        })
+        unwrap(api.POST("/api/projects/papers/{project_id}", {
+            params: { path: { project_id: projectId } },
+            body: { paper_ids: paperIds },
+        }))
             .then(() => {
                 toast.success("Papers added to project successfully!");
                 onPapersAdded();

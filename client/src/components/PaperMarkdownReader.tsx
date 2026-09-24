@@ -1,14 +1,14 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import useSWR from 'swr';
 import dynamic from 'next/dynamic';
 import { ChevronDown, FileText, Loader } from 'lucide-react';
 
-import { fetchFromApi } from '@/lib/api';
+import { api, unwrap, type Schemas } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { SupplementaryMaterialSummary } from '@/lib/schema';
 
 const CrepeMarkdownReader = dynamic(() => import('./PaperMarkdownReaderImpl'), {
     ssr: false,
@@ -21,24 +21,19 @@ const CrepeMarkdownReader = dynamic(() => import('./PaperMarkdownReaderImpl'), {
 });
 
 interface PaperMarkdownReaderProps {
-    endpoint: string;
-    title?: string;
-    paperId?: string;
+    // The paper whose markdown is shown (GET /api/paper/markdown).
+    paperId: string;
+    title?: string | null;
     // Supplementary switcher props (mirror PdfToolbar). Only rendered when
     // parentPaperId is set.
     parentPaperId?: string;
     displayedPaperId?: string;
     parentPaperTitle?: string;
-    supplementaryMaterials?: SupplementaryMaterialSummary[];
+    supplementaryMaterials?: Schemas["SupplementaryMaterialItem"][];
     onChangeDisplayed?: (paperId: string) => void;
 }
 
-interface PaperMarkdownResponse {
-    markdown: string;
-    source: 'mistral' | 'pymupdf';
-}
-
-function resolveMarkdownImageUrls(markdown: string, paperId?: string) {
+function resolveMarkdownImageUrls(markdown: string, paperId: string) {
     if (!paperId) return markdown;
 
     return markdown.replace(/!\[([^\]]*)\]\(([^)\s]+)(\s+"[^"]*")?\)/g, (match, alt, src, title = '') => {
@@ -49,7 +44,6 @@ function resolveMarkdownImageUrls(markdown: string, paperId?: string) {
 }
 
 export function PaperMarkdownReader({
-    endpoint,
     title,
     paperId,
     parentPaperId,
@@ -59,35 +53,15 @@ export function PaperMarkdownReader({
     onChangeDisplayed,
 }: PaperMarkdownReaderProps) {
     const isMobile = useIsMobile();
-    const [data, setData] = useState<PaperMarkdownResponse | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
     const [switcherOpen, setSwitcherOpen] = useState(false);
 
-    useEffect(() => {
-        let cancelled = false;
-
-        async function fetchMarkdown() {
-            setLoading(true);
-            setError(null);
-            try {
-                const response: PaperMarkdownResponse = await fetchFromApi(endpoint);
-                if (!cancelled) setData(response);
-            } catch (err) {
-                if (!cancelled) {
-                    setError(err instanceof Error ? err.message : 'Failed to load markdown');
-                }
-            } finally {
-                if (!cancelled) setLoading(false);
-            }
-        }
-
-        fetchMarkdown();
-
-        return () => {
-            cancelled = true;
-        };
-    }, [endpoint]);
+    const { data, isLoading: loading, error: fetchError } = useSWR(
+        ["/api/paper/markdown", paperId],
+        () => unwrap(api.GET("/api/paper/markdown", { params: { query: { id: paperId } } })),
+    );
+    const error = fetchError
+        ? fetchError instanceof Error ? fetchError.message : 'Failed to load markdown'
+        : null;
 
     const renderedMarkdown = useMemo(
         () => resolveMarkdownImageUrls(data?.markdown || '', paperId),

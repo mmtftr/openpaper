@@ -4,8 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Search, FileText, FolderKanban, Command, Loader2, Highlighter, ChevronDown, ChevronUp } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { fetchFromApi } from "@/lib/api";
-import { PaperResult, SearchResults } from "@/lib/schema";
+import { api, unwrap, type Schemas } from "@/lib/api/client";
 import { useProjects } from "@/hooks/useProjects";
 
 // Helper to check if text contains search term
@@ -39,7 +38,7 @@ export function HomeSearch() {
     const [isOpen, setIsOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [hasSearched, setHasSearched] = useState(false);
-    const [papers, setPapers] = useState<PaperResult[]>([]);
+    const [papers, setPapers] = useState<Schemas["PaperResult"][]>([]);
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [expandedPaperId, setExpandedPaperId] = useState<string | null>(null);
     const { projects: allProjects } = useProjects();
@@ -55,7 +54,7 @@ export function HomeSearch() {
         const lowerQuery = query.toLowerCase();
         return allProjects
             .filter((p) =>
-                p.title.toLowerCase().includes(lowerQuery) ||
+                p.title?.toLowerCase().includes(lowerQuery) ||
                 p.description?.toLowerCase().includes(lowerQuery)
             )
             .slice(0, 3);
@@ -140,10 +139,10 @@ export function HomeSearch() {
 
             try {
                 // Search papers
-                const searchResponse: SearchResults = await fetchFromApi(
-                    `/api/search/local?q=${encodeURIComponent(query)}&limit=5`,
-                    { signal: controller.signal }
-                );
+                const searchResponse = await unwrap(api.GET("/api/search/local/", {
+                    params: { query: { q: query, limit: 5 } },
+                    signal: controller.signal,
+                }));
 
                 // Check if this request was aborted
                 if (controller.signal.aborted) return;

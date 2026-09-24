@@ -9,8 +9,7 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { useState, useMemo, useRef } from "react";
-import { fetchFromApi } from "@/lib/api";
-import { PaperItem } from "@/lib/schema";
+import { api, unwrap } from "@/lib/api/client";
 import { Checkbox } from "./ui/checkbox";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -39,14 +38,16 @@ import {
 	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+/** A paper as listed by `usePapers` (`GET /api/paper/all`). */
+export type LibraryPaper = NonNullable<ReturnType<typeof usePapers>["papers"]>[number];
 
 interface LibraryTableProps extends React.HTMLAttributes<HTMLDivElement> {
 	selectable?: boolean;
-	onSelectFiles?: (papers: PaperItem[], action: string) => void;
+	onSelectFiles?: (papers: LibraryPaper[], action: string) => void;
 	actionOptions?: string[];
 	projectPaperIds?: string[];
 	handleDelete?: (paperId: string) => Promise<void>;
-	setPapers?: (papers: PaperItem[]) => void;
+	setPapers?: (papers: LibraryPaper[]) => void;
 	onUploadClick?: () => void;
 }
 
@@ -67,9 +68,9 @@ export function LibraryTable({
 	const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 	const [searchTerm, setSearchTerm] = useState('');
 	const [filters, setFilters] = useState<Filter[]>([]);
-	type SortKey = keyof PaperItem;
+	type SortKey = keyof LibraryPaper;
 	const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'ascending' | 'descending' } | null>({ key: 'created_at', direction: 'descending' });
-	const [selectedPaperForPreview, setSelectedPaperForPreview] = useState<PaperItem | null>(null);
+	const [selectedPaperForPreview, setSelectedPaperForPreview] = useState<LibraryPaper | null>(null);
 	const [taggingPopoverOpen, setTaggingPopoverOpen] = useState(false);
 	const [expandedTags, setExpandedTags] = useState<Set<string>>(new Set());
 	const tableContainerRef = useRef<HTMLDivElement>(null);
@@ -78,9 +79,9 @@ export function LibraryTable({
 
 	const sort: Sort = { type: "publish_date", order: "desc" };
 
-	const setPaper = (paperId: string, updatedPaper: PaperItem) => {
+	const setPaper = (paperId: string, updatedPaper: LibraryPaper) => {
 		mutate(
-			(currentPapers: PaperItem[] | undefined) => {
+			(currentPapers: LibraryPaper[] | undefined) => {
 				if (!currentPapers) return [];
 				return currentPapers.map(p => (p.id === paperId ? updatedPaper : p));
 			},
@@ -243,9 +244,9 @@ export function LibraryTable({
 
 	const handleRemoveTag = async (paperId: string, tagId: string) => {
 		try {
-			await fetchFromApi(`/api/paper/tag/papers/${paperId}/tags/${tagId}`, {
-				method: "DELETE",
-			});
+			await unwrap(api.DELETE("/api/paper/tag/papers/{paper_id}/tags/{tag_id}", {
+				params: { path: { paper_id: paperId, tag_id: tagId } },
+			}));
 			// Don't need to send a toast for success - can be noisy.
 			// toast.success("Tag removed.");
 			mutate(); // Revalidate the papers list
