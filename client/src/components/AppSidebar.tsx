@@ -42,7 +42,7 @@ import {
     SheetContent,
     SheetTrigger,
 } from "@/components/ui/sheet";
-import { useIsDarkMode } from "@/hooks/useDarkMode";
+import { useTheme } from "next-themes";
 import Link from "next/link";
 import { Conversation, PaperItem, Project } from "@/lib/schema";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -133,7 +133,9 @@ export function AppSidebar() {
     const { user, logout } = useAuth();
     const [allPapers, setAllPapers] = useState<PaperItem[]>([]);
     const [projects, setProjects] = useState<Project[]>([]);
-    const { darkMode, toggleDarkMode } = useIsDarkMode();
+    const { resolvedTheme, setTheme } = useTheme();
+    const darkMode = resolvedTheme === "dark";
+    const toggleDarkMode = () => setTheme(darkMode ? "light" : "dark");
     const isMobile = useIsMobile();
 
     useEffect(() => {

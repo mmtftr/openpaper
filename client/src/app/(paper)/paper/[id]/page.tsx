@@ -378,7 +378,7 @@ export default function PaperView() {
     }, [authLoading, user]);
 
     // The paper page is a client component, so the static `title: "Open Paper"`
-    // from the paper layout metadata is what initially lands in the tab. Patch
+    // from the root layout metadata is what initially lands in the tab. Patch
     // document.title once the paper loads, and restore it on unmount so
     // navigating away doesn't leave a stale paper title on the next route.
     useEffect(() => {
