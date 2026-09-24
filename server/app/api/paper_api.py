@@ -426,6 +426,16 @@ def delete_pdf(
         ]
     ]
 
+    # Lock the stage rows before the paper row, in the ingest worker's order
+    # (it locks a paper's stages, then its `save()` may update the paper);
+    # the cascade would otherwise take them the other way round.
+    db.execute(
+        select(IngestStage.paper_id)
+        .join(Paper, Paper.id == IngestStage.paper_id)
+        .where((Paper.id == id) | (Paper.supplementary_of_paper_id == id))
+        .order_by(IngestStage.paper_id, IngestStage.name)
+        .with_for_update(of=IngestStage)
+    ).all()
     removed_paper = paper_crud.remove(db, id=id, user=current_user)
     if not removed_paper:
         raise HTTPException(status_code=500, detail="Failed to delete document")
