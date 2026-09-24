@@ -133,6 +133,15 @@ Skip the upload/ingest UI (Phase 5 replaces it).
   discover abort; ligature/hyphen fix moved into `findMatchRange` and the dead
   matcher deleted.
 
+Phase 3 as done (2026-09-24): SWR covers load-on-mount reads; the paper page's
+paper/displayed-paper loading, the notes editor's document loads, auth, the
+reader outline fallback and the chat conversation list stay imperative typed
+calls (they drive redirects, save/conflict state or create-if-empty logic) —
+revisit in the Phase 5 client decomposition. "One markdown renderer" = chat,
+citations and quick question on Streamdown; the paper markdown *reader* stays
+on Milkdown/Crepe like the notes editor. Alembic history was squashed into one
+baseline instead of keeping the per-deletion migrations (owner's call).
+
 ## Phase 4 — Snapshot
 Commit on `personal-cleanup`, tag `pre-restructure`, branch `restructure` off it.
 Before branching: one codex gpt-6-astra review of the whole cumulative diff
