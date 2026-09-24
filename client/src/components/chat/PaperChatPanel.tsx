@@ -129,26 +129,25 @@ import {
     rememberActiveConversation,
 } from "@/components/chat/paperChatSessions";
 import { Citation, PaperData } from "@/lib/schema";
+import {
+    jumpToTextAtom,
+    userMessageReferencesAtom,
+} from "@/components/paper/paperStore";
+import {
+    usePaperAtom,
+    useSetPaperAtom,
+} from "@/components/paper/PaperStoreProvider";
+import {
+    isCitation,
+    useActiveCitation,
+    useCitationClick,
+    useFlashedCitation,
+} from "@/components/paper/useCitationJump";
 
 interface PaperChatPanelProps {
     id: string;
     paperData: PaperData;
     isMobile: boolean;
-    userMessageReferences: string[];
-    setUserMessageReferences: React.Dispatch<React.SetStateAction<string[]>>;
-    // `paperId` lets the page route citation jumps to the right PDF when a
-    // citation refers to a supplementary; `page` is the page the agent quoted
-    // from, used as a search hint.
-    handleCitationClick: (
-        key: string,
-        messageIndex: number,
-        paperId?: string,
-        page?: number
-    ) => void;
-    matchesCurrentCitation: (key: string, messageIndex: number) => boolean;
-    flashesCurrentCitation?: (key: string, messageIndex: number) => boolean;
-    /** Search the PDF for `term` (optionally starting at `page`). */
-    jumpToText: (term: string, page?: number) => void;
     headerSlot?: React.ReactNode;
 }
 
@@ -207,15 +206,26 @@ export function PaperChatPanel({
     id,
     paperData,
     isMobile,
-    userMessageReferences,
-    setUserMessageReferences,
-    handleCitationClick,
-    matchesCurrentCitation,
-    flashesCurrentCitation,
-    jumpToText,
     headerSlot,
 }: PaperChatPanelProps) {
     const { user } = useAuth();
+    const [userMessageReferences, setUserMessageReferences] = usePaperAtom(
+        userMessageReferencesAtom
+    );
+    const handleCitationClick = useCitationClick();
+    const jumpToText = useSetPaperAtom(jumpToTextAtom);
+    const activeCitation = useActiveCitation();
+    const flashedCitation = useFlashedCitation();
+    const matchesCurrentCitation = useCallback(
+        (key: string, messageIndex: number) =>
+            isCitation(activeCitation, key, messageIndex),
+        [activeCitation]
+    );
+    const flashesCurrentCitation = useCallback(
+        (key: string, messageIndex: number) =>
+            isCitation(flashedCitation, key, messageIndex),
+        [flashedCitation]
+    );
 
     // Seeded from the in-memory session store so a remount (tab switch)
     // lands straight back on the conversation it left, transcript included.

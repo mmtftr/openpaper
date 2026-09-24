@@ -8,12 +8,14 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { getStatusIcon, PaperStatusEnum } from "@/components/utils/PdfStatus";
-import { usePaperHeader } from "@/components/PaperHeaderContext";
+import { paperAtom } from "@/components/paper/paperStore";
+import { usePaperAtomValue } from "@/components/paper/PaperStoreProvider";
+import { useUpdatePaperStatus } from "@/components/paper/useUpdatePaperStatus";
 
 export function HeaderPaperStatusButton() {
-    const ctx = usePaperHeader();
-    if (!ctx || !ctx.paperId || !ctx.paperStatus) return null;
-    const { paperStatus, updatePaperStatus } = ctx;
+    const paperStatus = usePaperAtomValue(paperAtom)?.status;
+    const updatePaperStatus = useUpdatePaperStatus();
+    if (!paperStatus) return null;
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>

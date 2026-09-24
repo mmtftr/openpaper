@@ -7,7 +7,7 @@ import Link from "next/link";
 import { ManageProjectsButton } from "@/components/ManageProjectsButton";
 import { MobilePaperMenu } from "@/components/MobilePaperMenu";
 import { CitePaperButton } from "@/components/CitePaperButton";
-import { PaperHeaderProvider } from "@/components/PaperHeaderContext";
+import { PaperStoreProvider } from "@/components/paper/PaperStoreProvider";
 import { HeaderPaperStatusButton } from "@/components/HeaderPaperStatusButton";
 import { IngestStatusPopover } from "@/components/ingest/IngestStatusPopover";
 
@@ -20,7 +20,7 @@ export default function PaperLayout({
 		<SidebarProvider>
 			<AppSidebar />
 			<SidebarInset>
-				<PaperHeaderProvider>
+				<PaperStoreProvider>
 					<header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
 						<SidebarTrigger className="-ml-1" />
 						<Separator orientation="vertical" className="mr-2 h-4" />
@@ -46,7 +46,7 @@ export default function PaperLayout({
 					<SidebarController>
 						{children}
 					</SidebarController>
-				</PaperHeaderProvider>
+				</PaperStoreProvider>
 			</SidebarInset>
 		</SidebarProvider>
 	);

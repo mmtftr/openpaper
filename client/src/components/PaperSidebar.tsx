@@ -1,3 +1,5 @@
+'use client';
+
 import { Button } from '@/components/ui/button';
 import {
     Tooltip,
@@ -6,62 +8,31 @@ import {
     TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import React from 'react';
+import { FileText, Highlighter, MessageCircle } from 'lucide-react';
+import type { ComponentType } from 'react';
+import {
+    SIDE_PANEL_TOOLS,
+    sidePanelTabAtom,
+    type SidePanelTab,
+    type SidePanelTool,
+} from '@/components/paper/paperStore';
+import { usePaperAtom } from '@/components/paper/PaperStoreProvider';
+
+/** Tooltip / accessible name and icon per tool. */
+const TOOL_BUTTONS: Record<SidePanelTool, { label: string; icon: ComponentType<{ className?: string }> }> = {
+    Chat: { label: 'Show chat', icon: MessageCircle },
+    Annotations: { label: 'All annotations', icon: Highlighter },
+    Doc: { label: 'Notes', icon: FileText },
+};
+const TOOLS = SIDE_PANEL_TOOLS.map((name) => ({ name, ...TOOL_BUTTONS[name] }));
 
 /** Primary panels where the toolbar sits higher (less gap under the top bar). */
-const COMPACT_TOP_OFFSET_TOOLS = new Set(['Chat', 'Annotations']);
+const COMPACT_TOP_OFFSET_TOOLS = new Set<SidePanelTab>(['Chat', 'Annotations']);
 
-interface PaperSidebarProps {
-    rightSideFunction: string;
-    setRightSideFunction: (value: string) => void;
-    PaperToolset: {
-        nav: {
-            name: string;
-            /** Tooltip / display name; falls back to `name` when omitted */
-            label?: string;
-            icon: React.ComponentType<{ className?: string }>;
-        }[];
-    };
-}
-
-function NavButton({ item, rightSideFunction, setRightSideFunction }: {
-    item: { name: string; label?: string; icon: React.ComponentType<{ className?: string }> };
-    rightSideFunction: string;
-    setRightSideFunction: (value: string) => void;
-}) {
-    const tooltipLabel = item.label ?? item.name;
-    return (
-        <Tooltip key={item.name}>
-            <TooltipTrigger asChild>
-                <Button
-                    variant="ghost"
-                    className={`h-8 w-8 p-0 rounded-md ${
-                        item.name === rightSideFunction
-                            ? 'bg-blue-500 text-blue-100 hover:bg-blue-600 dark:bg-blue-600 dark:text-white dark:hover:bg-blue-500'
-                            : 'text-secondary-foreground hover:bg-blue-100 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:hover:text-foreground'
-                    }`}
-                    onClick={() => setRightSideFunction(item.name)}
-                    aria-label={tooltipLabel}
-                >
-                    <item.icon className="h-5 w-5" />
-                </Button>
-            </TooltipTrigger>
-            <TooltipContent side="left" sideOffset={8}>
-                {tooltipLabel}
-            </TooltipContent>
-        </Tooltip>
-    );
-}
-
-export function PaperSidebar({
-    rightSideFunction,
-    setRightSideFunction,
-    PaperToolset,
-}: PaperSidebarProps) {
-    const beforeReadTool = PaperToolset.nav.filter(item => item.name !== 'Read');
-    const readTool = PaperToolset.nav.find(item => item.name === 'Read');
-
-    const toolbarTopClass = COMPACT_TOP_OFFSET_TOOLS.has(rightSideFunction) ? 'top-2' : 'top-14';
+/** The floating tab switcher on the side panel's right edge. */
+export function PaperSidebar() {
+    const [tab, setTab] = usePaperAtom(sidePanelTabAtom);
+    const toolbarTopClass = COMPACT_TOP_OFFSET_TOOLS.has(tab) ? 'top-2' : 'top-14';
 
     return (
         <TooltipProvider>
@@ -71,12 +42,27 @@ export function PaperSidebar({
                     toolbarTopClass,
                 )}
             >
-                {beforeReadTool.map((item) => (
-                    <NavButton key={item.name} item={item} rightSideFunction={rightSideFunction} setRightSideFunction={setRightSideFunction} />
+                {TOOLS.map((item) => (
+                    <Tooltip key={item.name}>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                className={`h-8 w-8 p-0 rounded-md ${
+                                    item.name === tab
+                                        ? 'bg-blue-500 text-blue-100 hover:bg-blue-600 dark:bg-blue-600 dark:text-white dark:hover:bg-blue-500'
+                                        : 'text-secondary-foreground hover:bg-blue-100 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:hover:text-foreground'
+                                }`}
+                                onClick={() => setTab(item.name)}
+                                aria-label={item.label}
+                            >
+                                <item.icon className="h-5 w-5" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="left" sideOffset={8}>
+                            {item.label}
+                        </TooltipContent>
+                    </Tooltip>
                 ))}
-                {readTool && (
-                    <NavButton item={readTool} rightSideFunction={rightSideFunction} setRightSideFunction={setRightSideFunction} />
-                )}
             </div>
         </TooltipProvider>
     );

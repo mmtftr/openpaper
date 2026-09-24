@@ -16,7 +16,8 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { usePaperHeader } from "@/components/PaperHeaderContext";
+import { parentPaperIdAtom } from "@/components/paper/paperStore";
+import { usePaperAtomValue } from "@/components/paper/PaperStoreProvider";
 import { cn } from "@/lib/utils";
 import { retryInSeconds, useIngest, useNow, type IngestStage } from "@/hooks/useIngest";
 
@@ -130,8 +131,7 @@ function StageRow({
 
 /** Header button + popover listing the paper's ingest stages. */
 export function IngestStatusPopover() {
-    const ctx = usePaperHeader();
-    const paperId = ctx?.paperId ?? null;
+    const paperId = usePaperAtomValue(parentPaperIdAtom) || null;
     const { status, retry, reprocess } = useIngest(paperId);
     const [busy, setBusy] = useState(false);
     const [open, setOpen] = useState(false);

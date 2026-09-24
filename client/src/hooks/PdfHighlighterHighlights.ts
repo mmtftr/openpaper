@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { PaperHighlight, ScaledPosition, HighlightColor } from "@/lib/schema";
 import { api, unwrap } from "@/lib/api/client";
@@ -58,8 +58,6 @@ export function useHighlighterHighlights(paperId: string, refreshKey = "") {
 	);
 	const { mutate: globalMutate } = useSWRConfig();
 	const highlights = data ?? EMPTY;
-	const [activeHighlight, setActiveHighlight] =
-		useState<PaperHighlight | null>(null);
 
 	const fetchHighlights = useCallback(async () => {
 		await mutate();
@@ -224,17 +222,9 @@ export function useHighlighterHighlights(paperId: string, refreshKey = "") {
 		[paperId, refreshKey, globalMutate]
 	);
 
-	// A paper switch drops the previous paper's active selection right away
-	// (its highlights are already out: the SWR key changed).
-	useEffect(() => {
-		setActiveHighlight(null);
-	}, [paperId]);
-
 	return {
 		highlights,
 		recolorHighlight,
-		activeHighlight,
-		setActiveHighlight,
 		addHighlight,
 		removeHighlight,
 		fetchHighlights,
