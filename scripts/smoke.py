@@ -149,6 +149,7 @@ def main() -> None:
 
     token = mint_session()
     cookies = {"session_token": token}
+    touched: tuple[str, str] | None = None
     try:
         with httpx.Client(base_url=API, cookies=cookies, timeout=60) as api:
             t0 = step("auth")
@@ -164,6 +165,10 @@ def main() -> None:
                     fail("library is empty")
                 paper_id = papers[0]["id"]
                 ok(t0, paper_id)
+
+            # Opening a paper bumps its last_accessed_at (the library's "recent"
+            # order); put it back afterwards so smoke runs don't reorder it.
+            touched = (paper_id, sql(f"select coalesce(last_accessed_at::text, '') from papers where id = '{paper_id}'"))
 
             t0 = step("paper detail")
             paper = expect(api.get("/api/paper", params={"id": paper_id}), 200).json()
@@ -223,6 +228,10 @@ def main() -> None:
         ok(t0)
     finally:
         sql(f"delete from sessions where token = '{token}'")
+        if touched:
+            pid, ts = touched
+            value = f"'{ts}'" if ts else "null"
+            sql(f"update papers set last_accessed_at = {value} where id = '{pid}'")
 
     print("smoke: all checks passed")
 
