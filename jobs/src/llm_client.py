@@ -27,7 +27,6 @@ from src.schemas import (
     Highlights,
     InstitutionsKeywords,
     PaperMetadataExtraction,
-    SummaryAndCitations,
     TitleAuthorsAbstract,
 )
 from src.utils import retry_llm_operation, time_it
@@ -286,9 +285,7 @@ class PaperOperations(AsyncLLMClient):
         response_json = JSONParser.validate_and_extract_json(response)
         instance = model.model_validate(response_json)
 
-        if model == SummaryAndCitations:
-            status_callback("Compiled paper summary")
-        elif model == InstitutionsKeywords:
+        if model == InstitutionsKeywords:
             keywords = getattr(instance, "keywords", [])
             institutions = getattr(instance, "institutions", [])
             first_keyword = keywords[0] if keywords else ""
@@ -343,23 +340,6 @@ class PaperOperations(AsyncLLMClient):
         return await self._extract_single_metadata_field(
             model=InstitutionsKeywords,
             schema=InstitutionsKeywords,
-            paper_content=paper_content,
-            status_callback=status_callback,
-            client=client,
-            llm_model=llm_model,
-        )
-
-    @retry_llm_operation(max_retries=3, delay=1.0)
-    async def extract_summary_and_citations(
-        self,
-        paper_content: str,
-        status_callback: Callable[[str], None],
-        client: OpenAIClient,
-        llm_model: Optional[str] = None,
-    ) -> SummaryAndCitations:
-        return await self._extract_single_metadata_field(
-            model=SummaryAndCitations,
-            schema=SummaryAndCitations,
             paper_content=paper_content,
             status_callback=status_callback,
             client=client,
@@ -425,17 +405,6 @@ class PaperOperations(AsyncLLMClient):
                             )
                         ),
                         asyncio.create_task(
-                            time_it(
-                                "Extracting summary and citations",
-                                job_id=job_id,
-                            )(self.extract_summary_and_citations)(
-                                paper_content=paper_content,
-                                status_callback=status_callback,
-                                client=client,
-                                llm_model=extraction_model,
-                            )
-                        ),
-                        asyncio.create_task(
                             time_it("Extracting highlights", job_id=job_id)(
                                 self.extract_highlights
                             )(
@@ -455,7 +424,6 @@ class PaperOperations(AsyncLLMClient):
                 (
                     title_authors_abstract,
                     institutions_keywords,
-                    summary_and_citations,
                     highlights,
                 ) = results
 
@@ -465,7 +433,6 @@ class PaperOperations(AsyncLLMClient):
                     abstract=getattr(title_authors_abstract, "abstract", ""),
                     institutions=getattr(institutions_keywords, "institutions", []),
                     keywords=getattr(institutions_keywords, "keywords", []),
-                    summary=getattr(summary_and_citations, "summary", ""),
                     highlights=getattr(highlights, "highlights", []),
                     publish_date=getattr(
                         title_authors_abstract, "publish_date", None

@@ -48,7 +48,6 @@ async def search_papers(
                 "sort": sort.value if sort else None,
                 "results_count": len(results.results),
             },
-            db=db,
         )
         return Response(
             content=results.model_dump_json(), media_type="application/json"

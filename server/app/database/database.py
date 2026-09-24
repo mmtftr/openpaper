@@ -2,7 +2,6 @@ from contextlib import asynccontextmanager
 
 from app.database.config import Settings
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session, sessionmaker
 
 settings = Settings()
@@ -24,8 +23,6 @@ engine = create_engine(
 SessionLocal: sessionmaker[Session] = sessionmaker(
     autocommit=False, autoflush=False, bind=engine
 )
-
-Base = declarative_base()
 
 
 # Dependency for FastAPI

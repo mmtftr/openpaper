@@ -392,7 +392,6 @@ async def _run_sync_tool(
         "paper_agentic_tool_call",
         payload,
         user_id=str(deps.current_user.id),
-        db=deps.db,
     )
     return result
 
@@ -424,7 +423,6 @@ async def _run_repo_tool(deps: PaperAgentDeps, code: str) -> Dict[str, Any]:
             "call_index": deps.repo_calls_used,
         },
         user_id=str(deps.current_user.id),
-        db=deps.db,
     )
     return result
 

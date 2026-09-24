@@ -12,12 +12,10 @@ from sqlalchemy import (  # type: ignore
     DateTime,
     Float,
     ForeignKey,
-    Identity,
     Index,
     Integer,
     String,
     Text,
-    UniqueConstraint,
     and_,
     text,
 )
@@ -143,9 +141,6 @@ class User(Base):
     )
     conversations = relationship(
         "Conversation", back_populates="user", cascade="all, delete-orphan"
-    )
-    paper_notes = relationship(
-        "PaperNote", back_populates="user", cascade="all, delete-orphan"
     )
     highlights = relationship(
         "Highlight", back_populates="user", cascade="all, delete-orphan"
@@ -414,10 +409,7 @@ class Paper(Base):
     abstract = Column(Text, nullable=True)
     institutions = Column(ARRAY(String), nullable=True)
     keywords = Column(ARRAY(String), nullable=True)
-    summary = Column(Text, nullable=True)
-    summary_citations = Column(JSONB, nullable=True)
     publish_date = Column(DateTime, nullable=True)
-    starter_questions = Column(ARRAY(String), nullable=True)
     raw_content = Column(Text, nullable=True)
     ts_vector = Column(TSVECTOR, nullable=True)
     page_offset_map = Column(
@@ -486,13 +478,6 @@ class Paper(Base):
             Conversation.conversable_type == ConversableType.PAPER.value,
         ),
     )
-    paper_notes = relationship(
-        "PaperNote", back_populates="paper", cascade="all, delete-orphan"
-    )
-
-    paper_images = relationship(
-        "PaperImage", back_populates="paper", cascade="all, delete-orphan"
-    )
 
     project_papers = relationship("ProjectPaper", back_populates="paper")
 
@@ -513,29 +498,6 @@ class Paper(Base):
         cascade="all, delete-orphan",
         single_parent=True,
     )
-
-
-class PaperPassage(Base):
-    __tablename__ = "paper_passages"
-
-    __table_args__ = (
-        UniqueConstraint("paper_id", "start_line"),
-        Index("ix_paper_passages_ts_vector", "ts_vector", postgresql_using="gin"),
-    )
-
-    id = Column(BigInteger, Identity(always=True), primary_key=True)
-    paper_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("papers.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    start_line = Column(Integer, nullable=False)
-    end_line = Column(Integer, nullable=False)
-    content = Column(Text, nullable=False)
-    ts_vector = Column(TSVECTOR, nullable=True)
-
-    paper = relationship("Paper")
 
 
 class Project(Base):
@@ -608,31 +570,6 @@ class ProjectPaper(Base):
     paper = relationship("Paper", back_populates="project_papers")
 
 
-class PaperImage(Base):
-    __tablename__ = "paper_images"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    paper_id = Column(
-        UUID(as_uuid=True), ForeignKey("papers.id", ondelete="CASCADE"), nullable=False
-    )
-    s3_object_key = Column(String, nullable=False)
-    image_url = Column(String, nullable=False)
-    format = Column(String, nullable=False)  # e.g., 'png', 'jpg'
-
-    size_bytes = Column(Integer, nullable=False)  # Size of the image in bytes
-    width = Column(Integer, nullable=False)  # Width of the image in pixels
-    height = Column(Integer, nullable=False)  # Height of the image in pixels
-
-    page_number = Column(
-        Integer, nullable=False
-    )  # Page number where the image is located
-    image_index = Column(Integer, nullable=False)  # Index of the image in the paper
-
-    caption = Column(Text, nullable=True)  # Optional caption for the image
-
-    placeholder_id = Column(String, nullable=True)  # Placeholder ID for the image
-
-    paper = relationship("Paper", back_populates="paper_images")
 
 
 class RepoStatus(str, Enum):
@@ -733,26 +670,6 @@ class Document(Base):
         Index("ix_documents_paper_user", "paper_id", "user_id"),
         Index("ix_documents_parent", "parent_document_id"),
     )
-
-
-class PaperNote(Base):
-    __tablename__ = "paper_notes"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    # Ensure each document has only one associated paper note
-    paper_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("papers.id", ondelete="CASCADE"),
-        nullable=False,
-        unique=True,
-    )
-    content = Column(Text, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
-
-    user = relationship("User", back_populates="paper_notes")
-
-    paper = relationship("Paper", back_populates="paper_notes")
 
 
 class HighlightType(str, Enum):

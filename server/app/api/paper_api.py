@@ -8,11 +8,6 @@ from app.database.crud.annotation_crud import annotation_crud
 from app.database.crud.conversation_crud import conversation_crud
 from app.database.crud.highlight_crud import highlight_crud
 from app.database.crud.paper_crud import PaperUpdate, paper_crud
-from app.database.crud.paper_note_crud import (
-    PaperNoteCreate,
-    PaperNoteUpdate,
-    paper_note_crud,
-)
 from app.database.crud.projects.project_paper_crud import project_paper_crud
 from app.database.database import get_db
 from app.database.models import JobStatus, Paper, PaperStatus, PaperUploadJob
@@ -44,14 +39,6 @@ class SharePaperSchemaResponse(BaseModel):
     paper_data: dict
     highlight_data: dict
     annotations_data: dict
-
-
-class CreatePaperNoteSchema(BaseModel):
-    content: Optional[str]
-
-
-class UpdatePaperNoteSchema(BaseModel):
-    content: str
 
 
 class UpdatePaperFieldsSchema(BaseModel):
@@ -160,79 +147,6 @@ async def get_active_paper_ids(
     )
 
 
-@paper_router.get("/note")
-async def get_paper_note(
-    paper_id: str,
-    db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_required_user),
-):
-    """
-    Get the paper note associated with this document.
-    """
-    target_paper = paper_crud.get(
-        db, id=paper_id, user=current_user, update_last_accessed=True
-    )
-
-    if not target_paper:
-        raise HTTPException(status_code=404, detail=f"No document with id {paper_id}")
-
-    paper_note = paper_note_crud.get_paper_note_by_paper_id(
-        db, paper_id=paper_id, user=current_user
-    )
-
-    if paper_note:
-        return JSONResponse(content=paper_note.to_dict(), status_code=200)
-
-    raise HTTPException(
-        status_code=404, detail=f"Paper Note does not exist for document {paper_id}"
-    )
-
-
-@paper_router.post("/note")
-async def create_paper_note(
-    paper_id: str,
-    request: CreatePaperNoteSchema,
-    db: Session = Depends(get_db),
-    current_user: Optional[CurrentUser] = Depends(get_required_user),
-):
-    """
-    Create the paper note associated with this document
-    """
-    content = request.content
-    target_paper = paper_crud.get(
-        db, id=paper_id, user=current_user, update_last_accessed=True
-    )
-
-    if not target_paper:
-        raise HTTPException(status_code=404, detail=f"No document with id {paper_id}")
-
-    paper_note_to_create = PaperNoteCreate(
-        paper_id=uuid.UUID(paper_id), content=content
-    )
-
-    paper_note = paper_note_crud.create(
-        db, obj_in=paper_note_to_create, user=current_user
-    )
-
-    if not paper_note:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to create paper note for document ID {paper_id}",
-        )
-
-    track_event(
-        "paper_note_created",
-        properties={
-            "paper_id": str(paper_note.paper_id),
-            "note_id": str(paper_note.id),
-        },
-        user_id=str(current_user.id) if current_user else None,
-        db=db,
-    )
-
-    return JSONResponse(content=paper_note.to_dict(), status_code=201)
-
-
 @paper_router.post("/status")
 async def set_paper_status(
     paper_id: str,
@@ -266,7 +180,6 @@ async def set_paper_status(
             "status": updated_paper.status,
         },
         user_id=str(current_user.id),
-        db=db,
     )
 
     return JSONResponse(content=updated_paper.to_dict(), status_code=200)
@@ -308,7 +221,6 @@ async def update_paper_fields(
             "updated_fields": list(update_data.keys()),
         },
         user_id=str(current_user.id),
-        db=db,
     )
 
     return JSONResponse(content=updated_paper.to_dict(), status_code=200)
@@ -348,64 +260,6 @@ async def get_relevant_papers(
             ]
         },
     )
-
-
-@paper_router.put("/note")
-async def update_paper_note(
-    paper_id: str,
-    request: UpdatePaperNoteSchema,
-    db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_required_user),
-):
-    """
-    Update the paper note associated with this document
-    """
-    content = request.content
-    target_paper = paper_crud.get(
-        db, id=paper_id, user=current_user, update_last_accessed=True
-    )
-
-    if not target_paper:
-        raise HTTPException(status_code=404, detail=f"No document with id {paper_id}")
-
-    paper_note = paper_note_crud.get_paper_note_by_paper_id(
-        db, paper_id=paper_id, user=current_user
-    )
-
-    if not paper_note:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No paper note associated with document ID {paper_id}",
-        )
-
-    paper_note_to_update = PaperNoteUpdate(content=content)
-
-    updated_paper_note = paper_note_crud.update(
-        db=db, db_obj=paper_note, obj_in=paper_note_to_update, user=current_user
-    )
-
-    if not updated_paper_note:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to update paper note for document ID {paper_id}",
-        )
-
-    track_event(
-        "paper_note_updated",
-        properties={
-            "paper_id": str(updated_paper_note.paper_id),
-            "note_id": str(updated_paper_note.id),
-            "content_length": (
-                len(str(updated_paper_note.content))
-                if updated_paper_note.content
-                else 0
-            ),
-        },
-        user_id=str(current_user.id) if current_user else None,
-        db=db,
-    )
-
-    return JSONResponse(content=updated_paper_note.to_dict(), status_code=200)
 
 
 @paper_router.get("/conversations")
@@ -509,48 +363,6 @@ async def list_supplementary_materials(
     return JSONResponse(status_code=200, content=items)
 
 
-@paper_router.get("/conversation")
-async def get_mru_paper_conversation(
-    paper_id: str,
-    db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_required_user),
-):
-    """
-    Get latest conversation associated with specific document
-    """
-    casted_paper_id = uuid.UUID(paper_id)
-
-    # Fetch the document from the database
-    document = paper_crud.get(
-        db, id=paper_id, user=current_user, update_last_accessed=True
-    )
-
-    if not document:
-        return JSONResponse(status_code=404, content={"message": "Document not found"})
-
-    # Fetch the latest conversation associated with the document
-    conversations = conversation_crud.get_document_conversations(
-        db, paper_id=casted_paper_id, current_user=current_user
-    )
-
-    if not conversations or len(conversations) == 0:
-        # No conversations found for the document
-        logger.info(f"No conversations found for document ID {paper_id}")
-        return JSONResponse(
-            status_code=404, content={"message": "No conversations found"}
-        )
-
-    latest_conversation = conversations[-1]
-
-    # Prepare the response data
-    conversation_data = (
-        latest_conversation.to_dict()
-    )  # Assuming to_dict() method exists
-
-    # Return the conversation data
-    return JSONResponse(status_code=200, content=conversation_data)
-
-
 @paper_router.get("")
 async def get_pdf(
     request: Request,
@@ -641,10 +453,6 @@ async def get_pdf(
 
     paper_data["file_url"] = signed_url
 
-    paper_data["summary"] = paper_crud.get_summary_replace_image_placeholders(
-        db, paper_id=id, current_user=current_user
-    )
-
     paper_data["tags"] = [  # type: ignore
         {"id": str(t.id), "name": t.name, "color": t.color} for t in paper.tags  # type: ignore
     ]
@@ -702,7 +510,6 @@ async def share_pdf(
             "share_id": paper.share_id,
         },
         user_id=str(current_user.id),
-        db=db,
     )
 
     # Return the generated share id
@@ -740,7 +547,6 @@ async def unshare_pdf(
             "share_id": paper.share_id,
         },
         user_id=str(current_user.id),
-        db=db,
     )
 
     # Return the generated share id
@@ -789,11 +595,6 @@ async def get_shared_pdf(
     highlights = highlight_crud.get_public_highlights_data_by_paper_id(db, share_id=id)
 
     paper_data["file_url"] = signed_url
-    paper_data["summary"] = (
-        paper_crud.get_summary_replace_image_placeholders_shared_paper(
-            db, paper_id=str(paper.id)
-        )
-    )
     response["paper"] = paper_data
     response["highlights"] = [highlight.to_dict() for highlight in highlights]
     response["annotations"] = [annotation.to_dict() for annotation in annotations]
@@ -806,7 +607,6 @@ async def get_shared_pdf(
             "share_id": paper.share_id,
         },
         user_id=str(current_user.id) if current_user else None,
-        db=db,
     )
 
     # Return the file URL
@@ -978,7 +778,6 @@ async def fork_shared_paper(
                 "original_paper_id": str(shared_paper.id),
                 "new_paper_id": str(new_paper.id),
             },
-            db=db,
         )
 
         return JSONResponse(

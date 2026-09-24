@@ -2,7 +2,6 @@ import logging
 
 from app.auth.dependencies import get_required_user
 from app.database.database import get_db
-from app.database.models import Annotation, Highlight, Paper
 from app.database.queries.search import search_knowledge_base
 from app.database.telemetry import track_event
 from app.schemas.user import CurrentUser
@@ -74,7 +73,6 @@ async def search_knowledge_base_endpoint(
                 "limit": limit,
                 "offset": offset,
             },
-            db=db,
         )
 
         return JSONResponse(status_code=200, content=results.model_dump(mode="json"))
@@ -87,42 +85,4 @@ async def search_knowledge_base_endpoint(
         raise HTTPException(
             status_code=500,
             detail="An error occurred while searching your knowledge base",
-        )
-
-
-@search_router.get("/stats")
-async def get_search_stats(
-    db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_required_user),
-):
-    """
-    Get statistics about the user's knowledge base for search context.
-
-    Returns counts of papers, highlights, and annotations.
-    """
-    try:
-
-        # Count total items in user's knowledge base
-        total_papers = db.query(Paper).filter(Paper.user_id == current_user.id).count()
-        total_highlights = (
-            db.query(Highlight).filter(Highlight.user_id == current_user.id).count()
-        )
-        total_annotations = (
-            db.query(Annotation).filter(Annotation.user_id == current_user.id).count()
-        )
-
-        return JSONResponse(
-            status_code=200,
-            content={
-                "total_papers": total_papers,
-                "total_highlights": total_highlights,
-                "total_annotations": total_annotations,
-                "searchable_items": total_papers + total_highlights + total_annotations,
-            },
-        )
-
-    except Exception as e:
-        logger.error(f"Error getting search stats: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500, detail="An error occurred while getting search statistics"
         )

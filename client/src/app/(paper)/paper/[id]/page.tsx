@@ -10,7 +10,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     FileText,
     Highlighter,
-    Lightbulb,
     MessageCircle,
 } from 'lucide-react';
 import { toast } from "sonner";
@@ -37,12 +36,6 @@ import { PaperMarkdownReader } from '@/components/PaperMarkdownReader';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Book, Box, ScrollText } from 'lucide-react';
 
-const OverviewTool = {
-    name: "Overview",
-    label: "Overview",
-    icon: Lightbulb,
-}
-
 const ChatTool = {
     name: "Chat",
     label: "Show chat",
@@ -64,7 +57,6 @@ const DocTool = {
 const PaperToolset = {
     nav: [
         ChatTool,
-        OverviewTool,
         AnnotationsTool,
         DocTool,
     ],
@@ -138,7 +130,7 @@ export default function PaperView() {
     const [sidePanelDisplayedText, setSidePanelDisplayedText] = useState('');
     const [elapsedTime, setElapsedTime] = useState(0);
 
-    const [rightSideFunction, setRightSideFunction] = useState<string>('Overview');
+    const [rightSideFunction, setRightSideFunction] = useState<string>('Chat');
     const annotationsPanelActive = rightSideFunction === 'Annotations';
 
     const [toolset, setToolset] = useState(PaperToolset);
@@ -160,10 +152,7 @@ export default function PaperView() {
             const rsf = hasInitializedRsf.current ? null : initialRsfRef.current;
 
             // Derive the available tools first
-            const hasOverview = Boolean(
-                paperData.summary && paperData.summary !== 'None'
-            );
-            const newNav = PaperToolset.nav.filter(tool => tool.name !== 'Overview' || hasOverview);
+            const newNav = PaperToolset.nav;
 
             const validTools = newNav.map(tool => tool.name.toLowerCase());
 
@@ -175,8 +164,6 @@ export default function PaperView() {
                 } else if (rsf && validTools.includes(rsf)) {
                     const toolName = newNav.find(tool => tool.name.toLowerCase() === rsf);
                     setRightSideFunction(toolName ? toolName.name : 'Chat');
-                } else if (hasOverview) {
-                    setRightSideFunction('Overview');
                 } else {
                     setRightSideFunction('Chat');
                 }
@@ -670,7 +657,7 @@ export default function PaperView() {
 
     const sidePanelProps = {
         rightSideFunction,
-        // Side panel content (chat / doc / annotations / overview) is always
+        // Side panel content (chat / doc / annotations) is always
         // bound to the parent — even when a supplementary PDF is shown.
         paperData,
         annotations,
@@ -680,7 +667,6 @@ export default function PaperView() {
         id: parentPaperId,
         matchesCurrentCitation,
         flashesCurrentCitation,
-        setRightSideFunction,
         setExplicitSearchTerm,
         handleCitationClick,
         userMessageReferences,

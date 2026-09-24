@@ -140,7 +140,6 @@ def can_user_upload_paper(db: Session, user: CurrentUser) -> tuple[bool, Optiona
                 "type": "paper_uploads",
                 "plan": plan.value,
             },
-            db=db,
         )
         plan_name = {
             SubscriptionPlan.BASIC: "Basic",
@@ -186,7 +185,6 @@ def can_user_create_project(
                 "type": "projects",
                 "plan": plan.value,
             },
-            db=db,
         )
         plan_name = {
             SubscriptionPlan.BASIC: "Basic",
@@ -230,7 +228,6 @@ def can_user_access_knowledge_base(
                 "type": "knowledge_base_size",
                 "plan": plan.value,
             },
-            db=db,
         )
         plan_name = {
             SubscriptionPlan.BASIC: "Basic",
@@ -276,7 +273,6 @@ def can_user_create_data_table_job(
                 "type": "data_tables",
                 "plan": plan.value,
             },
-            db=db,
         )
         plan_name = {
             SubscriptionPlan.BASIC: "Basic",
@@ -318,7 +314,6 @@ def can_user_run_discover_search(
                 "type": "discover_searches",
                 "plan": plan.value,
             },
-            db=db,
         )
         plan_name = {
             SubscriptionPlan.BASIC: "Basic",
@@ -358,7 +353,6 @@ def can_user_chat(db: Session, user: CurrentUser) -> tuple[bool, Optional[str]]:
                 "type": "chat_credits",
                 "plan": plan.value,
             },
-            db=db,
         )
         return (
             False,
@@ -450,7 +444,6 @@ def get_user_usage_info(db: Session, user: CurrentUser) -> Dict:
                 "limit": paper_limit,
                 "plan": plan.value,
             },
-            db=db,
         )
     if kb_usage_percentage > HIGH_USAGE_THRESHOLD:
         track_event(
@@ -462,7 +455,6 @@ def get_user_usage_info(db: Session, user: CurrentUser) -> Dict:
                 "limit": total_size_allowed,
                 "plan": plan.value,
             },
-            db=db,
         )
     if chat_credits_usage_percentage > HIGH_USAGE_THRESHOLD:
         track_event(
@@ -474,7 +466,6 @@ def get_user_usage_info(db: Session, user: CurrentUser) -> Dict:
                 "limit": chat_credits_allowed,
                 "plan": plan.value,
             },
-            db=db,
         )
     if project_usage_percentage > HIGH_USAGE_THRESHOLD:
         track_event(
@@ -486,7 +477,6 @@ def get_user_usage_info(db: Session, user: CurrentUser) -> Dict:
                 "limit": project_limit,
                 "plan": plan.value,
             },
-            db=db,
         )
 
     if discover_usage_percentage > HIGH_USAGE_THRESHOLD:
@@ -499,7 +489,6 @@ def get_user_usage_info(db: Session, user: CurrentUser) -> Dict:
                 "limit": discover_searches_allowed,
                 "plan": plan.value,
             },
-            db=db,
         )
 
     if data_table_usage_percentage > HIGH_USAGE_THRESHOLD:
@@ -512,7 +501,6 @@ def get_user_usage_info(db: Session, user: CurrentUser) -> Dict:
                 "limit": data_tables_allowed,
                 "plan": plan.value,
             },
-            db=db,
         )
 
     chat_credits_remaining = (

@@ -16,10 +16,8 @@ export interface PaperData {
     title: string;
     abstract: string;
     publish_date: string;
-    summary: string;
     institutions: string[];
     keywords: string[];
-    starter_questions: string[];
     is_public: boolean;
     share_id: string;
     status: PaperStatus;
@@ -254,7 +252,6 @@ export interface PaperItem {
     authors?: string[]
     keywords?: string[]
     institutions?: string[]
-    summary?: string
     created_at?: string
     publish_date?: string
     status?: PaperStatus

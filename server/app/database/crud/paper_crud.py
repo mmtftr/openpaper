@@ -1,5 +1,4 @@
 import logging
-import re
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -7,12 +6,9 @@ from typing import Any, Dict, List, Optional, Tuple
 from app.database.crud.annotation_crud import AnnotationCreate, annotation_crud
 from app.database.crud.base_crud import CRUDBase
 from app.database.crud.highlight_crud import HighlightCreate, highlight_crud
-from app.database.crud.paper_image_crud import paper_image_crud
-from app.database.crud.sanitization import sanitize_for_postgres
 from app.database.models import (
     JobStatus,
     Paper,
-    PaperImage,
     PaperStatus,
     PaperUploadJob,
     RoleType,
@@ -23,7 +19,6 @@ from app.llm.utils import find_offsets
 from app.schemas.responses import PaperMetadataExtraction, ResponseCitation
 from app.schemas.user import CurrentUser
 from pydantic import BaseModel
-from sqlalchemy import func, text
 from sqlalchemy.orm import Session, selectinload
 
 logger = logging.getLogger(__name__)
@@ -38,8 +33,6 @@ class PaperBase(BaseModel):
     abstract: Optional[str] = None
     institutions: Optional[List[str]] = None
     keywords: Optional[List[str]] = None
-    summary: Optional[str] = None
-    starter_questions: Optional[List[str]] = None
     publish_date: Optional[str] = None
     raw_content: Optional[str] = None
     upload_job_id: Optional[str] = None
@@ -390,282 +383,6 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
                     exc_info=True,
                 )
 
-    def get_summary_replace_image_placeholders(
-        self, db: Session, *, paper_id: str, current_user: CurrentUser
-    ) -> str:
-        """Replace image placeholders with actual images in the paper.
-
-        Args:
-            db (Session): Database session.
-            paper_id (str): ID of the paper to update.
-            user (CurrentUser): Current user making the request.
-        """
-
-        def _find_and_replace_all_placeholders(summary: str, images: List[PaperImage]):
-            """Find all the image placeholders in the paper. Placeholders are referenced by markdown-style image syntax, where the link is just the placeholder ID. If a placeholder is found, replace it with the actual image URL."""
-            for image in images:
-                placeholder = f"({image.placeholder_id})"
-                summary = summary.replace(placeholder, f"({image.image_url})")
-
-            # Remove any remaining image references in markdown format that don't match database entries
-            # Match markdown image syntax: ![alt text](url) or ![](url)
-            # Split by lines and filter out lines that contain unmatched image references
-            lines = summary.split("\n")
-            filtered_lines = []
-
-            for line in lines:
-                # Check if line contains markdown image syntax
-                if re.search(r"!\[.*?\]\([^)]+\)", line):
-                    # If it contains an image reference, check if it's a valid URL or still a placeholder
-                    # Remove lines that contain placeholder-style references (not actual URLs)
-                    image_refs = re.findall(r"!\[.*?\]\(([^)]+)\)", line)
-                    has_unmatched_placeholder = False
-
-                    for ref in image_refs:
-                        # If it's not a proper URL (doesn't start with http/https) and looks like a placeholder
-                        if not ref.startswith(
-                            ("http://", "https://")
-                        ) and not ref.startswith("/"):
-                            has_unmatched_placeholder = True
-                            break
-
-                    # Only keep the line if it doesn't have unmatched placeholders
-                    if not has_unmatched_placeholder:
-                        filtered_lines.append(line)
-                else:
-                    filtered_lines.append(line)
-
-            return "\n".join(filtered_lines)
-
-        # Get the paper
-        paper = self.get(db, id=paper_id, user=current_user)
-        if not paper:
-            raise ValueError(
-                f"Paper with ID {paper_id} not found or doesn't belong to user"
-            )
-
-        paper_images = paper_image_crud.get_by_paper_id(
-            db, paper_id=paper_id, user=current_user
-        )
-
-        # Get all image placeholders in the paper
-        image_placeholders = _find_and_replace_all_placeholders(
-            str(paper.summary), paper_images
-        )
-
-        return image_placeholders
-
-    def get_summary_replace_image_placeholders_shared_paper(
-        self, db: Session, *, paper_id: str
-    ) -> str:
-        """Replace image placeholders with actual images in a shared paper.
-
-        Args:
-            db (Session): Database session.
-            paper_id (str): ID of the paper to update.
-        """
-        # Get the paper without a user context first
-        paper = db.query(Paper).filter(Paper.id == paper_id).first()
-
-        if not paper:
-            raise ValueError(f"Paper with ID {paper_id} not found")
-
-        # Verify the paper is public
-        if not paper.is_public:
-            raise ValueError(f"Paper with ID {paper_id} is not a shared paper")
-
-        # Create a CurrentUser object from the paper's user_id
-        user_id = db.query(Paper.user_id).filter(Paper.id == paper_id).first()
-        if not user_id:
-            raise ValueError(f"User for paper with ID {paper_id} not found")
-
-        user = db.query(User).filter(User.id == user_id[0]).first()
-        if not user:
-            raise ValueError(f"User for paper with ID {paper_id} not found")
-
-        current_user = CurrentUser(id=user.id, email=user.email)
-
-        # Call the original method with the created user
-        return self.get_summary_replace_image_placeholders(
-            db, paper_id=paper_id, current_user=current_user
-        )
-
-    def get_all_available_papers(
-        self,
-        db: Session,
-        *,
-        user: CurrentUser,
-        query: Optional[str] = None,
-        paper_ids: Optional[List[str]] = None,
-    ) -> List[Paper]:
-        """
-        Get all papers available to the user, regardless of status.
-        This includes papers with 'todo', 'reading', and 'completed' statuses.
-        If a query is provided, it will filter papers by raw_content.
-        If paper_ids is provided, it will filter papers by the given list of IDs.
-        """
-        db_query = db.query(Paper).filter(
-            Paper.user_id == user.id,
-            Paper.supplementary_of_paper_id.is_(None),
-        )
-
-        if paper_ids:
-            db_query = db_query.filter(Paper.id.in_(paper_ids))
-
-        db_query = db_query.filter(Paper.ts_vector.isnot(None))
-
-        if query:
-            # The query is split into words and joined with '&' to create a tsquery.
-            # This means all words in the query must be present in the document.
-            ts_query = func.to_tsquery("english", " & ".join(query.split()))
-            db_query = db_query.filter(Paper.ts_vector.op("@@")(ts_query))
-
-        return db_query.order_by(Paper.updated_at.desc()).all()
-
-    @staticmethod
-    def build_passages(
-        raw_content: str, window: int = 5, stride: int = 3
-    ) -> list[dict]:
-        """Split raw_content into overlapping passage windows."""
-        lines = raw_content.split("\n")
-        passages = []
-        for i in range(0, len(lines), stride):
-            chunk = lines[i : i + window]
-            passages.append(
-                {
-                    "start_line": i + 1,  # 1-indexed
-                    "end_line": i + len(chunk),  # 1-indexed
-                    "content": "\n".join(chunk),
-                }
-            )
-        return passages
-
-    def index_paper_passages(
-        self,
-        db: Session,
-        *,
-        paper_id: uuid.UUID,
-        raw_content: str,
-        window: int = 5,
-        stride: int = 3,
-    ) -> None:
-        """Index a paper's content as overlapping passages for FTS."""
-        sanitized_raw_content = sanitize_for_postgres(raw_content)
-        if sanitized_raw_content != raw_content:
-            logger.warning(
-                "Sanitized null characters before indexing passages for paper %s",
-                paper_id,
-            )
-
-        db.execute(
-            text("DELETE FROM paper_passages WHERE paper_id = :paper_id"),
-            {"paper_id": paper_id},
-        )
-
-        passages = self.build_passages(
-            sanitized_raw_content,
-            window=window,
-            stride=stride,
-        )
-        if passages:
-            db.execute(
-                text(
-                    """
-                    INSERT INTO paper_passages (paper_id, start_line, end_line, content)
-                    VALUES (:paper_id, :start_line, :end_line, :content)
-                """
-                ),
-                [{"paper_id": paper_id, **p} for p in passages],
-            )
-        db.flush()
-
-    def search_papers_and_get_matching_lines(
-        self,
-        db: Session,
-        *,
-        user: CurrentUser,
-        query: str,
-        paper_ids: Optional[List[uuid.UUID]] = None,
-    ) -> List[Tuple[str, int, str]]:
-        """
-        Search for papers using passage-level FTS and return exact matching lines.
-
-        Queries the paper_passages table (GIN-indexed tsvector per passage),
-        then refines to exact lines with a cheap in-memory regex on the small
-        passage content. Deduplicates lines that appear in overlapping windows.
-        """
-        sanitized_query = query.replace("-", " ")
-        raw_terms = [
-            term.strip() for term in sanitized_query.split("|") if term.strip()
-        ]
-        if not raw_terms:
-            return []
-
-        search_terms = list({t.lower() for t in raw_terms})
-
-        # Build regex for in-memory line refinement
-        regex_terms = [re.escape(term) for term in search_terms]
-        regex_query = "|".join(regex_terms)
-
-        # Build FTS query clause
-        phrase_parts = []
-        for i, term in enumerate(search_terms):
-            phrase_parts.append(f"phraseto_tsquery('english', :term_{i})")
-        fts_query_clause = " || ".join(phrase_parts)
-
-        sql = f"""
-            SELECT pp.paper_id::text, pp.start_line, pp.content
-            FROM paper_passages pp
-            JOIN papers p ON p.id = pp.paper_id
-            WHERE pp.ts_vector @@ ({fts_query_clause})
-              AND p.user_id = :user_id
-              AND p.supplementary_of_paper_id IS NULL
-        """
-
-        params: dict = {"user_id": user.id}
-        for i, term in enumerate(search_terms):
-            params[f"term_{i}"] = term
-
-        if paper_ids:
-            sql += " AND pp.paper_id = ANY(:paper_ids)"
-            params["paper_ids"] = paper_ids
-
-        sql += " ORDER BY pp.paper_id, pp.start_line"
-
-        raw_results = db.execute(text(sql), params).fetchall()
-
-        # Refine: extract exact matching lines and deduplicate across
-        # overlapping passage windows.
-        seen: dict[tuple, tuple] = {}
-        for paper_id, start_line, content in raw_results:
-            for offset, line in enumerate(content.split("\n")):
-                if re.search(regex_query, line, re.IGNORECASE):
-                    key = (paper_id, start_line + offset)
-                    if key not in seen:
-                        seen[key] = (paper_id, start_line + offset, line)
-
-        return sorted(seen.values(), key=lambda r: (r[0], r[1]))
-
-    def get_topics(
-        self,
-        db: Session,
-        *,
-        user: CurrentUser,
-    ) -> List[str]:
-        """
-        Get a list of unique topics from all available papers.
-        """
-        papers = self.get_all_available_papers(db, user=user)
-        topics = set()
-
-        for paper in papers:
-            if paper.keywords:
-                for keyword in paper.keywords:
-                    if keyword:
-                        topics.add(str(keyword).strip())
-
-        return list(topics)
-
     def get_forked_paper_by_parent_id(
         self, db: Session, *, parent_paper_id: uuid.UUID, user: CurrentUser
     ) -> Paper | None:
@@ -729,8 +446,6 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
             abstract=str(original_paper.abstract),
             institutions=original_paper.institutions,  # type: ignore
             keywords=original_paper.keywords,  # type: ignore
-            summary=str(original_paper.summary),
-            starter_questions=original_paper.starter_questions,  # type: ignore
             publish_date=str(original_paper.publish_date) if original_paper.publish_date else None,  # type: ignore
             raw_content=original_paper.raw_content,  # type: ignore
             upload_job_id=None,  # New upload job ID
@@ -745,20 +460,6 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
 
         # Create the new paper in the database
         forked_paper = self.create(db, obj_in=new_paper_data, user=current_user)
-
-        # Index passages for the forked paper
-        if forked_paper and original_paper.raw_content:
-            try:
-                self.index_paper_passages(
-                    db,
-                    paper_id=uuid.UUID(str(forked_paper.id)),  # type: ignore
-                    raw_content=str(original_paper.raw_content),
-                )
-            except Exception as e:
-                logger.error(
-                    f"Error indexing passages for forked paper {forked_paper.id}: {e}",
-                    exc_info=True,
-                )
 
         return forked_paper
 

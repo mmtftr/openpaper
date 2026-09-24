@@ -383,16 +383,6 @@ export function PaperChatPanel({
               ? "OCR parsing failed for this paper, so chat is using fallback PDF text without structured sections or figures."
               : null;
 
-    const starterQuestions = useMemo(() => {
-        if (
-            paperData?.starter_questions &&
-            paperData.starter_questions.length > 0
-        ) {
-            return paperData.starter_questions;
-        }
-        return DEFAULT_STARTERS;
-    }, [paperData?.starter_questions]);
-
     // ---- useChat wiring ------------------------------------------------
     //
     // The transport sends ONLY the newest user message; server-side history
@@ -1442,7 +1432,7 @@ export function PaperChatPanel({
             <div className="px-3 pb-3 pt-2 space-y-2">
                 {messages.length <= 1 && !hasMoreMessages && !isStreaming && (
                     <Suggestions>
-                        {starterQuestions.slice(0, 5).map((q, i) => {
+                        {DEFAULT_STARTERS.slice(0, 5).map((q, i) => {
                             const sendText =
                                 q === COMPREHENSIVE_OVERVIEW_DISPLAY
                                     ? COMPREHENSIVE_OVERVIEW_PROMPT

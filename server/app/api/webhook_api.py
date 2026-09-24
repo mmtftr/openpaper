@@ -78,23 +78,6 @@ def handle_failed_upload(
     paper_upload_job_crud.mark_as_failed(db=db, job_id=job_id, user=job_user)
 
 
-class PDFImage(BaseModel):
-    """
-    Schema for an image extracted from a PDF.
-    """
-
-    page_number: int
-    image_index: int
-    s3_object_key: str
-    image_url: str
-    width: int
-    height: int
-    format: str
-    size_bytes: int
-    placeholder_id: str
-    caption: Optional[str] = None
-
-
 class PDFProcessingResult(BaseModel):
     """Result of PDF processing"""
 
@@ -239,7 +222,6 @@ async def handle_paper_processing_webhook(
                     title=metadata.title,
                     authors=metadata.authors,
                     abstract=metadata.abstract,
-                    summary="",
                     keywords=metadata.keywords,
                     institutions=metadata.institutions,
                     publish_date=publish_date,
@@ -255,20 +237,6 @@ async def handle_paper_processing_webhook(
                 db_obj=existing_paper,
                 user=job_user,
             )
-
-            # Index passages for full-text search
-            if result.raw_content and paper:
-                try:
-                    paper_crud.index_paper_passages(
-                        db,
-                        paper_id=uuid.UUID(str(paper.id)),
-                        raw_content=result.raw_content,
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Error indexing passages for job {job_id}: {str(e)}",
-                        exc_info=True,
-                    )
 
             # Supplementary uploads attach to a parent paper and don't get
             # auto-generated AI annotations or a dedicated conversation.
@@ -290,11 +258,6 @@ async def handle_paper_processing_webhook(
                         )
                         # Don't fail the whole process for annotation errors
 
-            # The summary used to be seeded into a fresh conversation as a
-            # fake first assistant message (with its own citation map). That
-            # was removed with the chat refactor — the summary lives in the
-            # Overview tab and chat starts empty.
-
             # Post-processing: attempt to get DOI
             doi = get_doi(metadata.title, metadata.authors)
 
@@ -313,12 +276,10 @@ async def handle_paper_processing_webhook(
                     "has_title": bool(metadata.title),
                     "has_authors": bool(metadata.authors),
                     "has_abstract": bool(metadata.abstract),
-                    "has_summary": bool(metadata.summary),
                     "has_ai_highlights": bool(metadata.highlights),
                     "has_doi": bool(doi),
                 },
                 user_id=str(user.id),
-                db=db,
             )
 
             start_time = job.created_at
@@ -332,7 +293,6 @@ async def handle_paper_processing_webhook(
                     "worker_duration": result.duration,
                 },
                 user_id=str(user.id),
-                db=db,
             )
 
             # Mark job as completed
