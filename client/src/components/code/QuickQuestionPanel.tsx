@@ -1,10 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import rehypeKatex from "rehype-katex";
 import { CornerDownLeftIcon, SparklesIcon, SquareIcon, XIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -22,7 +18,7 @@ import {
     ReasoningContent,
     ReasoningTrigger,
 } from "@/components/ai-elements/reasoning";
-import { codeMarkdownComponents } from "@/components/code/CodeBlock";
+import { Markdown } from "@/components/markdown/Markdown";
 import { ToolActivity } from "@/components/chat/ToolActivity";
 
 /**
@@ -276,15 +272,9 @@ export function QuickQuestionPanel({
                                 className="prose dark:prose-invert prose-sm !max-w-none text-xs"
                             >
                                 <Markdown
-                                    remarkPlugins={[
-                                        [
-                                            remarkMath,
-                                            { singleDollarTextMath: false },
-                                        ],
-                                        remarkGfm,
-                                    ]}
-                                    rehypePlugins={[rehypeKatex]}
-                                    components={codeMarkdownComponents}
+                                    streaming={
+                                        streaming && index === blocks.length - 1
+                                    }
                                 >
                                     {block.text}
                                 </Markdown>
