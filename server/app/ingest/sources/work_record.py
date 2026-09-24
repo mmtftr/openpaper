@@ -42,6 +42,20 @@ class WorkRecord:
     pdf_url: Optional[str] = None
 
 
+# "Smith, Jr." is a name with a suffix, not "Family, Given".
+_NAME_SUFFIXES = frozenset({"jr", "sr", "ii", "iii", "iv"})
+
+
+def display_author(name: str) -> Author:
+    """An author from a display name; "Family, Given" (which OpenAlex
+    sometimes returns) becomes "Given Family" with `family` set."""
+    if name.count(",") == 1:
+        family, given = (part.strip() for part in name.split(","))
+        if family and given and given.lower().rstrip(".") not in _NAME_SUFFIXES:
+            return Author(name=f"{given} {family}", family=family)
+    return Author(name=name)
+
+
 _TAG = re.compile(r"<[^>]+>")
 _SPACE = re.compile(r"\s+")
 

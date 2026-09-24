@@ -24,6 +24,7 @@ from app.ingest.sources.work_record import (
     WorkRecord,
     clean_text,
     dedupe,
+    display_author,
     parse_date,
 )
 
@@ -100,7 +101,7 @@ def parse_work(work: dict[str, Any]) -> WorkRecord:
         name = clean_text((authorship.get("author") or {}).get("display_name"))
         name = name or clean_text(authorship.get("raw_author_name"))
         if name:
-            authors.append(Author(name=name))
+            authors.append(display_author(name))
         institutions += [
             inst.get("display_name") or ""
             for inst in authorship.get("institutions") or []

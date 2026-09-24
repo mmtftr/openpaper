@@ -116,3 +116,16 @@ def test_messages_are_readable_and_capped():
 
 def test_temporary_error_retry_after():
     assert classify(TemporaryError("busy", retry_after=12)).retry_after == 12
+
+
+def test_messages_hide_api_keys_in_urls():
+    request = httpx.Request(
+        "GET", "https://api.openalex.org/works?search=x&api_key=s3cret&mailto=a@b.c"
+    )
+    response = httpx.Response(403, request=request)
+    error = httpx.HTTPStatusError(
+        f"Client error for url '{request.url}'", request=request, response=response
+    )
+    message = classify(error).message
+    assert "s3cret" not in message
+    assert "api_key=***&mailto=a@b.c" in message

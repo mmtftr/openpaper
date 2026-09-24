@@ -78,6 +78,23 @@ def test_openalex_arxiv_work_carries_the_arxiv_id():
     assert record.arxiv_id == "2404.15255"
 
 
+def test_openalex_family_first_names_are_turned_around():
+    work = {
+        "authorships": [
+            {"author": {"display_name": "Vaswani, Ashish"}},
+            {"author": {"display_name": "Noam Shazeer"}},
+            {"author": {"display_name": "Martin Luther King, Jr."}},
+            {"author": {}, "raw_author_name": "Parmar, N."},
+        ]
+    }
+    assert openalex.parse_work(work).authors == [
+        Author(name="Ashish Vaswani", family="Vaswani"),
+        Author(name="Noam Shazeer"),
+        Author(name="Martin Luther King, Jr."),
+        Author(name="N. Parmar", family="Parmar"),
+    ]
+
+
 def test_openalex_abstract_from_index():
     index = {"world": [1, 3], "hello": [0], "again": [2]}
     assert openalex.abstract_from_index(index) == "hello world again world"

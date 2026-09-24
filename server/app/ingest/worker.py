@@ -28,4 +28,8 @@ if __name__ == "__main__":
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # Their INFO lines print full request URLs, query-string API keys
+    # included (OpenAlex's `api_key`).
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     asyncio.run(main())

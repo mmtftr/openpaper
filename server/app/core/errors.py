@@ -20,6 +20,7 @@ worker both decide from this one function.
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -193,6 +194,9 @@ def retry_after_seconds(error: BaseException) -> Optional[float]:
     return None
 
 
+_API_KEY_PARAM_RE = re.compile(r"([?&]api_key=)[^&\s'\"]+")
+
+
 def short_error_text(error: BaseException, limit: int = MAX_MESSAGE_CHARS) -> str:
     """A compact, single-line description: `Type (status): detail`."""
     status = status_code(error)
@@ -200,6 +204,8 @@ def short_error_text(error: BaseException, limit: int = MAX_MESSAGE_CHARS) -> st
     if status is not None:
         prefix = f"{prefix} ({status})"
     detail = str(error).strip().replace("\n", " ")
+    # httpx errors quote the request URL, query-string API keys included.
+    detail = _API_KEY_PARAM_RE.sub(r"\1***", detail)
     text = f"{prefix}: {detail}" if detail else prefix
     return _truncate(text, limit)
 
