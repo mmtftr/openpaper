@@ -1632,7 +1632,7 @@ class TestPlanTrailingReuse:
     QUESTION = "why is the sky blue?"
 
     def _plan(self, rows, question=None):
-        from app.llm.chat.runtime import _plan_trailing_reuse
+        from app.llm.chat.plan import _plan_trailing_reuse
 
         return _plan_trailing_reuse(rows, question or self.QUESTION)
 
@@ -2082,7 +2082,7 @@ class TestMangledEvidenceMarkerFallback:
 
 
 def test_stored_references_reads_the_persisted_citation_list():
-    from app.llm.chat.runtime import _stored_references
+    from app.llm.chat.plan import _stored_references
 
     row = _row(
         "user",
