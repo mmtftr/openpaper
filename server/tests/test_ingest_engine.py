@@ -25,6 +25,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Iterator, Optional
 
 import pytest
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.errors import ConfigError, ErrorKind, PermanentError, TemporaryError
@@ -722,3 +723,147 @@ async def test_ingest_status(db) -> None:
             status = ingest_status(session, paper)
     assert not status.active and status.worker_online
     assert all(f.enabled for f in status.features.values())
+
+
+@pytest.mark.asyncio
+async def test_crashed_cpu_child_replaces_the_process_pool(db) -> None:
+    """A child dying (segfault, OOM kill) breaks a `ProcessPoolExecutor` for
+    good; the attempt must be a temporary failure and later CPU work must
+    get a fresh pool."""
+    script = Script()
+    crashed = asyncio.Event()
+
+    async def preview(ctx: StageContext) -> Any:
+        if ctx.attempt == 1:
+            await ctx.cpu(os._exit, 1)
+        crashed.set()
+        return await ctx.cpu(abs, -2)
+
+    async def figures(ctx: StageContext) -> Any:
+        await crashed.wait()  # not in the pool the crash breaks
+        return await ctx.cpu(abs, -3)
+
+    script.behaviors["preview"] = preview
+    script.behaviors["figures"] = figures
+    stages = fake_registry(script)
+    paper = new_paper(db, stages=stages)
+    async with running_engine(db, stages):  # no cpu_runner: the real pool
+        await wait_until(all_status(db, paper, "succeeded"), timeout=60, what="all")
+    result = rows(db, paper)
+    assert result["preview"].attempt == 2
+    assert (paper, "figures", 3) in script.saved
+    assert result["figures"].attempt == 1
+
+
+class FlakyDb:
+    """A session factory that refuses connections until `down_until`."""
+
+    def __init__(self, db: sessionmaker[Session]) -> None:
+        self.db = db
+        self.down_until = 0.0
+        self.refused = 0
+
+    def go_down(self, seconds: float) -> None:
+        self.down_until = time.monotonic() + seconds
+
+    def __call__(self) -> Session:
+        if time.monotonic() < self.down_until:
+            self.refused += 1
+            raise OperationalError("connect", None, Exception("database is down"))
+        return self.db()
+
+
+@pytest.mark.asyncio
+async def test_outcome_write_retries_while_database_is_down(db) -> None:
+    script = Script()
+    flaky = FlakyDb(db)
+
+    async def preview(ctx: StageContext) -> str:
+        flaky.go_down(1.0)  # right before the success write
+        return "preview-output"
+
+    script.behaviors["preview"] = preview
+    stages = fake_registry(script)
+    paper = new_paper(db, stages=stages)
+    engine = Engine(
+        session_factory=flaky, stages=stages, backoff=FAST_BACKOFF, poll_interval=0.05
+    )
+    task = asyncio.create_task(engine.run())
+    try:
+        await wait_until(all_status(db, paper, "succeeded"), timeout=15, what="all")
+    finally:
+        engine.stop()
+        await asyncio.wait_for(task, 10)
+    assert flaky.refused > 0
+    assert rows(db, paper)["preview"].attempt == 1  # the result wasn't lost
+    assert [n for p, n, _ in script.saved if n == "preview"] == ["preview"]
+
+
+@pytest.mark.asyncio
+async def test_dropped_outcome_is_requeued_by_reconciliation(db) -> None:
+    """When the outage outlasts the write retries the result is dropped;
+    the row left `running` is requeued once the database is back."""
+    script = Script()
+    flaky = FlakyDb(db)
+
+    async def preview(ctx: StageContext) -> str:
+        if ctx.attempt == 1:
+            flaky.go_down(1.0)
+        return "preview-output"
+
+    script.behaviors["preview"] = preview
+    stages = fake_registry(script)
+    paper = new_paper(db, stages=stages)
+    engine = Engine(
+        session_factory=flaky,
+        stages=stages,
+        backoff=FAST_BACKOFF,
+        poll_interval=0.05,
+        outcome_write_timeout=0.2,
+        reconcile_interval=0.1,
+    )
+    task = asyncio.create_task(engine.run())
+    try:
+        await wait_until(all_status(db, paper, "succeeded"), timeout=15, what="all")
+    finally:
+        engine.stop()
+        await asyncio.wait_for(task, 10)
+    preview_row = rows(db, paper)["preview"]
+    assert preview_row.attempt == 2
+    assert [a for p, n, a, _ in script.runs if n == "preview"] == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_paper_deleted_while_stages_run_is_swept(db) -> None:
+    """Stages finishing after their paper was deleted record nothing and
+    sweep the paper's S3 prefix (they may have uploaded after the delete)."""
+    script = Script()
+    swept: list[uuid.UUID] = []
+    deleted = asyncio.Event()
+
+    async def preview(ctx: StageContext) -> str:
+        def delete(session: Session) -> None:
+            session.execute(
+                text("DELETE FROM papers WHERE id = :p"), {"p": ctx.paper_id}
+            )
+
+        await ctx.write(delete)
+        deleted.set()
+        return "preview"
+
+    async def text_layer(ctx: StageContext) -> str:
+        await deleted.wait()
+        raise TemporaryError("upstream busy")
+
+    async def ocr(ctx: StageContext) -> str:
+        await deleted.wait()
+        return "ocr"
+
+    script.behaviors.update(preview=preview, text_layer=text_layer, ocr=ocr)
+    stages = fake_registry(script)
+    paper = new_paper(db, stages=stages)
+    async with running_engine(db, stages, sweep_paper=swept.append):
+        await wait_until(lambda: len(swept) == 3, what="three sweeps")
+    assert swept == [paper] * 3
+    assert rows(db, paper) == {}
+    assert script.saved == []

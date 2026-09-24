@@ -4,7 +4,8 @@ One asyncio loop in one process:
 
 1. Start: stages left `running` by a crash go back to `queued` (or `failed`
    when that was their last attempt); the heartbeat row is written and kept
-   fresh.
+   fresh. Every `RECONCILE_INTERVAL_SECONDS` the same happens to `running`
+   rows no task here is working on (an outcome that couldn't be recorded).
 2. Poll every `POLL_INTERVAL_SECONDS` — or right away when a stage finishes —
    for due `queued` rows, claim as many as each resource has free slots
    (`queued` → `running`, `attempt + 1`) and run each as an asyncio task.
@@ -15,6 +16,9 @@ One asyncio loop in one process:
    - error: `classify()` → retryable and attempts left: `queued` again at
      now + backoff (Retry-After aware); otherwise `failed` and the waiting
      downstream `blocked`.
+   While the database is unreachable the write is retried for up to
+   `OUTCOME_WRITE_TIMEOUT_SECONDS`. If the paper was deleted meanwhile, its
+   S3 prefix is swept (the stage may have uploaded after the delete did).
 4. `stop()` (SIGTERM): no new claims; running stages get `shutdown_grace`
    seconds to finish, the rest are cancelled and requeued without counting
    the interrupted attempt.
@@ -35,16 +39,18 @@ import socket
 import time
 import uuid
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Callable, Mapping, Optional
+from typing import Any, Callable, Collection, Mapping, Optional
 
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.deadline import Deadline
-from app.core.errors import TemporaryError, classify
+from app.core.errors import TemporaryError, classify, short_error_text
 from app.core.retry import STAGE_BACKOFF, BackoffPolicy, next_stage_delay
 from app.database.models import Paper
 from app.ingest import config
@@ -63,11 +69,18 @@ from app.ingest.stages.base import CpuRunner, Stage, StageContext, StageSkipped
 logger = logging.getLogger(__name__)
 
 SessionFactory = Callable[[], Session]
+# (paper_id, stage name, attempt) of a stage this worker is running.
+RunKey = tuple[uuid.UUID, str, int]
 
 # Running stages get this long to finish after SIGTERM before being requeued.
 SHUTDOWN_GRACE_SECONDS = 10.0
 # Progress rows are written at most this often per stage (plus the last one).
 PROGRESS_INTERVAL_SECONDS = 1.0
+# A finished stage keeps trying to record its outcome this long while the
+# database is unreachable, then drops it (the row is requeued, see below).
+OUTCOME_WRITE_TIMEOUT_SECONDS = 60.0
+# How often `running` rows without a task here are requeued.
+RECONCILE_INTERVAL_SECONDS = 30.0
 
 INTERRUPTED_MESSAGE = "Interrupted: the ingest worker stopped while this ran"
 
@@ -87,6 +100,21 @@ def _default_session_factory() -> Session:
     from app.database.database import SessionLocal
 
     return SessionLocal()
+
+
+def _delete_paper_objects(paper_id: uuid.UUID) -> None:
+    from app.helpers.s3 import s3_service
+    from app.ingest.storage import delete_paper_objects
+
+    delete_paper_objects(s3_service, paper_id)
+
+
+def _db_unavailable(exc: BaseException) -> bool:
+    """Connection lost / server down (or a deadlock): worth retrying the
+    same write, unlike a constraint violation from a buggy `save()`."""
+    return isinstance(exc, (OperationalError, InterfaceError)) or (
+        isinstance(exc, DBAPIError) and exc.connection_invalidated
+    )
 
 
 def _still_ours(row: Optional[IngestStage], claim: Claim) -> bool:
@@ -133,7 +161,10 @@ class Engine:
         backoff: BackoffPolicy = STAGE_BACKOFF,
         shutdown_grace: float = SHUTDOWN_GRACE_SECONDS,
         progress_interval: float = PROGRESS_INTERVAL_SECONDS,
+        outcome_write_timeout: float = OUTCOME_WRITE_TIMEOUT_SECONDS,
+        reconcile_interval: float = RECONCILE_INTERVAL_SECONDS,
         cpu_runner: Optional[CpuRunner] = None,
+        sweep_paper: Callable[[uuid.UUID], None] = _delete_paper_objects,
     ) -> None:
         self.session_factory = session_factory
         self.stages = stage_classes(stages)
@@ -143,7 +174,10 @@ class Engine:
         self.backoff = backoff
         self.shutdown_grace = shutdown_grace
         self.progress_interval = progress_interval
+        self.outcome_write_timeout = outcome_write_timeout
+        self.reconcile_interval = reconcile_interval
         self._cpu_runner = cpu_runner
+        self._sweep_paper = sweep_paper
         self._pool: Optional[ProcessPoolExecutor] = None
         self._busy: dict[Resource, int] = {res: 0 for res in Resource}
         self._tasks: dict[asyncio.Task[None], Claim] = {}
@@ -168,6 +202,7 @@ class Engine:
             "ingest worker started (concurrency %s)",
             ", ".join(f"{res.value} {n}" for res, n in self.concurrency.items()),
         )
+        next_reconcile = time.monotonic() + self.reconcile_interval
         try:
             while not self._stopping.is_set():
                 self._wake.clear()
@@ -175,6 +210,9 @@ class Engine:
                     await self._fill()
                 except Exception:
                     logger.exception("ingest poll failed")
+                if time.monotonic() >= next_reconcile:
+                    next_reconcile = time.monotonic() + self.reconcile_interval
+                    await self._reconcile()
                 try:
                     await asyncio.wait_for(self._wake.wait(), self.poll_interval)
                 except TimeoutError:
@@ -196,6 +234,24 @@ class Engine:
     def recover(self) -> int:
         """Stages left `running` → `queued` (the lost attempt counts), or
         `failed` if it was the last one. Returns how many were touched."""
+        return self._requeue_orphans(())
+
+    async def _reconcile(self) -> None:
+        """Requeue `running` rows none of our tasks owns — e.g. one whose
+        outcome couldn't be written while the database was down. Runs in the
+        main loop between claims, so every claimed row already has a task."""
+        in_flight = {(c.paper_id, c.name, c.attempt) for c in self._tasks.values()}
+        try:
+            requeued = await asyncio.to_thread(self._requeue_orphans, in_flight)
+        except Exception:
+            logger.warning("reconciling running stages failed", exc_info=True)
+            return
+        if requeued:
+            logger.warning("requeued %d stage(s) running without a task", requeued)
+            self._wake.set()
+
+    def _requeue_orphans(self, in_flight: Collection[RunKey]) -> int:
+        """`recover()` for every `running` row not in `in_flight`."""
         with self.session_factory() as session:
             paper_ids = session.scalars(
                 select(IngestStage.paper_id)
@@ -206,7 +262,9 @@ class Engine:
             for paper_id in paper_ids:
                 rows = lock_rows(session, paper_id)
                 for name, row in rows.items():
-                    if row.status is not StageStatus.RUNNING:
+                    if row.status is not StageStatus.RUNNING or (
+                        (paper_id, name, row.attempt) in in_flight
+                    ):
                         continue
                     touched += 1
                     row.error_message = INTERRUPTED_MESSAGE
@@ -353,8 +411,19 @@ class Engine:
                 max_workers=self.concurrency.get(Resource.CPU, 2),
                 mp_context=multiprocessing.get_context("spawn"),
             )
+        pool = self._pool
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._pool, functools.partial(fn, *args))
+        try:
+            return await loop.run_in_executor(pool, functools.partial(fn, *args))
+        except BrokenProcessPool as exc:
+            # A child died (segfault, OOM kill): the pool refuses all work
+            # from now on. Drop it; the next call starts a fresh one.
+            if self._pool is pool:
+                pool.shutdown(wait=False, cancel_futures=True)
+                self._pool = None
+            raise TemporaryError(
+                "A CPU worker process died (crash or out of memory)"
+            ) from exc
 
     async def _execute(self, claim: Claim, stage: Stage[Any]) -> None:
         progress = _Progress(self, claim)
@@ -375,15 +444,64 @@ class Engine:
             await asyncio.to_thread(stage.check_config)
             async with budget:
                 output = await stage.run(ctx)
-            await asyncio.to_thread(self._succeed, claim, stage, ctx, output, progress)
+            # A `save()` error other than the database being down lands in
+            # the `except` below: the attempt fails like any other error.
+            await self._record(
+                claim, self._succeed, claim, stage, ctx, output, progress
+            )
             ctx.log.info("succeeded in %.1fs", time.monotonic() - started)
         except StageSkipped as skipped:
-            await asyncio.to_thread(self._skip, claim, skipped.reason)
+            await self._record(claim, self._skip, claim, skipped.reason)
             ctx.log.info("skipped: %s", skipped.reason)
         except Exception as exc:
             if isinstance(exc, TimeoutError) and budget.expired():
                 exc = TemporaryError(f"Timed out after {stage.timeout_s:g} s")
-            await asyncio.to_thread(self._fail, claim, exc, progress)
+            await self._record(claim, self._fail, claim, exc, progress)
+
+    async def _record(
+        self, claim: Claim, write: Callable[..., None], *args: Any
+    ) -> None:
+        """Run an outcome write, retrying while the database is unreachable.
+
+        Gives up after `outcome_write_timeout` seconds: the row stays
+        `running` until `_reconcile` requeues it once this task is gone.
+        """
+        give_up_at = time.monotonic() + self.outcome_write_timeout
+        delay = 0.5
+        while True:
+            try:
+                await asyncio.to_thread(write, *args)
+                return
+            except Exception as exc:
+                if not _db_unavailable(exc):
+                    raise
+                if time.monotonic() + delay > give_up_at:
+                    logger.error(
+                        "dropping the outcome of %s: database unreachable for %.0fs",
+                        claim,
+                        self.outcome_write_timeout,
+                        exc_info=True,
+                    )
+                    return
+                logger.warning(
+                    "recording the outcome of %s failed, retry in %.1fs: %s",
+                    claim,
+                    delay,
+                    short_error_text(exc),
+                )
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 10.0)
+
+    def _paper_deleted(self, claim: Claim) -> None:
+        """The paper was deleted while `claim` ran: sweep its S3 prefix, which
+        the stage may have written to after the delete removed it."""
+        logger.info("%s: paper deleted meanwhile, removing its stored objects", claim)
+        try:
+            self._sweep_paper(claim.paper_id)
+        except Exception:
+            logger.warning(
+                "sweeping objects of deleted %s failed", claim, exc_info=True
+            )
 
     def _succeed(
         self,
@@ -394,9 +512,10 @@ class Engine:
         progress: _Progress,
     ) -> None:
         with self.session_factory() as session:
-            if not _still_ours(
-                lock_rows(session, claim.paper_id).get(claim.name), claim
-            ):
+            rows = lock_rows(session, claim.paper_id)
+            if not rows:
+                return self._paper_deleted(claim)
+            if not _still_ours(rows.get(claim.name), claim):
                 logger.warning("dropping result of %s: row changed meanwhile", claim)
                 return
             stage.save(session, ctx, output)
@@ -414,6 +533,8 @@ class Engine:
     def _skip(self, claim: Claim, reason: str) -> None:
         with self.session_factory() as session:
             rows = lock_rows(session, claim.paper_id)
+            if not rows:
+                return self._paper_deleted(claim)
             row = rows.get(claim.name)
             if not _still_ours(row, claim):
                 return
@@ -432,6 +553,8 @@ class Engine:
         )
         with self.session_factory() as session:
             rows = lock_rows(session, claim.paper_id)
+            if not rows:
+                return self._paper_deleted(claim)
             row = rows.get(claim.name)
             if not _still_ours(row, claim):
                 return
