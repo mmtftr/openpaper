@@ -180,7 +180,6 @@ async def set_paper_status(
             "status": updated_paper.status,
         },
         user_id=str(current_user.id),
-        db=db,
     )
 
     return JSONResponse(content=updated_paper.to_dict(), status_code=200)
@@ -222,7 +221,6 @@ async def update_paper_fields(
             "updated_fields": list(update_data.keys()),
         },
         user_id=str(current_user.id),
-        db=db,
     )
 
     return JSONResponse(content=updated_paper.to_dict(), status_code=200)
@@ -512,7 +510,6 @@ async def share_pdf(
             "share_id": paper.share_id,
         },
         user_id=str(current_user.id),
-        db=db,
     )
 
     # Return the generated share id
@@ -550,7 +547,6 @@ async def unshare_pdf(
             "share_id": paper.share_id,
         },
         user_id=str(current_user.id),
-        db=db,
     )
 
     # Return the generated share id
@@ -611,7 +607,6 @@ async def get_shared_pdf(
             "share_id": paper.share_id,
         },
         user_id=str(current_user.id) if current_user else None,
-        db=db,
     )
 
     # Return the file URL
@@ -783,7 +778,6 @@ async def fork_shared_paper(
                 "original_paper_id": str(shared_paper.id),
                 "new_paper_id": str(new_paper.id),
             },
-            db=db,
         )
 
         return JSONResponse(

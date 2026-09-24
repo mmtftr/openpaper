@@ -555,7 +555,6 @@ async def run_quick_question(
                     "tool_calls": repo_tools.calls,
                 },
                 user_id=str(current_user.id),
-                db=db,
             )
         except Exception:
             pass

@@ -52,7 +52,6 @@ async def search_papers(
                 "sort": sort.value if sort else None,
                 "results_count": len(results.results),
             },
-            db=db,
         )
         return Response(
             content=results.model_dump_json(), media_type="application/json"
@@ -127,7 +126,6 @@ async def get_paper_graph(
                 "cited_by_count": graph.cited_by.meta.get("count", 0),
                 "cites_count": graph.cites.meta.get("count", 0),
             },
-            db=db,
         )
         return Response(content=graph.model_dump_json(), media_type="application/json")
     except HTTPException:
@@ -162,7 +160,6 @@ async def get_author_works(
                 "results_count": len(results.results),
                 "total_count": results.meta.get("count", 0),
             },
-            db=db,
         )
         return Response(
             content=results.model_dump_json(), media_type="application/json"

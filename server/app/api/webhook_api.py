@@ -280,7 +280,6 @@ async def handle_paper_processing_webhook(
                     "has_doi": bool(doi),
                 },
                 user_id=str(user.id),
-                db=db,
             )
 
             start_time = job.created_at
@@ -294,7 +293,6 @@ async def handle_paper_processing_webhook(
                     "worker_duration": result.duration,
                 },
                 user_id=str(user.id),
-                db=db,
             )
 
             # Mark job as completed

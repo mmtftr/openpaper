@@ -702,7 +702,6 @@ async def run_paper_chat(
                     "context_mode": chat_context.context_mode,
                 },
                 user_id=str(current_user.id),
-                db=db,
             )
         except Exception:
             pass
@@ -841,7 +840,6 @@ async def run_paper_chat(
                     ],
                 },
                 user_id=str(current_user.id),
-                db=db,
             )
     finally:
         # Stop the pump before anything else. `.cancel()` is synchronous and

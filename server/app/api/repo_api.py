@@ -313,7 +313,6 @@ async def connect_repo(
         "repo_connected",
         properties={"paper_id": str(paper_uuid), "repo": ref.slug},
         user_id=str(current_user.id),
-        db=db,
     )
     return _serialize(row)
 
@@ -345,7 +344,6 @@ async def disconnect_repo(
         "repo_disconnected",
         properties={"paper_id": str(paper_uuid)},
         user_id=str(current_user.id),
-        db=db,
     )
     return Response(status_code=204)
 
