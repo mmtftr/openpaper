@@ -917,8 +917,9 @@ export interface paths {
          * Get Paper Figure
          * @description Stream a high-DPI figure PNG for the given paper.
          *
-         *     `label_or_id` accepts the human label ("Figure 2", "Fig. 3a", "Table 4")
-         *     or the internal Mistral bbox id (e.g. "img-0.jpeg"). Returns the PNG
+         *     `label_or_id` accepts the figure's id (from the figures list), the human
+         *     label ("Figure 2", "Fig. 3a", "Table 4") or the legacy Mistral image id
+         *     (e.g. "img-0.jpeg"). Returns the PNG
          *     bytes inline so it can be embedded directly in the chat UI.
          */
         get: operations["get_paper_figure_api_paper__paper_id__figure__label_or_id__get"];

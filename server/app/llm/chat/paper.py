@@ -538,7 +538,8 @@ def build_paper_agent(
         name="get_figure",
         description=(
             "Fetch a figure or table by label, such as Figure 2 or "
-            "Table 4. Returns metadata (label, page, caption) "
+            "Table 4 (or, for an unlabeled figure, its id from the outline). "
+            "Returns metadata (label, page, caption) "
             + (
                 "plus the rendered image so you can read the figure directly. "
                 if supports_vision
@@ -712,7 +713,7 @@ def _resolve_figure_with_image(
             "label": figure.label,
             "page": figure.page_no,
             "caption": figure.caption,
-            "id": figure.ocr_image_id,
+            "id": str(figure.id),
             "paper_id": effective_paper_id,
         },
         "image_bytes": image_bytes,

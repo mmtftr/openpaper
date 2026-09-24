@@ -142,13 +142,17 @@ def resolve_figure(
 ) -> Optional[Figure]:
     """Find a figure by id or by its human label.
 
-    Tries, in document order: the row id or Mistral image id exactly (old
-    chat history and the markdown reader use "img-N.jpeg"), then the
-    normalized label exactly, then a label containing the input (so "3a"
-    finds "Figure 3a").
+    Tries the row id (what the API, chat tools and the markdown reader hand
+    out), then, in document order, the Mistral image id exactly (saved chat
+    history uses "img-N.jpeg"; it repeats across OCR batches, so the first
+    wins), then the normalized label exactly, then a label containing the
+    input (so "3a" finds "Figure 3a").
     """
     for fig in paper_figures:
-        if label_or_id in (str(fig.id), fig.ocr_image_id):
+        if label_or_id == str(fig.id):
+            return fig
+    for fig in paper_figures:
+        if label_or_id == fig.ocr_image_id:
             return fig
 
     target = normalize_label(label_or_id)

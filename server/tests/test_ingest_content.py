@@ -82,6 +82,29 @@ def test_resolve_figure_prefers_ids_then_exact_labels_then_partial_labels():
     assert content.resolve_figure(figs, "Figure 9") is None
 
 
+def test_repeated_mistral_ids_resolve_distinctly_by_row_id(monkeypatch):
+    """Mistral restarts image ids per OCR batch, so two unlabeled figures on
+    pages 1 and 17 are both "img-0.jpeg"; everything handed out uses the
+    row id, which tells them apart. The bare Mistral id (saved chat
+    history) still resolves, to the first."""
+    first = _figure(1, "img-0.jpeg")
+    later = _figure(17, "img-0.jpeg")
+    figs = [first, later]
+
+    assert content.resolve_figure(figs, str(first.id)) is first
+    assert content.resolve_figure(figs, str(later.id)) is later
+    assert content.resolve_figure(figs, "img-0.jpeg") is first
+
+    outline = section_tools.build_outline(SimpleNamespace(), [], figs)  # type: ignore[arg-type]
+    assert [f["id"] for f in outline["figures"]] == [str(first.id), str(later.id)]
+
+    monkeypatch.setattr(section_tools, "_get_paper_or_raise", lambda *a, **k: None)
+    monkeypatch.setattr(section_tools, "_load_figures", lambda db, paper: figs)
+    got = section_tools.get_figure("p", str(later.id), None, None)  # type: ignore[arg-type]
+    assert (got["id"], got["page"]) == (str(later.id), 17)
+    assert got["url"] == f"/api/paper/p/figure/{later.id}"
+
+
 # -- readers --------------------------------------------------------------------
 
 
@@ -102,7 +125,7 @@ def test_outline_lists_page_headings_and_figures():
             "label": "Figure 1",
             "page": 2,
             "caption": None,
-            "id": "img-0.jpeg",
+            "id": str(figs[0].id),
             "available": False,
         }
     ]

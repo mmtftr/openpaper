@@ -4,7 +4,7 @@ Endpoints for the high-DPI figure bitmaps rendered at ingest.
 Figures are `paper_figures` rows (`{label, ocr_image_id, page_no, s3_key,
 caption}`, read via `app.ingest.content`). This module resolves human labels
 ("Figure 2", "Fig. 3a", "Table 4"), the Mistral image id ("img-0.jpeg") or
-the row id to the stored PNG and streams it. Stored keys are never rewritten,
+the row id (what the figures list returns) to the stored PNG and streams it. Stored keys are never rewritten,
 so images saved in chat history (legacy `figures/{paper_id}/img-N.jpeg.png`
 keys included) keep resolving.
 """
@@ -51,8 +51,9 @@ def get_paper_figure(
 ):
     """Stream a high-DPI figure PNG for the given paper.
 
-    `label_or_id` accepts the human label ("Figure 2", "Fig. 3a", "Table 4")
-    or the internal Mistral bbox id (e.g. "img-0.jpeg"). Returns the PNG
+    `label_or_id` accepts the figure's id (from the figures list), the human
+    label ("Figure 2", "Fig. 3a", "Table 4") or the legacy Mistral image id
+    (e.g. "img-0.jpeg"). Returns the PNG
     bytes inline so it can be embedded directly in the chat UI.
     """
     paper = paper_crud.get(db, id=paper_id, user=current_user)
@@ -96,7 +97,7 @@ def list_paper_figures(
 
     return [
         PaperFigureSummary(
-            id=fig.ocr_image_id,
+            id=str(fig.id),
             label=fig.label,
             caption=fig.caption,
             page=fig.page_no,

@@ -10284,7 +10284,7 @@
     },
     "/api/paper/{paper_id}/figure/{label_or_id}": {
       "get": {
-        "description": "Stream a high-DPI figure PNG for the given paper.\n\n`label_or_id` accepts the human label (\"Figure 2\", \"Fig. 3a\", \"Table 4\")\nor the internal Mistral bbox id (e.g. \"img-0.jpeg\"). Returns the PNG\nbytes inline so it can be embedded directly in the chat UI.",
+        "description": "Stream a high-DPI figure PNG for the given paper.\n\n`label_or_id` accepts the figure's id (from the figures list), the human\nlabel (\"Figure 2\", \"Fig. 3a\", \"Table 4\") or the legacy Mistral image id\n(e.g. \"img-0.jpeg\"). Returns the PNG\nbytes inline so it can be embedded directly in the chat UI.",
         "operationId": "get_paper_figure_api_paper__paper_id__figure__label_or_id__get",
         "parameters": [
           {

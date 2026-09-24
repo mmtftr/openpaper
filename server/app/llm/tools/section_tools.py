@@ -137,7 +137,7 @@ def build_outline(
             "label": fig.label,
             "page": fig.page_no,
             "caption": fig.caption,
-            "id": fig.ocr_image_id,
+            "id": str(fig.id),
             "available": fig.available,
         }
         for fig in figures
@@ -556,7 +556,7 @@ def get_figure(
         "label": figure.label,
         "page": figure.page_no,
         "caption": figure.caption,
-        "id": figure.ocr_image_id,
+        "id": str(figure.id),
         "paper_id": effective_id,
-        "url": f"/api/paper/{effective_id}/figure/{figure.label or figure.ocr_image_id}",
+        "url": f"/api/paper/{effective_id}/figure/{figure.id}",
     }
