@@ -25,7 +25,6 @@ dependencies = [
     "pydantic-settings>=2.8.1",
     "types-psycopg2>=2.9.21.20250318",
     "types-requests>=2.32.0.20250306",
-    "sqlalchemy2-stubs>=0.0.2a38",
     "boto3>=1.37.33",
     "types-boto3>=1.37.33",
     "gunicorn>=23.0.0",
@@ -84,8 +83,6 @@ pythonVersion = "3.12"  # the Docker image's Python
 typeCheckingMode = "basic"
 # Tests hand SimpleNamespace/None fakes to typed params and rely on asserts
 # rather than narrowing Optionals, so those rules are off under tests/ only.
-# SQLAlchemy 1.x-style `Column` attributes (typed via sqlalchemy2-stubs) get
-# line-level `# pyright: ignore[...]` in app/ until the Phase 5 typed models.
 executionEnvironments = [
     { root = "tests", reportArgumentType = "none", reportOptionalMemberAccess = "none", reportOptionalSubscript = "none", reportTypedDictNotRequiredAccess = "none", reportSelfClsParameterName = "none" },
     { root = "app" },

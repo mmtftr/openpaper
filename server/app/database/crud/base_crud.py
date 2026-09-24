@@ -3,14 +3,14 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar, Union
 
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Query, Session
 
 from app.database.crud.sanitization import sanitize_for_postgres
 from app.database.models import Base
 from app.schemas.user import CurrentUser
 
 # Type variable for SQLAlchemy models
-ModelType = TypeVar("ModelType", bound="Base")  # type: ignore
+ModelType = TypeVar("ModelType", bound=Base)
 CreateSchemaType = TypeVar("CreateSchemaType", bound=BaseModel)
 UpdateSchemaType = TypeVar("UpdateSchemaType", bound=BaseModel)
 
@@ -33,10 +33,17 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         """
         self.model = model
 
-    def _filter_by_user(self, query, user: Optional[CurrentUser] = None):
+    def _col(self, name: str) -> Any:
+        """A column attribute of the model (`id`, `user_id`, ...), which the
+        `Base` bound of `ModelType` can't promise statically."""
+        return getattr(self.model, name)
+
+    def _filter_by_user(
+        self, query: Query[ModelType], user: Optional[CurrentUser] = None
+    ) -> Query[ModelType]:
         """Add user filter to query if model has user_id and user is provided"""
         if user and hasattr(self.model, "user_id"):
-            return query.filter(self.model.user_id == user.id)
+            return query.filter(self._col("user_id") == user.id)
         return query
 
     def get(
@@ -49,12 +56,12 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
     ) -> Optional[ModelType]:
         """Get a single record by ID, optionally filtered by user"""
         try:
-            query = db.query(self.model).filter(self.model.id == id)
+            query = db.query(self.model).filter(self._col("id") == id)
             query = self._filter_by_user(query, user)
             if update_last_accessed and hasattr(self.model, "last_accessed_at"):
                 # Update last accessed timestamp if applicable
                 query.update(
-                    {self.model.last_accessed_at: datetime.now(timezone.utc)},
+                    {self._col("last_accessed_at"): datetime.now(timezone.utc)},
                     synchronize_session=False,
                 )
                 db.commit()
@@ -72,7 +79,7 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         RISK: This method should be used with caution as it bypasses user ownership checks. Use sparingly and only if absolutely necessary.
         """
         try:
-            return db.query(self.model).filter(self.model.id == id).first()
+            return db.query(self.model).filter(self._col("id") == id).first()
         except Exception as e:
             logger.error(
                 f"Error retrieving {self.model.__name__} with ID {id}: {str(e)}",
@@ -196,7 +203,11 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         user: Optional[CurrentUser] = None,
     ) -> Optional[ModelType]:
         """Update a record, verifying user ownership if specified"""
-        if user and hasattr(db_obj, "user_id") and db_obj.user_id != user.id:
+        if (
+            user
+            and hasattr(db_obj, "user_id")
+            and getattr(db_obj, "user_id") != user.id
+        ):
             logger.warning(
                 f"User {user.id} attempted to update {self.model.__name__} owned by another user"
             )
@@ -214,7 +225,7 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
                 logger.warning(
                     "Sanitized null characters before updating %s %s in fields: %s",
                     self.model.__name__,
-                    db_obj.id,
+                    getattr(db_obj, "id", None),
                     ", ".join(sanitized_fields),
                 )
 
@@ -229,7 +240,7 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         except Exception as e:
             db.rollback()
             logger.error(
-                f"Error updating {self.model.__name__} with ID {db_obj.id}: {str(e)}",
+                f"Error updating {self.model.__name__} with ID {getattr(db_obj, 'id', None)}: {str(e)}",
                 exc_info=True,
             )
             return None
@@ -239,10 +250,10 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
     ) -> Optional[ModelType]:
         """Delete a record, optionally verifying user ownership"""
         try:
-            query = db.query(self.model).filter(self.model.id == id)
+            query = db.query(self.model).filter(self._col("id") == id)
             query = self._filter_by_user(query, user)
             obj = query.first()
-            if obj:
+            if obj is not None:
                 db.delete(obj)
                 db.commit()
                 return obj

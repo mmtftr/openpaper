@@ -24,7 +24,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Optional, Sequence
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -70,9 +70,7 @@ def clear_ocr(session: Session, paper_id: uuid.UUID) -> None:
         .where(PaperPage.paper_id == paper_id)
         .values(ocr_markdown=None, ocr_payload=None)
     )
-    session.execute(
-        PaperFigure.__table__.delete().where(PaperFigure.paper_id == paper_id)
-    )
+    session.execute(delete(PaperFigure).where(PaperFigure.paper_id == paper_id))
 
 
 def save_batch(
@@ -90,7 +88,7 @@ def save_batch(
         }
         for p in pages
     ]
-    stmt = insert(PaperPage.__table__).values(page_rows)
+    stmt = insert(PaperPage).values(page_rows)
     session.execute(
         stmt.on_conflict_do_update(
             index_elements=["paper_id", "page_no"],
@@ -116,7 +114,7 @@ def save_batch(
         for f in p.figures
     ]
     if figure_rows:
-        fstmt = insert(PaperFigure.__table__).values(figure_rows)
+        fstmt = insert(PaperFigure).values(figure_rows)
         session.execute(
             fstmt.on_conflict_do_update(
                 constraint="uq_paper_figures_image",

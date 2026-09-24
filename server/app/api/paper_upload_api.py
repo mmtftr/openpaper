@@ -87,7 +87,7 @@ def _create_rows(
         db.add(ProjectPaper(paper_id=paper.id, project_id=project_id))
     service.enqueue_paper(
         db,
-        paper.id,  # pyright: ignore[reportArgumentType]
+        paper.id,
         is_supplementary=is_supplementary,
         source_succeeded=True,
     )

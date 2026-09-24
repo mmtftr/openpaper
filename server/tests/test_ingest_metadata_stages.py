@@ -61,7 +61,7 @@ def make_ctx(stage: str, attempt: int = 1, s3: Any = None) -> StageContext:
         attempt=attempt,
         is_supplementary=False,
         deadline=Deadline(60),
-        session_factory=lambda: FakeSession(),  # type: ignore[arg-type,return-value]
+        session_factory=lambda: FakeSession(),
         s3=s3,
     )
 
@@ -136,7 +136,7 @@ async def test_metadata_resolves_embedded_doi_and_skips_fallback(
 
     paper = paper_row(title="My own title", metadata_source={"title": "user"})
     session = FakeSession(paper)
-    metadata_stage.Metadata().save(session, ctx, output)  # type: ignore[arg-type]
+    metadata_stage.Metadata().save(session, ctx, output)
 
     assert paper.title == "My own title"  # edited by the owner: kept
     assert paper.doi == "10.1073/pnas.2516511123"
@@ -147,7 +147,7 @@ async def test_metadata_resolves_embedded_doi_and_skips_fallback(
     [statement] = session.statements
     sql = str(
         statement.compile(
-            dialect=postgresql.dialect(),  # type: ignore[attr-defined]
+            dialect=postgresql.dialect(),
             compile_kwargs={"literal_binds": True},
         )
     )
@@ -169,7 +169,7 @@ async def test_metadata_unresolved_writes_nothing(monkeypatch, use_routes):
 
     assert output == MetadataOutput()
     session = FakeSession(paper_row())
-    metadata_stage.Metadata().save(session, ctx, output)  # type: ignore[arg-type]
+    metadata_stage.Metadata().save(session, ctx, output)
     assert session.statements == []  # metadata_fallback stays pending
 
 
@@ -291,7 +291,7 @@ async def test_fallback_llm_extraction_is_unverified(monkeypatch, use_routes, fa
 
     paper = paper_row(metadata_source={"keywords": "user"}, keywords=["mine"])
     fallback_stage.MetadataFallback().save(
-        FakeSession(paper),  # type: ignore[arg-type]
+        FakeSession(paper),
         ctx,
         output,
     )
@@ -345,9 +345,9 @@ async def test_fallback_skips_when_the_lookup_already_resolved(monkeypatch):
 
 def test_resolved_by_lookup_reads_the_title_source():
     session = FakeSession(paper_row(metadata_source={"title": "arxiv"}))
-    assert fallback_stage._resolved_by_lookup(session, uuid.uuid4())  # type: ignore[arg-type]
+    assert fallback_stage._resolved_by_lookup(session, uuid.uuid4())
     session = FakeSession(paper_row(metadata_source={"title": "llm"}))
-    assert not fallback_stage._resolved_by_lookup(session, uuid.uuid4())  # type: ignore[arg-type]
+    assert not fallback_stage._resolved_by_lookup(session, uuid.uuid4())
 
 
 def test_fallback_check_config_does_not_need_a_model(monkeypatch):
@@ -373,7 +373,7 @@ async def test_fallback_without_any_text_skips(monkeypatch, use_routes, fake_llm
 def test_write_fields_skips_empty_values_and_keeps_existing():
     paper = paper_row(abstract="old abstract", metadata_source={"abstract": "llm"})
     written = lookup.write_fields(
-        FakeSession(paper),  # type: ignore[arg-type]
+        FakeSession(paper),
         uuid.uuid4(),
         {
             "title": ("T", MetadataSource.ARXIV),

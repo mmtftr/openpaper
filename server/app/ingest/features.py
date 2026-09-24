@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Mapping, Optional, Protocol, Union
 
 from app.ingest import graph
-from app.ingest.models import StageStatus
+from app.ingest.models import IngestStage, StageStatus
 
 # Feature -> stages that must all be succeeded/skipped.
 FEATURES: dict[str, tuple[str, ...]] = {
@@ -50,7 +50,9 @@ class StageLike(Protocol):
     def error_message(self) -> Optional[str]: ...
 
 
-StageInput = Union[StageLike, StageStatus, str]
+# `IngestStage` listed on its own: pyright doesn't match its `Mapped[...]`
+# columns against the protocol's properties.
+StageInput = Union[StageLike, IngestStage, StageStatus, str]
 
 
 @dataclass(frozen=True)

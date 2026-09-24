@@ -18,10 +18,8 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Optional
 
-# pyright ignores: SQLAlchemy 2.0 names the 1.4-era sqlalchemy2-stubs
-# (resolved first by pyright) don't know. Runtime is SQLAlchemy 2.0.
-from sqlalchemy import (  # type: ignore
-    UUID,  # pyright: ignore[reportAttributeAccessIssue]
+from sqlalchemy import (
+    UUID,
     CheckConstraint,
     DateTime,
     Float,
@@ -34,13 +32,13 @@ from sqlalchemy import (  # type: ignore
 )
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import (  # type: ignore
+from sqlalchemy.orm import (
     Mapped,
-    mapped_column,  # pyright: ignore[reportAttributeAccessIssue]
+    mapped_column,
 )
 
 from app.core.errors import ErrorKind
-from app.database.models import Base
+from app.database.models.base import Base
 
 
 class StageStatus(StrEnum):

@@ -147,7 +147,7 @@ class MessageCRUD(CRUDBase[Message, MessageCreate, MessageUpdate]):
             db, conversation_id=conversation_id, current_user=current_user
         )
         for i, message in enumerate(messages):
-            message.sequence = (i + 1) * gap  # type: ignore
+            message.sequence = (i + 1) * gap
         db.commit()
 
 

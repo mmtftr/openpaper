@@ -234,9 +234,7 @@ def email_set_name(
         )
 
     # Update user with name
-    user_crud.update(
-        db, db_obj=db_user, obj_in=UserUpdate(name=request.name), user=db_user
-    )
+    user_crud.update(db, db_obj=db_user, obj_in=UserUpdate(name=request.name))
 
     return AuthResponse(success=True, message="Name set successfully")
 
@@ -297,8 +295,8 @@ def email_verify(
     # Set the session cookie on the response
     set_session_cookie(
         response,
-        token=session.token,  # pyright: ignore[reportArgumentType]
-        expires_at=session.expires_at,  # type: ignore
+        token=session.token,
+        expires_at=session.expires_at,
     )
 
     track_event("email_signin_completed", user_id=str(db_user.id))

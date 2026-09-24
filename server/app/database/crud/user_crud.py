@@ -26,8 +26,8 @@ def _bootstrap_user_account(db: Session, *, user: User) -> User:
     (and a verified email)."""
     is_admin_email = str(user.email).lower() in _admin_emails()
     if is_admin_email and not bool(user.is_admin):
-        user.is_admin = True  # type: ignore[assignment]
-        user.is_email_verified = True  # type: ignore[assignment]
+        user.is_admin = True
+        user.is_email_verified = True
         db.add(user)
         db.commit()
         db.refresh(user)
@@ -116,8 +116,8 @@ class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
         self, db: Session, *, user: User, code: str, expires_at: datetime.datetime
     ) -> User:
         """Update user's verification code and expiry."""
-        user.email_verification_token = code  # type: ignore
-        user.email_verification_expires_at = expires_at  # type: ignore
+        user.email_verification_token = code
+        user.email_verification_expires_at = expires_at
         db.add(user)
         db.commit()
         db.refresh(user)
@@ -125,9 +125,9 @@ class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
 
     def verify_email(self, db: Session, *, user: User) -> User:
         """Mark user's email as verified and clear verification code."""
-        user.is_email_verified = True  # type: ignore
-        user.email_verification_token = None  # type: ignore
-        user.email_verification_expires_at = None  # type: ignore
+        user.is_email_verified = True
+        user.email_verification_token = None
+        user.email_verification_expires_at = None
         db.add(user)
         db.commit()
         db.refresh(user)

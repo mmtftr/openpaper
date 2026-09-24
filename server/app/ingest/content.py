@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 import uuid
 from dataclasses import dataclass
-from typing import Any, Optional, Sequence
+from typing import Optional, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -29,9 +29,8 @@ from app.ingest.models import PaperFigure, PaperPage
 # Between two pages in `full_text` (and in every "whole paper" read).
 PAGE_SEPARATOR = "\n\n"
 
-# A `uuid.UUID` or its string. `Any` so the legacy Column-typed `Paper.id`
-# (sqlalchemy2-stubs) passes without a cast at every call site.
-PaperId = Any
+# A `uuid.UUID` or its string.
+PaperId = uuid.UUID | str
 
 
 @dataclass(frozen=True)

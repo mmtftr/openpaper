@@ -137,9 +137,9 @@ def load_overrides() -> dict[str, SlotOverride]:
     with SessionLocal() as db:
         return {
             str(row.slot): SlotOverride(
-                provider=row.provider,  # type: ignore[arg-type]
-                model=row.model,  # type: ignore[arg-type]
-                reasoning_effort=row.reasoning_effort,  # type: ignore[arg-type]
+                provider=row.provider,
+                model=row.model,
+                reasoning_effort=row.reasoning_effort,
             )
             for row in list_model_slots(db)
         }

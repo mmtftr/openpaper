@@ -205,7 +205,7 @@ class DocumentCRUD(CRUDBase[Document, DocumentCreate, DocumentUpdate]):
         if doc.user_id != user.id:
             raise PermissionError("not your document")
         new_title = (title or "").strip() or "Untitled"
-        doc.title = new_title  # type: ignore[assignment]
+        doc.title = new_title
         db.commit()
         db.refresh(doc)
         return doc
@@ -242,7 +242,7 @@ class DocumentCRUD(CRUDBase[Document, DocumentCreate, DocumentUpdate]):
 
         sanitized = sanitize_for_postgres(content)
 
-        new_revision = int(doc.revision) + 1  # pyright: ignore[reportArgumentType]
+        new_revision = int(doc.revision) + 1
         result = (
             db.query(Document)
             .filter(
@@ -261,7 +261,7 @@ class DocumentCRUD(CRUDBase[Document, DocumentCreate, DocumentUpdate]):
             db.rollback()
             db.refresh(doc)
             raise RevisionMismatch(
-                current_revision=int(doc.revision),  # pyright: ignore[reportArgumentType]
+                current_revision=int(doc.revision),
                 current_content=str(doc.content or ""),
             )
 

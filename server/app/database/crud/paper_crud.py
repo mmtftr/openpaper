@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import List, Optional, Tuple
 
 from pydantic import BaseModel
+from sqlalchemy import true
 from sqlalchemy.orm import Session, selectinload
 
 from app.database.crud.base_crud import CRUDBase
@@ -142,7 +143,7 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
             .options(selectinload(Paper.tags))
             .filter(
                 Paper.user_id == user.id,
-                (Paper.status == status if status else True),
+                Paper.status == status if status else true(),
                 Paper.supplementary_of_paper_id.is_(None),
             )
             .order_by(Paper.updated_at.desc())

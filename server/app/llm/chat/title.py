@@ -34,7 +34,7 @@ def rename_conversation(
 
     # Idempotent: skip if a title already exists. Lets callers fire this
     # after every chat message — only the first exchange triggers the LLM.
-    if conversation.title:  # type: ignore[truthy-bool]
+    if conversation.title:
         return str(conversation.title)
 
     chat_history = message_crud.get_conversation_messages(

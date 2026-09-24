@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from pydantic import BaseModel
-from sqlalchemy import and_, func, literal, or_, select
+from sqlalchemy import and_, func, literal, or_, select, true
 from sqlalchemy.dialects.postgresql import aggregate_order_by
 from sqlalchemy.orm import Session, joinedload
 
@@ -107,7 +107,7 @@ def search_knowledge_base(
     paper_query = (
         db.query(Paper)
         .filter(Paper.user_id == user.id)
-        .filter(Paper.id.in_(papers_filter) if papers_filter else True)
+        .filter(Paper.id.in_(papers_filter) if papers_filter else true())
         .filter(
             or_(
                 func.lower(Paper.title).like(search_pattern),

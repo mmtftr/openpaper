@@ -83,7 +83,7 @@ def list_docs(
             {
                 "name": str(d.title or ""),
                 "kind": str(d.kind),
-                "revision": int(d.revision),  # pyright: ignore[reportArgumentType]
+                "revision": int(d.revision),
                 "updated_at": d.updated_at.isoformat() if d.updated_at else None,
             }
             for d in docs
@@ -125,7 +125,7 @@ def read_doc(
         return {
             "name": str(doc.title or ""),
             "content": str(doc.content or ""),
-            "revision": int(doc.revision),  # pyright: ignore[reportArgumentType]
+            "revision": int(doc.revision),
         }
 
     doc = document_crud.get_by_name_for_paper(
@@ -136,7 +136,7 @@ def read_doc(
     return {
         "name": str(doc.title or ""),
         "content": str(doc.content or ""),
-        "revision": int(doc.revision),  # pyright: ignore[reportArgumentType]
+        "revision": int(doc.revision),
     }
 
 
@@ -204,7 +204,7 @@ def write_doc(
                 db,
                 doc=doc,
                 content=content,
-                expected_revision=int(doc.revision),  # pyright: ignore[reportArgumentType]
+                expected_revision=int(doc.revision),
                 user=current_user,
             )
         except RevisionMismatch as e:
@@ -217,7 +217,7 @@ def write_doc(
             }
         return {
             "name": str(updated.title or ""),
-            "revision": int(updated.revision),  # pyright: ignore[reportArgumentType]
+            "revision": int(updated.revision),
             "created": True,
         }
 
@@ -256,7 +256,7 @@ def write_doc(
 
     return {
         "name": str(updated.title or ""),
-        "revision": int(updated.revision),  # pyright: ignore[reportArgumentType]
+        "revision": int(updated.revision),
         "created": False,
     }
 

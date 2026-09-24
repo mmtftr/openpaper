@@ -2,6 +2,7 @@ import uuid
 from typing import List, Optional
 
 from pydantic import BaseModel
+from sqlalchemy import insert
 from sqlalchemy.orm import Session
 
 from app.database.crud.base_crud import CRUDBase
@@ -173,7 +174,7 @@ class PaperTagCRUD(CRUDBase[PaperTag, PaperTagCreate, PaperTagUpdate]):
                     )
 
         if associations_to_create:
-            db.bulk_insert_mappings(PaperTagAssociation, associations_to_create)
+            db.execute(insert(PaperTagAssociation), associations_to_create)
             db.commit()
 
 

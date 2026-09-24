@@ -21,8 +21,8 @@ IsoDatetime = Annotated[
     _DATETIME_SCHEMA,
 ]
 
-# `str(datetime)` on the wire (space instead of `T`), as `Base.to_dict()`
-# and the paper list endpoints have always produced.
+# `str(datetime)` on the wire (space instead of `T`), as the paper list
+# endpoints have always produced.
 StrDatetime = Annotated[
     datetime,
     PlainSerializer(str, return_type=str, when_used="json"),

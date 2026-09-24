@@ -12,16 +12,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-# pyright ignores: SQLAlchemy 2.0 names the 1.4-era sqlalchemy2-stubs
-# (resolved first by pyright) don't know. Runtime is SQLAlchemy 2.0.
-from sqlalchemy import DateTime, Text, func  # type: ignore
+from sqlalchemy import DateTime, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import (  # type: ignore
+from sqlalchemy.orm import (
     Mapped,
-    mapped_column,  # pyright: ignore[reportAttributeAccessIssue]
+    mapped_column,
 )
 
-from app.database.models import Base
+from app.database.models.base import Base
 
 
 class ReferenceResolution(Base):

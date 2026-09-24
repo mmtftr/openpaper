@@ -261,7 +261,7 @@ def write_fields(
     paper = session.get(Paper, paper_id)
     if paper is None:
         return []
-    sources: dict[str, str] = dict(paper.metadata_source or {})  # type: ignore[arg-type]
+    sources: dict[str, str] = dict(paper.metadata_source or {})
     written: list[str] = []
     for name, (value, source) in fields.items():
         if name not in METADATA_FIELDS or not value:
@@ -274,8 +274,8 @@ def write_fields(
         sources[name] = MetadataSource(source).value
         written.append(name)
     # Reassign (not mutate) so SQLAlchemy sees the JSONB change.
-    paper.metadata_source = sources  # type: ignore[assignment]
-    paper.attempted_metadata_at = datetime.now(timezone.utc)  # type: ignore[assignment]
+    paper.metadata_source = sources
+    paper.attempted_metadata_at = datetime.now(timezone.utc)
     return written
 
 

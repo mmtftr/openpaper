@@ -21,12 +21,12 @@ class ProjectBaseCRUD(CRUDBase[ModelType, CreateSchemaType, UpdateSchemaType]):
             return db.query(self.model)
         else:
             return db.query(self.model).join(
-                Project, self.model.project_id == Project.id
+                Project, self._col("project_id") == Project.id
             )
 
-    def get(self, db: Session, id: Any, *, user: CurrentUser) -> Optional[ModelType]:  # type: ignore
+    def get(self, db: Session, id: Any, *, user: CurrentUser) -> Optional[ModelType]:
         query = self._get_base_query(db)
-        return query.filter(self.model.id == id, Project.owner_id == user.id).first()
+        return query.filter(self._col("id") == id, Project.owner_id == user.id).first()
 
     def get_multi_by_user(
         self, db: Session, *, user: CurrentUser, skip: int = 0, limit: int = 100
@@ -40,7 +40,7 @@ class ProjectBaseCRUD(CRUDBase[ModelType, CreateSchemaType, UpdateSchemaType]):
             .all()
         )
 
-    def update(  # type: ignore
+    def update(
         self,
         db: Session,
         *,
@@ -51,7 +51,7 @@ class ProjectBaseCRUD(CRUDBase[ModelType, CreateSchemaType, UpdateSchemaType]):
         try:
             query = self._get_base_query(db)
             db_obj = query.filter(
-                self.model.id == id, Project.owner_id == user.id
+                self._col("id") == id, Project.owner_id == user.id
             ).first()
 
             if not db_obj:
@@ -77,10 +77,12 @@ class ProjectBaseCRUD(CRUDBase[ModelType, CreateSchemaType, UpdateSchemaType]):
             )
             return None
 
-    def remove(self, db: Session, *, id: Any, user: CurrentUser) -> Optional[ModelType]:  # type: ignore
+    def remove(self, db: Session, *, id: Any, user: CurrentUser) -> Optional[ModelType]:
         try:
             query = self._get_base_query(db)
-            obj = query.filter(self.model.id == id, Project.owner_id == user.id).first()
+            obj = query.filter(
+                self._col("id") == id, Project.owner_id == user.id
+            ).first()
 
             if obj:
                 if self.model is Project:

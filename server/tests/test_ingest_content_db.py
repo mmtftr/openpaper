@@ -10,7 +10,7 @@ import os
 import uuid
 
 import pytest
-from sqlalchemy import create_engine, text, update
+from sqlalchemy import create_engine, delete, text, update
 from sqlalchemy.orm import Session
 
 from app.database.models import Paper, User
@@ -25,7 +25,7 @@ pytestmark = pytest.mark.skipif(not DB_URL, reason="INGEST_TEST_DATABASE_URL not
 
 @pytest.fixture
 def session():
-    engine = create_engine(DB_URL)  # pyright: ignore[reportArgumentType]
+    engine = create_engine(DB_URL)
     with Session(engine) as session:
         yield session
         session.rollback()
@@ -153,7 +153,7 @@ def test_search_vector_follows_page_markdown_and_title(session, paper):
     )
 
     # Deleting the pages (OCR reprocess) drops their text from the index.
-    session.execute(PaperPage.__table__.delete().where(PaperPage.paper_id == paper.id))
+    session.execute(delete(PaperPage).where(PaperPage.paper_id == paper.id))
     fire_deferred(session)
     assert search_vector(session, paper) == expected_vector(session, "SAEs", "")
 

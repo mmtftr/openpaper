@@ -77,11 +77,11 @@ def _paper_files(db: Session, paper: Paper) -> tuple[list[str], set[str]]:
     """A paper's S3 objects as (prefixes, keys): everything under
     `papers/{id}/` plus, for papers the old pipeline stored, the PDF /
     preview / figure images it kept elsewhere (`uploads/…`, `figures/{id}/…`)."""
-    prefix = storage.paper_prefix(paper.id)  # pyright: ignore[reportArgumentType]
+    prefix = storage.paper_prefix(paper.id)
     keys = [
         str(paper.s3_object_key) if paper.s3_object_key else None,
-        storage.key_from_public_url(s3_service, paper.preview_url),  # pyright: ignore[reportArgumentType]
-        *(f.s3_key for f in content.figures(db, paper.id)),  # pyright: ignore[reportArgumentType]
+        storage.key_from_public_url(s3_service, paper.preview_url),
+        *(f.s3_key for f in content.figures(db, paper.id)),
     ]
     return (
         [prefix, f"figures/{paper.id}/"],
@@ -142,12 +142,12 @@ def get_paper_ids(
             papers=papers,
         )
 
-    processing = _processing_ids(db, [p.id for p in papers])  # pyright: ignore[reportArgumentType]
+    processing = _processing_ids(db, [p.id for p in papers])
     return LibraryPapersResponse(
         papers=[
             LibraryPaper(
                 **_list_item_fields(paper),
-                publish_date=paper.publish_date,  # pyright: ignore[reportArgumentType]
+                publish_date=paper.publish_date,
                 file_url=file_urls.get(str(paper.id)),
                 tags=paper.tags,  # pyright: ignore[reportArgumentType]
                 processing=paper.id in processing,
@@ -170,7 +170,7 @@ def get_active_paper_ids(
     )
     return ActivePapersResponse(
         papers=[
-            ActivePaper(**_list_item_fields(paper), publish_date=paper.publish_date)  # pyright: ignore[reportArgumentType]
+            ActivePaper(**_list_item_fields(paper), publish_date=paper.publish_date)
             for paper in papers
         ]
     )
@@ -235,7 +235,7 @@ def update_paper_fields(
 
     # Owner edits win over later metadata lookups (reprocess, fallback).
     # A new dict, so SQLAlchemy sees the JSONB change.
-    sources: dict[str, str] = dict(target_paper.metadata_source or {})  # type: ignore[arg-type]
+    sources: dict[str, str] = dict(target_paper.metadata_source or {})
     for name in update_data:
         if name in METADATA_FIELDS:
             sources[name] = MetadataSource.USER.value
@@ -293,14 +293,14 @@ def get_paper_conversations(
     conversations = conversation_crud.get_document_conversations(
         db, paper_id=paper_id, current_user=current_user
     )
-    conversations = sorted(conversations, key=lambda c: c.updated_at, reverse=True)  # type: ignore[arg-type]
+    conversations = sorted(conversations, key=lambda c: c.updated_at, reverse=True)
 
     return [
         PaperConversationSummary(
-            id=c.id,  # type: ignore[arg-type]
-            title=c.title,  # type: ignore[arg-type]
-            created_at=c.created_at,  # type: ignore[arg-type]
-            updated_at=c.updated_at,  # type: ignore[arg-type]
+            id=c.id,
+            title=c.title,
+            created_at=c.created_at,
+            updated_at=c.updated_at,
         )
         for c in conversations
     ]
@@ -322,17 +322,17 @@ def list_supplementary_materials(
     )
     return [
         SupplementaryMaterialItem(
-            id=paper.id,  # type: ignore[arg-type]
+            id=paper.id,
             # Supplementaries get no metadata lookup: the PDF's embedded
             # title (text_layer) or else the uploaded file's name.
-            title=paper.title or paper.source_filename,  # type: ignore[arg-type]
-            preview_url=paper.preview_url,  # type: ignore[arg-type]
-            page_count=paper.page_count,  # type: ignore[arg-type]
-            created_at=paper.created_at,  # type: ignore[arg-type]
+            title=paper.title or paper.source_filename,
+            preview_url=paper.preview_url,
+            page_count=paper.page_count,
+            created_at=paper.created_at,
         )
         for paper in sorted(
             supplementary_papers,
-            key=lambda p: p.created_at or datetime.min.replace(tzinfo=timezone.utc),  # type: ignore[arg-type]
+            key=lambda p: p.created_at or datetime.min.replace(tzinfo=timezone.utc),
         )
     ]
 

@@ -146,10 +146,10 @@ def get_papers_for_tag(
     papers = paper_tag_crud.get_papers_for_tag(db, tag_id=tag_id, user=current_user)
     return [
         TaggedPaper(
-            id=p.id,  # type: ignore[arg-type]
-            title=p.title,  # type: ignore[arg-type]
-            authors=p.authors,  # type: ignore[arg-type]
-            publish_date=p.publish_date,  # type: ignore[arg-type]
+            id=p.id,
+            title=p.title,
+            authors=p.authors,
+            publish_date=p.publish_date,
         )
         for p in papers
     ]
