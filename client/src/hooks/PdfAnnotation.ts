@@ -2,10 +2,14 @@ import {
     PaperHighlightAnnotation
 } from '@/lib/schema';
 import { fetchFromApi } from '@/lib/api';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export function useAnnotations(paperId: string) {
     const [annotations, setAnnotations] = useState<PaperHighlightAnnotation[]>([]);
+    // The paper whose annotations are wanted right now; responses for a paper
+    // the reader has since switched away from are dropped.
+    const currentPaperIdRef = useRef(paperId);
+    currentPaperIdRef.current = paperId;
 
     const addAnnotation = async (highlightId: string, content: string) => {
         const newAnnotation: Partial<PaperHighlightAnnotation> = {
@@ -22,7 +26,9 @@ export function useAnnotations(paperId: string) {
                 },
                 body: JSON.stringify(newAnnotation),
             });
-            setAnnotations(prev => [...prev, savedAnnotation]);
+            if (currentPaperIdRef.current === paperId) {
+                setAnnotations(prev => [...prev, savedAnnotation]);
+            }
             return savedAnnotation;
         } catch (error) {
             console.error('Error saving annotation:', error);
@@ -71,7 +77,9 @@ export function useAnnotations(paperId: string) {
                 method: 'GET',
             });
 
-            setAnnotations(loadedAnnotations);
+            if (currentPaperIdRef.current === paperId) {
+                setAnnotations(loadedAnnotations);
+            }
             return loadedAnnotations;
         } catch (error) {
             console.error('Error loading annotations:', error);
@@ -83,9 +91,12 @@ export function useAnnotations(paperId: string) {
         await fetchAnnotations();
     };
 
+    // Load on mount and whenever the displayed paper changes.
     useEffect(() => {
-        fetchAnnotations();
-    }, []);
+        setAnnotations([]);
+        fetchAnnotations().catch(() => {});
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [paperId]);
 
     return {
         annotations,

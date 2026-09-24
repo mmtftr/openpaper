@@ -9,6 +9,7 @@ import { Loader2, FileText, Plus, Pencil, Trash2, Check, X, ChevronDown } from '
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { toast } from 'sonner';
 
 const MilkdownImpl = dynamic(() => import('./PaperDocEditorImpl'), {
     ssr: false,
@@ -197,51 +198,70 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
         inFlightRef.current = true;
         setStatus({ kind: 'saving' });
         const sentContent = pending;
-        const sentRevision = current.revision;
         const sentDocId = current.id;
-        try {
+        // Set when the save ends in a state a blind retry can't fix (a second
+        // conflict); the `finally` below then doesn't re-schedule another PUT.
+        let stopRetrying = false;
+        const put = (expectedRevision: number) => {
             const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
-            const response = await fetch(`${apiBase}/api/document/${sentDocId}`, {
+            return fetch(`${apiBase}/api/document/${sentDocId}`, {
                 method: 'PUT',
                 credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     content: sentContent,
-                    expected_revision: sentRevision,
+                    expected_revision: expectedRevision,
                 }),
             });
+        };
+        try {
+            let response = await put(current.revision);
+            let updated: DocumentResponse | null = null;
+            let overwroteOtherEdits = false;
 
-            if (response.status === 413) {
-                setStatus({ kind: 'too-large' });
-                return;
-            }
             if (response.status === 409) {
-                const body = await response.json().catch(() => null);
-                if (body && typeof body.current_revision === 'number' &&
-                    typeof body.current_content === 'string') {
-                    // Update our notion of the latest server state. Don't
-                    // overwrite the editor — surface a Reload prompt instead.
-                    if (docRef.current?.id === sentDocId) {
-                        setDoc({
-                            ...current,
-                            revision: body.current_revision,
-                            content: body.current_content,
-                        });
+                // Someone else (the chat agent, another tab) saved since our
+                // last known revision. Single user, so last writer wins: fetch
+                // the latest revision and re-send the user's text on top of it.
+                const latest: DocumentResponse = await fetchFromApi(
+                    `/api/document/${encodeURIComponent(sentDocId)}`
+                );
+                if (docRef.current?.id !== sentDocId) return;
+                if (latest.content === sentContent) {
+                    updated = latest;
+                } else {
+                    overwroteOtherEdits = latest.content !== current.content;
+                    response = await put(latest.revision);
+                    if (response.status === 409) {
+                        // Lost the race twice; stop and let the user reload.
+                        setDoc({ ...current, revision: latest.revision, content: latest.content });
+                        setStatus({ kind: 'conflict' });
+                        stopRetrying = true;
+                        return;
                     }
                 }
-                setStatus({ kind: 'conflict' });
-                return;
-            }
-            if (!response.ok) {
-                const text = await response.text().catch(() => '');
-                setStatus({
-                    kind: 'error',
-                    message: text || `HTTP ${response.status}`,
-                });
-                return;
             }
 
-            const updated: DocumentResponse = await response.json();
+            if (!updated) {
+                if (response.status === 413) {
+                    setStatus({ kind: 'too-large' });
+                    return;
+                }
+                if (!response.ok) {
+                    const text = await response.text().catch(() => '');
+                    setStatus({
+                        kind: 'error',
+                        message: text || `HTTP ${response.status}`,
+                    });
+                    return;
+                }
+                updated = (await response.json()) as DocumentResponse;
+            }
+            if (overwroteOtherEdits) {
+                toast.warning('These notes were changed elsewhere', {
+                    description: 'Your version was kept and replaced the other changes.',
+                });
+            }
             // Only adopt the response if the user didn't switch docs while we
             // were saving — otherwise overwriting `doc` would clobber the
             // freshly-loaded target doc with the old one's content.
@@ -268,7 +288,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
             });
         } finally {
             inFlightRef.current = false;
-            if (pendingContentRef.current != null) {
+            if (pendingContentRef.current != null && !stopRetrying) {
                 if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
                 debounceTimerRef.current = setTimeout(persist, AUTOSAVE_DEBOUNCE_MS);
             }

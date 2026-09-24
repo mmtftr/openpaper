@@ -2,7 +2,7 @@
 
 import { fetchFromApi, fetchStreamFromApi } from "@/lib/api"
 import { Button } from "@/components/ui/button"
-import { Suspense, useCallback, useEffect, useState } from "react"
+import { Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Search } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -44,9 +44,27 @@ function DiscoverPageContent() {
     const [onlyOpenAccess, setOnlyOpenAccess] = useState(false)
     const [yearFilter, setYearFilter] = useState<YearFilter>(null)
 
+    // One controller for whatever is currently filling the results (a search
+    // stream or a saved search being loaded). Starting another aborts it, so a
+    // late chunk from an older request can't land on top of newer results.
+    const requestRef = useRef<AbortController | null>(null)
+    const startRequest = useCallback(() => {
+        requestRef.current?.abort()
+        const controller = new AbortController()
+        requestRef.current = controller
+        return controller
+    }, [])
+    useEffect(() => () => requestRef.current?.abort(), [])
+
     const loadSearchById = useCallback(async (id: string) => {
+        const { signal } = startRequest()
+        // Any running search stream was just aborted; its `finally` leaves
+        // these alone because it no longer owns `requestRef`.
+        setLoading(false)
+        setActiveSubquery("")
         try {
-            const data = await fetchFromApi(`/api/discover/${id}`)
+            const data = await fetchFromApi(`/api/discover/${id}`, { signal })
+            if (signal.aborted) return
             setQuestion(data.question)
             setSubmittedQuestion(data.question)
             setSubqueries(data.subqueries || [])
@@ -63,9 +81,10 @@ function DiscoverPageContent() {
             }
             setResultGroups(groups)
         } catch {
+            if (signal.aborted) return
             setError("Search not found")
         }
-    }, [])
+    }, [startRequest])
 
     const fetchHistory = useCallback(async () => {
         try {
@@ -107,6 +126,7 @@ function DiscoverPageContent() {
     }, [searchParams, loadSearchById])
 
     const handleReset = () => {
+        requestRef.current?.abort()
         setQuestion("")
         setSubmittedQuestion(null)
         setSubqueries([])
@@ -125,6 +145,8 @@ function DiscoverPageContent() {
         if (!question.trim() || loading) return
 
         const q = question.trim()
+        const controller = startRequest()
+        const { signal } = controller
         setSubmittedQuestion(q)
         setLoading(true)
         setSubqueries([])
@@ -161,6 +183,7 @@ function DiscoverPageContent() {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(requestBody),
+                signal,
             })
 
             const reader = stream.getReader()
@@ -169,7 +192,7 @@ function DiscoverPageContent() {
 
             while (true) {
                 const { done, value } = await reader.read()
-                if (done) break
+                if (done || signal.aborted) break
 
                 buffer += decoder.decode(value, { stream: true })
 
@@ -178,6 +201,7 @@ function DiscoverPageContent() {
                 buffer = chunks.pop() || ""
 
                 for (const chunk of chunks) {
+                    if (signal.aborted) break
                     const trimmed = chunk.trim()
                     if (!trimmed) continue
 
@@ -209,10 +233,16 @@ function DiscoverPageContent() {
             }
 
         } catch (err) {
+            if (signal.aborted) return
             setError(err instanceof Error ? err.message : "Search failed")
         } finally {
-            setLoading(false)
-            setActiveSubquery("")
+            // Only the request that still owns the results may clear the
+            // loading state; an aborted one was superseded (or unmounted).
+            if (requestRef.current === controller) {
+                requestRef.current = null
+                setLoading(false)
+                setActiveSubquery("")
+            }
         }
     }
 
@@ -221,6 +251,7 @@ function DiscoverPageContent() {
     }
 
     const handleExampleClick = (example: string) => {
+        requestRef.current?.abort()
         setQuestion(example)
         setSubmittedQuestion(null)
         setSubqueries([])
