@@ -105,10 +105,38 @@ def chat_turn(api: httpx.Client, paper_id: str) -> None:
         api.delete(f"/api/conversation/{conv['id']}")
 
 
+def upload_roundtrip(api: httpx.Client, pdf_path: str) -> None:
+    """Upload a PDF, wait for ingest to finish, check the result, delete it."""
+    t0 = step("upload + ingest")
+    with open(pdf_path, "rb") as fh:
+        job = expect(api.post("/api/paper/upload", files={"file": ("smoke.pdf", fh, "application/pdf")}), 200, 201, 202).json()
+    deadline = time.monotonic() + 300
+    status = {}
+    while time.monotonic() < deadline:
+        status = expect(api.get(f"/api/paper/upload/status/{job['job_id']}"), 200).json()
+        if status.get("status") in ("completed", "failed"):
+            break
+        time.sleep(1)
+    paper_id = status.get("paper_id")
+    try:
+        if status.get("status") != "completed" or not paper_id:
+            fail(f"ingest did not complete: {status}")
+        paper = expect(api.get("/api/paper", params={"id": paper_id}), 200).json()
+        if not paper.get("title"):
+            fail("ingested paper has no title")
+        highlights = expect(api.get(f"/api/highlight/{paper_id}"), 200).json()
+        figures = expect(api.get(f"/api/paper/{paper_id}/figures"), 200).json()
+        ok(t0, f"{paper['title'][:50]!r}, {len(figures)} figures, {len(highlights)} highlights")
+    finally:
+        if paper_id:
+            expect(api.delete("/api/paper", params={"id": paper_id}), 200, 204)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--paper-id")
     ap.add_argument("--skip-chat", action="store_true")
+    ap.add_argument("--upload", metavar="PDF", help="also upload this PDF, wait for ingest, then delete it (spends OCR/LLM credits)")
     args = ap.parse_args()
 
     token = mint_session()
@@ -176,6 +204,9 @@ def main() -> None:
             finally:
                 expect(api.delete(f"/api/highlight/{hl['id']}"), 200, 204)
             ok(t0)
+
+            if args.upload:
+                upload_roundtrip(api, args.upload)
 
         t0 = step("client paper page")
         page = httpx.get(f"{CLIENT}/paper/{paper_id}", cookies=cookies, timeout=60, follow_redirects=False)
