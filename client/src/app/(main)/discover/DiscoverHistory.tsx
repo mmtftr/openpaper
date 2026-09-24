@@ -7,14 +7,9 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover"
 import { ChevronRight } from "lucide-react"
+import type { Schemas } from "@/lib/api/client"
 
-export interface DiscoverSearchHistory {
-    id: string
-    question: string
-    subqueries: string[]
-    results: Record<string, unknown[]>
-    created_at: string | null
-}
+export type DiscoverSearchHistory = Schemas["DiscoverSearchRecord"]
 
 interface DiscoverHistoryProps {
     searches: DiscoverSearchHistory[]

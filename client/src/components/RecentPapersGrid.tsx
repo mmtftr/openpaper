@@ -1,20 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { ArrowRight, FileText, Clock } from "lucide-react";
-import { fetchFromApi } from "@/lib/api";
-import { PaperItem } from "@/lib/schema";
+import useSWR from "swr";
+import { api, unwrap, type Schemas } from "@/lib/api/client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/lib/utils";
 
+type RelevantPaper = Schemas["RelevantPaper"];
+
 interface RecentPapersGridProps {
-    papers?: PaperItem[];
+    papers?: RelevantPaper[];
     limit?: number;
 }
 
-function PaperCardCompact({ paper }: { paper: PaperItem }) {
+function PaperCardCompact({ paper }: { paper: RelevantPaper }) {
     const createdAt = paper.created_at ? formatDate(paper.created_at) : null;
 
     return (
@@ -80,29 +81,13 @@ function PaperCardSkeleton() {
 }
 
 export function RecentPapersGrid({ papers: propPapers, limit = 6 }: RecentPapersGridProps) {
-    const [papers, setPapers] = useState<PaperItem[]>(propPapers || []);
-    const [isLoading, setIsLoading] = useState(!propPapers);
-
-    useEffect(() => {
-        if (propPapers) {
-            setPapers(propPapers.slice(0, limit));
-            setIsLoading(false);
-            return;
-        }
-
-        const fetchPapers = async () => {
-            try {
-                const response = await fetchFromApi("/api/paper/relevant");
-                setPapers((response?.papers || []).slice(0, limit));
-            } catch (error) {
-                console.error("Error fetching papers:", error);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
-        fetchPapers();
-    }, [propPapers, limit]);
+    // Without papers from props, load the most relevant ones.
+    const { data, isLoading } = useSWR(
+        propPapers ? null : ["/api/paper/relevant"],
+        () => unwrap(api.GET("/api/paper/relevant")),
+        { onError: (error) => console.error("Error fetching papers:", error) },
+    );
+    const papers = (propPapers ?? data?.papers ?? []).slice(0, limit);
 
     if (isLoading) {
         return (

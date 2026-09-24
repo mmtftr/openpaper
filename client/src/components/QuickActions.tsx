@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Upload, FolderPlus, Globe2 } from "lucide-react";
 import { UploadModal } from "@/components/UploadModal";
 import { CreateProjectDialog } from "@/components/CreateProjectDialog";
-import { fetchFromApi } from "@/lib/api";
+import { api, unwrap } from "@/lib/api/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -74,11 +74,9 @@ export function QuickActions({ onUploadComplete, onProjectCreated, onUploadStart
 
     const handleCreateProject = async (title: string, description: string) => {
         try {
-            const response = await fetchFromApi("/api/projects", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ title, description }),
-            });
+            const response = await unwrap(api.POST("/api/projects", {
+                body: { title, description },
+            }));
 
             if (response?.id) {
                 try {

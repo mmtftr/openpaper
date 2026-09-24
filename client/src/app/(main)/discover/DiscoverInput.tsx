@@ -11,12 +11,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { ArrowDownNarrowWide, Calendar, Check, ChevronDown, Search } from "lucide-react"
 import { useRef } from "react"
+import type { Schemas } from "@/lib/api/client"
 
-export interface DiscoverSource {
-    key: string
-    label: string
-    description: string
-}
+export type DiscoverSource = Schemas["DiscoverSource"]
 
 export type SearchMode = "scholarly" | "explore"
 export type DiscoverSort = "cited_by_count:desc" | "publication_date:desc" | null

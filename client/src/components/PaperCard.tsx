@@ -1,4 +1,4 @@
-import { PaperItem } from "@/lib/schema";
+import type { useProjectPapers } from "@/hooks/useProjects";
 import { Card } from "@/components/ui/card"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button";
@@ -9,14 +9,17 @@ import { getStatusIcon, PaperStatusEnum } from "@/components/utils/PdfStatus";
 import Link from "next/link";
 import { formatFileSize } from "@/lib/utils";
 import { handleStatusChange } from "./utils/paperUtils";
-import { fetchFromApi } from "@/lib/api";
+import { api, unwrap } from "@/lib/api/client";
 import { CitePaperButton } from "./CitePaperButton";
 
 
+/** A paper as listed by `useProjectPapers` (`GET /api/projects/papers/{project_id}`). */
+type ProjectPaper = ReturnType<typeof useProjectPapers>["papers"][number];
+
 interface PaperCardProps {
-	paper: PaperItem;
+	paper: ProjectPaper;
 	handleDelete?: (paperId: string) => void;
-	setPaper?: (paperId: string, paper: PaperItem) => void;
+	setPaper?: (paperId: string, paper: ProjectPaper) => void;
 	minimalist?: boolean;
 	projectId?: string;
 	onUnlink?: () => void;
@@ -27,9 +30,9 @@ export default function PaperCard({ paper, handleDelete, setPaper, minimalist = 
 	const handleUnlink = async () => {
 		if (!projectId) return;
 		try {
-			await fetchFromApi(`/api/projects/papers/${projectId}/${paper.id}`, {
-				method: 'DELETE',
-			});
+			await unwrap(api.DELETE("/api/projects/papers/{project_id}/{project_paper_id}", {
+				params: { path: { project_id: projectId, project_paper_id: paper.id } },
+			}));
 			toast.success("Paper unlinked from project successfully!");
 			if (onUnlink) {
 				onUnlink();
@@ -188,8 +191,8 @@ export default function PaperCard({ paper, handleDelete, setPaper, minimalist = 
 									{/* eslint-disable-next-line @next/next/no-img-element */}
 									<img
 										src={paper.preview_url}
-										title={paper.title}
-										alt={paper.title}
+										title={paper.title ?? undefined}
+										alt={paper.title ?? undefined}
 										className={`${minimalist ? 'max-h-24 !my-0' : 'max-h-48'} w-full object-cover object-top shadow-sm`}
 									/>
 								</div>

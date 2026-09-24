@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useEffect, useState } from "react";
-import { fetchFromApi } from "@/lib/api";
+import { api, unwrap } from "@/lib/api/client";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -38,10 +38,9 @@ export default function SettingsPage() {
 
 		setIsSaving(true);
 		try {
-			const data = await fetchFromApi("/api/auth/profile", {
-				method: "PATCH",
-				body: JSON.stringify({ name: trimmed }),
-			});
+			const data = await unwrap(api.PATCH("/api/auth/profile", {
+				body: { name: trimmed },
+			}));
 			if (data.success) {
 				toast.success("Profile updated.");
 				// Re-fetch auth state to update sidebar etc.

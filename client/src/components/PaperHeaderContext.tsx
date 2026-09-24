@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useState, ReactNode } from "react";
 import { toast } from "sonner";
-import { fetchFromApi } from "@/lib/api";
+import { api, unwrap } from "@/lib/api/client";
 import { PaperStatus, PaperStatusEnum } from "@/components/utils/PdfStatus";
 
 type PaperHeaderContextValue = {
@@ -35,10 +35,9 @@ export function PaperHeaderProvider({ children }: { children: ReactNode }) {
             const previous = paperStatus;
             setPaperStatus(status);
             try {
-                await fetchFromApi(`/api/paper/status?status=${status}&paper_id=${paperId}`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                });
+                await unwrap(api.POST("/api/paper/status", {
+                    params: { query: { status, paper_id: paperId } },
+                }));
                 if (status === PaperStatusEnum.COMPLETED) {
                     toast.success("Completed reading! 🎉", {
                         description: paperTitle ? `Congrats on finishing ${paperTitle}!` : undefined,

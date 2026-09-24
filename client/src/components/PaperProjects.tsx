@@ -1,18 +1,16 @@
 "use client";
 
 import {
-    Project,
-} from '@/lib/schema';
-import {
     Loader,
     ArrowRight,
     CirclePlus,
 } from 'lucide-react';
 import Link from 'next/link';
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import useSWR from 'swr';
 import { useRouter } from 'next/navigation';
 import { toast } from "sonner";
-import { fetchFromApi, getProjectsForPaper } from '@/lib/api';
+import { api, unwrap } from '@/lib/api/client';
 import { Button } from './ui/button';
 import { CreateProjectDialog } from '@/components/CreateProjectDialog';
 import { Input } from './ui/input';
@@ -24,39 +22,35 @@ interface PaperProjectsProps {
 }
 
 export function PaperProjects({ id, view = 'full' }: PaperProjectsProps) {
-    const [projects, setProjects] = useState<Project[]>([]);
-    const [allProjects, setAllProjects] = useState<Project[]>([]);
-    const [isLoadingProjects, setIsLoadingProjects] = useState(false);
     const [addingToProjectId, setAddingToProjectId] = useState<string | null>(null);
     const [isCreateProjectDialogOpen, setCreateProjectDialogOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const router = useRouter();
 
-    useEffect(() => {
-        if (id) {
-            setIsLoadingProjects(true);
-            Promise.all([
-                getProjectsForPaper(id),
-                fetchFromApi("/api/projects?detailed=true"),
-            ]).then(([paperProjects, allProjs]) => {
-                setProjects(paperProjects || []);
-                setAllProjects(allProjs || []);
-            }).catch(err => {
-                console.error("Error fetching projects", err);
-                toast.error("Error fetching projects");
-            }).finally(() => {
-                setIsLoadingProjects(false);
-            });
-        }
-    }, [id]);
+    const onFetchError = (err: unknown) => {
+        console.error("Error fetching projects", err);
+        toast.error("Error fetching projects", { id: "paper-projects-fetch-error" });
+    };
+    // Projects this paper belongs to, and all projects (for "Add to Projects").
+    const { data: projects = [], isLoading: isLoadingPaperProjects, mutate: mutateProjects } = useSWR(
+        id ? ["/api/projects/papers/from/{paper_id}", id] : null,
+        ([, paperId]) => unwrap(api.GET("/api/projects/papers/from/{paper_id}", { params: { path: { paper_id: paperId } } })),
+        { onError: onFetchError },
+    );
+    const { data: allProjects = [], isLoading: isLoadingAllProjects } = useSWR(
+        id ? ["/api/projects", { detailed: true }] : null,
+        () => unwrap(api.GET("/api/projects", { params: { query: { detailed: true } } })),
+        { onError: onFetchError },
+    );
+    const isLoadingProjects = isLoadingPaperProjects || isLoadingAllProjects;
 
     const handleUnlink = async (projectId: string) => {
         try {
-            await fetchFromApi(`/api/projects/papers/${projectId}/${id}`, {
-                method: 'DELETE',
-            });
+            await unwrap(api.DELETE("/api/projects/papers/{project_id}/{project_paper_id}", {
+                params: { path: { project_id: projectId, project_paper_id: id } },
+            }));
             toast.success("Paper unlinked from project successfully!");
-            setProjects(prevProjects => prevProjects.filter(p => p.id !== projectId));
+            mutateProjects(prev => (prev ?? []).filter(p => p.id !== projectId), { revalidate: false });
         } catch (error) {
             console.error("Failed to unlink paper from project", error);
             toast.error("Failed to unlink paper from project.");
@@ -66,15 +60,15 @@ export function PaperProjects({ id, view = 'full' }: PaperProjectsProps) {
     const handleAddPaperToProject = async (projectId: string) => {
         setAddingToProjectId(projectId);
         try {
-            await fetchFromApi(`/api/projects/papers/${projectId}`, {
-                method: 'POST',
-                body: JSON.stringify({ paper_ids: [id] })
-            });
+            await unwrap(api.POST("/api/projects/papers/{project_id}", {
+                params: { path: { project_id: projectId } },
+                body: { paper_ids: [id] },
+            }));
             toast.success("Paper added to project successfully!");
 
             const projectToAdd = allProjects.find(p => p.id === projectId);
             if (projectToAdd && !projects.some(p => p.id === projectId)) {
-                setProjects(prev => [...prev, projectToAdd]);
+                mutateProjects(prev => [...(prev ?? []), projectToAdd], { revalidate: false });
             }
         } catch (error) {
             console.error("Failed to add paper to project", error);
@@ -86,17 +80,15 @@ export function PaperProjects({ id, view = 'full' }: PaperProjectsProps) {
 
     const handleCreateProjectSubmit = async (title: string, description: string) => {
         try {
-            const project = await fetchFromApi("/api/projects", {
-                method: "POST",
-                body: JSON.stringify({ title, description }),
-            });
+            const project = await unwrap(api.POST("/api/projects", {
+                body: { title, description },
+            }));
             toast.success("Project created successfully!");
 
-            await fetchFromApi(`/api/projects/papers/${project.id}`,
-                {
-                    method: 'POST',
-                    body: JSON.stringify({ paper_ids: [id] })
-                });
+            await unwrap(api.POST("/api/projects/papers/{project_id}", {
+                params: { path: { project_id: project.id } },
+                body: { paper_ids: [id] },
+            }));
             toast.success("Paper added to project successfully!");
 
 
@@ -111,7 +103,7 @@ export function PaperProjects({ id, view = 'full' }: PaperProjectsProps) {
 
     const projectsToAdd = allProjects.filter(p => !projects.some(pp => pp.id === p.id));
     const filteredProjectsToAdd = projectsToAdd.filter(project =>
-        project.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        project.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (project.description && project.description.toLowerCase().includes(searchQuery.toLowerCase()))
     );
 

@@ -1,11 +1,11 @@
 "use client";
 import { useEffect, useState, Suspense, useMemo } from "react";
+import useSWR from "swr";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ProjectCard } from "@/components/ProjectCard";
 import { Button } from "@/components/ui/button";
-import { Project } from "@/lib/schema";
-import { fetchFromApi } from "@/lib/api";
+import { api, unwrap } from "@/lib/api/client";
 import { PlusCircle, Target, BookOpen, FileText, Search, X, Plus } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,11 +15,21 @@ import LoadingIndicator from "@/components/utils/Loading";
 import { CreateProjectDialog } from "@/components/CreateProjectDialog";
 
 function ProjectsPage() {
-	const [projects, setProjects] = useState<Project[]>([]);
-	const [isLoading, setIsLoading] = useState(true);
 	const { user, loading: userLoading } = useAuth();
-	const [error, setError] = useState<string | null>(null);
 	const router = useRouter();
+	const {
+		data: projectsData,
+		error: fetchError,
+		isLoading: isLoadingProjects,
+		mutate: mutateProjects,
+	} = useSWR(
+		!userLoading && user ? ["/api/projects", { detailed: true }] : null,
+		() => unwrap(api.GET("/api/projects", { params: { query: { detailed: true } } })),
+		{ onError: (err) => console.error(err) },
+	);
+	const projects = useMemo(() => projectsData ?? [], [projectsData]);
+	const isLoading = userLoading || !user || isLoadingProjects;
+	const error = fetchError ? "Failed to fetch projects. Please try again." : null;
 	const [isCreateProjectOpen, setCreateProjectOpen] = useState(false);
 
 	const [searchQuery, setSearchQuery] = useState("");
@@ -33,7 +43,7 @@ function ProjectsPage() {
 			// Search filter
 			if (searchQuery.trim()) {
 				const query = searchQuery.toLowerCase();
-				const matchesTitle = project.title.toLowerCase().includes(query);
+				const matchesTitle = project.title?.toLowerCase().includes(query);
 				const matchesDescription = project.description?.toLowerCase().includes(query);
 				if (!matchesTitle && !matchesDescription) return false;
 			}
@@ -44,24 +54,15 @@ function ProjectsPage() {
 
 	const hasActiveFilters = searchQuery.trim() !== "";
 
-	const getProjects = async () => {
-		try {
-			const fetchedProjects = await fetchFromApi("/api/projects?detailed=true");
-			setProjects(fetchedProjects);
-		} catch (err) {
-			setError("Failed to fetch projects. Please try again.");
-			console.error(err);
-		} finally {
-			setIsLoading(false);
-		}
+	const getProjects = () => {
+		mutateProjects();
 	};
 
 	const handleCreateProject = async (title: string, description: string) => {
 		try {
-			const project = await fetchFromApi("/api/projects", {
-				method: "POST",
-				body: JSON.stringify({ title, description }),
-			});
+			const project = await unwrap(api.POST("/api/projects", {
+				body: { title, description },
+			}));
 			setCreateProjectOpen(false);
 			router.push(`/projects/${project.id}`);
 		} catch (err) {
@@ -75,9 +76,7 @@ function ProjectsPage() {
 		if (!user) {
 			localStorage.setItem('returnTo', window.location.pathname);
 			router.push("/login");
-			return;
 		}
-		getProjects();
 	}, [userLoading, user, router]);
 
 	// Empty state component

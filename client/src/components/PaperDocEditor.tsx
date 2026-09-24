@@ -1,6 +1,6 @@
 'use client';
 
-import { fetchFromApi } from '@/lib/api';
+import { api, ApiRequestError, unwrap, type Schemas } from '@/lib/api/client';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { agentDocWritesAtom } from '@/lib/paperDocRevision';
 import { useAtomValue } from 'jotai';
@@ -21,24 +21,14 @@ const MilkdownImpl = dynamic(() => import('./PaperDocEditorImpl'), {
     ),
 });
 
-interface DocumentResponse {
-    id: string;
-    paper_id: string | null;
-    title: string;
-    content: string;
-    revision: number;
-    kind: string;
-    updated_at?: string | null;
-}
+type DocumentResponse = Schemas["DocumentResponse"];
+type DocumentSummary = Schemas["DocumentSummary"];
 
-interface DocumentSummary {
-    id: string;
-    paper_id: string | null;
-    title: string;
-    revision: number;
-    kind: string;
-    updated_at?: string | null;
-}
+const getDocument = (documentId: string) =>
+    unwrap(api.GET("/api/document/{document_id}", { params: { path: { document_id: documentId } } }));
+
+const listDocuments = (paperId: string) =>
+    unwrap(api.GET("/api/document", { params: { query: { paper_id: paperId } } }));
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
 const MAX_DOC_BYTES = 1_000_000;
@@ -127,9 +117,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
         setStatus({ kind: 'loading' });
         (async () => {
             try {
-                const list: DocumentSummary[] = await fetchFromApi(
-                    `/api/document?paper_id=${encodeURIComponent(paperId)}`
-                );
+                const list = await listDocuments(paperId);
                 if (cancelled) return;
                 setDocs(list);
                 const main = list.find((d) => d.kind === 'main');
@@ -158,9 +146,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
         setStatus({ kind: 'loading' });
         (async () => {
             try {
-                const response: DocumentResponse = await fetchFromApi(
-                    `/api/document/${encodeURIComponent(activeDocId)}`
-                );
+                const response = await getDocument(activeDocId);
                 if (cancelled) return;
                 setDoc(response);
                 setOverwriteContent(response.content);
@@ -199,60 +185,45 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
         // Set when the save ends in a state a blind retry can't fix (a second
         // conflict); the `finally` below then doesn't re-schedule another PUT.
         let stopRetrying = false;
-        const put = (expectedRevision: number) => {
-            const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
-            return fetch(`${apiBase}/api/document/${sentDocId}`, {
-                method: 'PUT',
-                credentials: 'include',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    content: sentContent,
-                    expected_revision: expectedRevision,
-                }),
-            });
-        };
+        const put = (expectedRevision: number) =>
+            unwrap(api.PUT("/api/document/{document_id}", {
+                params: { path: { document_id: sentDocId } },
+                body: { content: sentContent, expected_revision: expectedRevision },
+            }));
+        // A stale-revision 409 carries the server's current revision/content.
+        const conflictOf = (e: unknown) =>
+            e instanceof ApiRequestError && e.status === 409
+                ? (e.body as Schemas["RevisionConflictError"])
+                : null;
         try {
-            let response = await put(current.revision);
-            let updated: DocumentResponse | null = null;
+            let updated: DocumentResponse;
             let overwroteOtherEdits = false;
 
-            if (response.status === 409) {
+            try {
+                updated = await put(current.revision);
+            } catch (e) {
+                const latest = conflictOf(e);
+                if (!latest) throw e;
                 // Someone else (the chat agent, another tab) saved since our
-                // last known revision. Single user, so last writer wins: fetch
-                // the latest revision and re-send the user's text on top of it.
-                const latest: DocumentResponse = await fetchFromApi(
-                    `/api/document/${encodeURIComponent(sentDocId)}`
-                );
+                // last known revision. Single user, so last writer wins: take
+                // the latest revision from the 409 and re-send the user's text
+                // on top of it.
                 if (docRef.current?.id !== sentDocId) return;
-                if (latest.content === sentContent) {
-                    updated = latest;
+                if (latest.current_content === sentContent) {
+                    updated = { ...current, revision: latest.current_revision, content: latest.current_content };
                 } else {
-                    overwroteOtherEdits = latest.content !== current.content;
-                    response = await put(latest.revision);
-                    if (response.status === 409) {
+                    overwroteOtherEdits = latest.current_content !== current.content;
+                    try {
+                        updated = await put(latest.current_revision);
+                    } catch (retryError) {
+                        if (!conflictOf(retryError)) throw retryError;
                         // Lost the race twice; stop and let the user reload.
-                        setDoc({ ...current, revision: latest.revision, content: latest.content });
+                        setDoc({ ...current, revision: latest.current_revision, content: latest.current_content });
                         setStatus({ kind: 'conflict' });
                         stopRetrying = true;
                         return;
                     }
                 }
-            }
-
-            if (!updated) {
-                if (response.status === 413) {
-                    setStatus({ kind: 'too-large' });
-                    return;
-                }
-                if (!response.ok) {
-                    const text = await response.text().catch(() => '');
-                    setStatus({
-                        kind: 'error',
-                        message: text || `HTTP ${response.status}`,
-                    });
-                    return;
-                }
-                updated = (await response.json()) as DocumentResponse;
             }
             if (overwroteOtherEdits) {
                 toast.warning('These notes were changed elsewhere', {
@@ -279,6 +250,10 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
             }
             setStatus({ kind: 'saved', at: Date.now() });
         } catch (e) {
+            if (e instanceof ApiRequestError && e.status === 413) {
+                setStatus({ kind: 'too-large' });
+                return;
+            }
             setStatus({
                 kind: 'error',
                 message: e instanceof Error ? e.message : 'Network error',
@@ -329,9 +304,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
         if (!activeDocId) return;
         try {
             setStatus({ kind: 'loading' });
-            const response: DocumentResponse = await fetchFromApi(
-                `/api/document/${encodeURIComponent(activeDocId)}`
-            );
+            const response = await getDocument(activeDocId);
             setDoc(response);
             setOverwriteContent(response.content);
             setOverwriteToken((t) => t + 1);
@@ -359,10 +332,9 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
         try {
             setSwitcherOpen(false);
             await flushPending();
-            const created: DocumentResponse = await fetchFromApi('/api/document', {
-                method: 'POST',
-                body: JSON.stringify({ paper_id: paperId, title: 'New doc' }),
-            });
+            const created = await unwrap(api.POST('/api/document', {
+                body: { paper_id: paperId, title: 'New doc' },
+            }));
             const summary: DocumentSummary = {
                 id: created.id,
                 paper_id: created.paper_id,
@@ -389,13 +361,10 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                 return;
             }
             try {
-                const updated: DocumentResponse = await fetchFromApi(
-                    `/api/document/${encodeURIComponent(id)}`,
-                    {
-                        method: 'PATCH',
-                        body: JSON.stringify({ title }),
-                    }
-                );
+                const updated = await unwrap(api.PATCH('/api/document/{document_id}', {
+                    params: { path: { document_id: id } },
+                    body: { title },
+                }));
                 setDocs((prev) =>
                     prev.map((d) =>
                         d.id === id
@@ -426,9 +395,9 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                 return;
             }
             try {
-                await fetchFromApi(`/api/document/${encodeURIComponent(id)}`, {
-                    method: 'DELETE',
-                });
+                await unwrap(api.DELETE('/api/document/{document_id}', {
+                    params: { path: { document_id: id } },
+                }));
                 setDocs((prev) => prev.filter((d) => d.id !== id));
                 if (activeDocId === id) {
                     const main = docs.find((d) => d.kind === 'main' && d.id !== id);
@@ -456,9 +425,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
         let cancelled = false;
         (async () => {
             try {
-                const list: DocumentSummary[] = await fetchFromApi(
-                    `/api/document?paper_id=${encodeURIComponent(paperId)}`
-                );
+                const list = await listDocuments(paperId);
                 if (!cancelled) setDocs(list);
             } catch {
                 // Keep the current list; the next write or remount retries.
@@ -470,9 +437,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
             // conflict prompt instead of silently replacing the agent's write.
             if (pendingContentRef.current != null || inFlightRef.current) return;
             try {
-                const response: DocumentResponse = await fetchFromApi(
-                    `/api/document/${encodeURIComponent(current.id)}`
-                );
+                const response = await getDocument(current.id);
                 if (cancelled) return;
                 if (docRef.current?.id !== current.id) return;
                 if (response.revision <= current.revision) return;
@@ -500,26 +465,16 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
             if (!pending || !current) return;
             const byteLen = new TextEncoder().encode(pending).length;
             if (byteLen > MAX_DOC_BYTES) return;
-            const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
-            const url = `${apiBase}/api/document/${current.id}`;
-            const body = JSON.stringify({
-                content: pending,
-                expected_revision: current.revision,
-            });
             // sendBeacon won't carry our auth cookie credentials reliably across
             // browsers in cross-origin setups; use a fire-and-forget fetch with
             // keepalive to ride out the unmount.
-            try {
-                fetch(url, {
-                    method: 'PUT',
-                    credentials: 'include',
-                    headers: { 'Content-Type': 'application/json' },
-                    body,
-                    keepalive: true,
-                });
-            } catch {
+            api.PUT('/api/document/{document_id}', {
+                params: { path: { document_id: current.id } },
+                body: { content: pending, expected_revision: current.revision },
+                keepalive: true,
+            }).catch(() => {
                 // Best-effort flush; the user can re-edit on next mount.
-            }
+            });
         };
     }, []);
 

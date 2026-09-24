@@ -1,7 +1,7 @@
 "use client"
 
-import { fetchFromApi } from "@/lib/api"
-import { useCallback, useEffect, useState } from "react"
+import { api, unwrap } from "@/lib/api/client"
+import useSWR from "swr"
 import { useRouter } from "next/navigation"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
@@ -9,23 +9,11 @@ import { DiscoverSearchHistory } from "../DiscoverHistory"
 
 export default function DiscoverHistoryPage() {
     const router = useRouter()
-    const [searches, setSearches] = useState<DiscoverSearchHistory[]>([])
-    const [loading, setLoading] = useState(true)
-
-    const fetchHistory = useCallback(async () => {
-        try {
-            const data = await fetchFromApi("/api/discover/history")
-            setSearches(data)
-        } catch {
-            // Silently fail
-        } finally {
-            setLoading(false)
-        }
-    }, [])
-
-    useEffect(() => {
-        fetchHistory()
-    }, [fetchHistory])
+    // Fails silently (an empty history)
+    const { data: searches = [], isLoading: loading } = useSWR(
+        ["/api/discover/history"],
+        () => unwrap(api.GET("/api/discover/history")),
+    )
 
     const handleSelect = (search: DiscoverSearchHistory) => {
         router.push(`/discover?id=${search.id}`)

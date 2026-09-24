@@ -1,13 +1,14 @@
 "use client"
 
-import { fetchFromApi, fetchStreamFromApi } from "@/lib/api"
+import { API_BASE_URL, api, errorDetail, unwrap, type Schemas } from "@/lib/api/client"
 import { Button } from "@/components/ui/button"
 import { Suspense, useCallback, useEffect, useRef, useState } from "react"
+import useSWR from "swr"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Search } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import DiscoverHistory, { DiscoverSearchHistory } from "./DiscoverHistory"
-import DiscoverInput, { DiscoverSource, DiscoverSort, SearchMode, YearFilter } from "./DiscoverInput"
+import DiscoverInput, { DiscoverSort, SearchMode, YearFilter } from "./DiscoverInput"
 import DiscoverResultCard, { DiscoverResult } from "./DiscoverResultCard"
 import SubqueryList from "./SubqueryList"
 
@@ -35,9 +36,7 @@ function DiscoverPageContent() {
     const [subqueries, setSubqueries] = useState<string[]>([])
     const [activeSubquery, setActiveSubquery] = useState<string>("")
     const [resultGroups, setResultGroups] = useState<SubqueryResults[]>([])
-    const [history, setHistory] = useState<DiscoverSearchHistory[]>([])
     const [error, setError] = useState<string | null>(null)
-    const [sources, setSources] = useState<DiscoverSource[]>([])
     const [selectedSources, setSelectedSources] = useState<string[]>([])
     const [sort, setSort] = useState<DiscoverSort>(null)
     const [mode, setMode] = useState<SearchMode>("scholarly")
@@ -63,7 +62,10 @@ function DiscoverPageContent() {
         setLoading(false)
         setActiveSubquery("")
         try {
-            const data = await fetchFromApi(`/api/discover/${id}`, { signal })
+            const data = await unwrap(api.GET("/api/discover/{search_id}", {
+                params: { path: { search_id: id } },
+                signal,
+            }))
             if (signal.aborted) return
             setQuestion(data.question)
             setSubmittedQuestion(data.question)
@@ -75,7 +77,7 @@ function DiscoverPageContent() {
                 for (const [subquery, results] of Object.entries(data.results)) {
                     groups.push({
                         subquery,
-                        results: results as DiscoverResult[],
+                        results,
                     })
                 }
             }
@@ -86,28 +88,9 @@ function DiscoverPageContent() {
         }
     }, [startRequest])
 
-    const fetchHistory = useCallback(async () => {
-        try {
-            const data = await fetchFromApi("/api/discover/history")
-            setHistory(data)
-        } catch {
-            // Silently fail for history
-        }
-    }, [])
-
-    const fetchSources = useCallback(async () => {
-        try {
-            const data = await fetchFromApi("/api/discover/sources")
-            setSources(data)
-        } catch {
-            // Silently fail for sources
-        }
-    }, [])
-
-    useEffect(() => {
-        fetchHistory()
-        fetchSources()
-    }, [fetchHistory, fetchSources])
+    // History and sources fail silently (the page works without them).
+    const { data: history = [] } = useSWR(["/api/discover/history"], () => unwrap(api.GET("/api/discover/history")))
+    const { data: sources = [] } = useSWR(["/api/discover/sources"], () => unwrap(api.GET("/api/discover/sources")))
 
     const handleSourceToggle = (sourceKey: string) => {
         setSelectedSources((prev) =>
@@ -155,8 +138,9 @@ function DiscoverPageContent() {
         setError(null)
 
         try {
-            const requestBody: { question: string; sources?: string[]; sort?: string; only_open_access?: boolean; year_filter?: string } = {
+            const requestBody: Schemas["DiscoverSearchRequest"] = {
                 question: question.trim(),
+                only_open_access: false, // the server default
             }
 
             // Set sources based on mode
@@ -179,14 +163,21 @@ function DiscoverPageContent() {
                 requestBody.year_filter = yearFilter
             }
 
-            const stream = await fetchStreamFromApi("/api/discover/search", {
+            // SSE-style stream: raw fetch (the typed client doesn't stream).
+            const response = await fetch(`${API_BASE_URL}/api/discover/search`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
                 body: JSON.stringify(requestBody),
+                credentials: "include",
                 signal,
             })
+            if (!response.ok) {
+                const body = await response.json().catch(() => undefined)
+                throw new Error(errorDetail(body, response.status))
+            }
+            if (!response.body) throw new Error("Response body is null")
 
-            const reader = stream.getReader()
+            const reader = response.body.getReader()
             const decoder = new TextDecoder()
             let buffer = ""
 
@@ -270,10 +261,11 @@ function DiscoverPageContent() {
     const globalSeenTitles = new Set<string>()
     const dedupedGroups = resultGroups.map((group) => {
         const dedupedResults = group.results.filter((r) => {
-            if (globalSeenUrls.has(r.url)) return false
-            const normalizedTitle = normalizeTitle(r.title)
+            const url = r.url ?? ""
+            if (globalSeenUrls.has(url)) return false
+            const normalizedTitle = normalizeTitle(r.title ?? "")
             if (globalSeenTitles.has(normalizedTitle)) return false
-            globalSeenUrls.add(r.url)
+            globalSeenUrls.add(url)
             globalSeenTitles.add(normalizedTitle)
             return true
         })
