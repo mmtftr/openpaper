@@ -16,7 +16,7 @@ from app.api.document_api import document_router
 from app.api.errors import ERROR_RESPONSES, install_error_handlers
 from app.api.highlight_api import highlight_router
 from app.api.message_api import message_router
-from app.api.paper_api import paper_router
+from app.api.paper import paper_router
 from app.api.paper_figure_api import paper_figure_router
 from app.api.paper_search_api import paper_search_router
 from app.api.paper_tag_api import paper_tag_router
@@ -94,7 +94,7 @@ app.add_middleware(
 # Include the router in the main app
 app.include_router(router, prefix="/api")
 app.include_router(auth_router, prefix="/api/auth")  # Auth routes
-app.include_router(paper_router, prefix="/api/paper")
+app.include_router(paper_router)  # prefixed with /api/paper itself
 app.include_router(conversation_router, prefix="/api/conversation")
 app.include_router(message_router, prefix="/api/message")
 app.include_router(highlight_router, prefix="/api/highlight")

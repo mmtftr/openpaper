@@ -7,7 +7,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api import document_api, paper_api
+from app.api import document_api
+from app.api.paper import detail as paper_detail
+from app.api.paper import library as paper_library
+from app.api.paper import paper_router
 from app.auth.dependencies import get_required_user
 from app.database.crud.document_crud import RevisionMismatch
 from app.database.database import get_db
@@ -27,18 +30,16 @@ def _client(router, prefix: str) -> TestClient:
 def test_empty_paper_lists_are_200_not_404(monkeypatch, route):
     # A 404 here used to reject the client's Promise.all and blank the
     # projects list fetched alongside it.
-    monkeypatch.setattr(paper_api.paper_crud, "get_library", lambda *a, **k: [])
-    monkeypatch.setattr(
-        paper_api.paper_crud, "get_top_relevant_papers", lambda *a, **k: []
-    )
-    response = _client(paper_api.paper_router, "/api/paper").get(f"/api/paper/{route}")
+    monkeypatch.setattr(paper_library.library, "library_papers", lambda *a, **k: [])
+    monkeypatch.setattr(paper_library.library, "relevant_papers", lambda *a, **k: [])
+    response = _client(paper_router, "").get(f"/api/paper/{route}")
     assert response.status_code == 200
     assert response.json() == {"papers": []}
 
 
 def test_missing_paper_is_a_detail_404(monkeypatch):
-    monkeypatch.setattr(paper_api.paper_crud, "get", lambda *a, **k: None)
-    client = _client(paper_api.paper_router, "/api/paper")
+    monkeypatch.setattr(paper_detail.paper_crud, "get", lambda *a, **k: None)
+    client = _client(paper_router, "")
     response = client.get(f"/api/paper?id={uuid.uuid4()}")
     assert response.status_code == 404
     assert response.json() == {"detail": "Document not found"}
@@ -98,10 +99,10 @@ def test_edited_fields_are_protected_from_metadata_lookups(monkeypatch):
     )
     before = paper.metadata_source
     fake_db = _FakeDb(paper)
-    monkeypatch.setattr(paper_api.paper_crud, "get", lambda *a, **k: paper)
-    monkeypatch.setattr(paper_api, "track_event", lambda *a, **k: None)
+    monkeypatch.setattr(paper_detail.paper_crud, "get", lambda *a, **k: paper)
+    monkeypatch.setattr(paper_detail, "track_event", lambda *a, **k: None)
     app = FastAPI()
-    app.include_router(paper_api.paper_router, prefix="/api/paper")
+    app.include_router(paper_router)
     app.dependency_overrides[get_required_user] = lambda: USER
     app.dependency_overrides[get_db] = lambda: fake_db
 

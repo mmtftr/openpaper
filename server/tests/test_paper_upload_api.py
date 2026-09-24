@@ -258,10 +258,11 @@ def test_url_file_name(url, name):
 
 
 def test_delete_removes_the_prefix_and_legacy_objects(client, db, s3, monkeypatch):
-    from app.api import paper_api
+    from app.api.paper import delete as paper_delete
+    from app.api.paper import paper_router
 
-    monkeypatch.setattr(paper_api, "s3_service", s3)
-    client.app.include_router(paper_api.paper_router, prefix="/api/paper")  # type: ignore[attr-defined]
+    monkeypatch.setattr(paper_delete, "s3_service", s3)
+    client.app.include_router(paper_router)  # type: ignore[attr-defined]
 
     # A paper the old pipeline stored: PDF under uploads/, preview elsewhere,
     # figure images under figures/{id}/ — plus a supplementary on the new layout.
@@ -308,9 +309,9 @@ def test_delete_removes_the_prefix_and_legacy_objects(client, db, s3, monkeypatc
 
 
 def test_library_marks_papers_still_ingesting(client, db):
-    from app.api import paper_api
+    from app.api.paper import paper_router
 
-    client.app.include_router(paper_api.paper_router, prefix="/api/paper")  # type: ignore[attr-defined]
+    client.app.include_router(paper_router)  # type: ignore[attr-defined]
     paper_id = upload(client, make_pdf()).json()["paper_id"]
 
     [item] = client.get("/api/paper/all").json()["papers"]

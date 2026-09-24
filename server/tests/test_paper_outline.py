@@ -10,7 +10,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api import paper_api
+from app.api.paper import detail as paper_detail
+from app.api.paper import paper_router
 from app.auth.dependencies import get_current_user
 from app.database.database import get_db
 from app.llm import paper_outline as outline
@@ -320,7 +321,7 @@ def test_large_outlines_skip_llm_without_losing_headings(paper, llm):
 @pytest.fixture
 def api(monkeypatch, paper):
     app = FastAPI()
-    app.include_router(paper_api.paper_router, prefix="/api/paper")
+    app.include_router(paper_router)
     user = SimpleNamespace(id=uuid.uuid4())
     app.dependency_overrides[get_current_user] = lambda: user
     app.dependency_overrides[get_db] = lambda: None
@@ -328,7 +329,7 @@ def api(monkeypatch, paper):
         {"title": "Methods", "level": 1, "page": 3, "top_percent": 50}
     ]
     get = Mock(return_value=paper)
-    monkeypatch.setattr(paper_api.paper_crud, "get", get)
+    monkeypatch.setattr(paper_detail.paper_crud, "get", get)
     return SimpleNamespace(
         client=TestClient(app), app=app, get=get, user=user, paper=paper
     )
