@@ -13,7 +13,7 @@ Create Date: 2026-09-24 14:00:00
 from pathlib import Path
 from typing import Sequence, Union
 
-from alembic import op
+from alembic import context, op
 
 revision: str = "baseline_20260924"
 down_revision: Union[str, None] = None
@@ -23,6 +23,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     sql = (Path(__file__).with_name("baseline.sql")).read_text()
+    if context.is_offline_mode():
+        # `--sql` rendering: there is no DBAPI connection, just emit the text.
+        context.get_context().impl.static_output(sql)
+        return
     op.get_bind().exec_driver_sql(sql)
 
 

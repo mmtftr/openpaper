@@ -266,6 +266,12 @@ def test_put_invalidates_the_cache(client, monkeypatch):
             400,
         ),
         ("discover", {"reasoning_effort": "extreme"}, 422),
+        # OCR repair sends page images; DeepSeek can't read them.
+        (
+            "ingest.ocr_repair",
+            {"provider": "openai", "model": "DeepSeek-V4-Flash-0731"},
+            400,
+        ),
     ],
 )
 def test_put_rejects_invalid_choices(client, store, slot, payload, status):

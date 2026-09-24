@@ -34,7 +34,9 @@ summary. AI highlights for every paper upload (not supplementaries).
 ```
 
 A stage runs when all its dependencies are `succeeded` or `skipped`; if one
-fails, dependents show `blocked` and resume when it's retried.
+fails, dependents show `blocked` and resume when it's retried. When `metadata`
+resolves a record it marks `metadata_fallback` skipped right away, so
+title/authors don't wait for OCR.
 
 | Stage | Needs | Does |
 |---|---|---|
@@ -62,7 +64,8 @@ ingest_worker   (single row: last_seen — lets the UI say "worker offline")
 paper_pages     (paper_id, page_no, text_layer, ocr_markdown, ocr_payload, markdown,
                  markdown_source, ocr_quality)     -- replaces papers.ocr / raw_content / page_offset_map
 paper_figures   (paper_id, page_no, ocr_image_id, label, caption, bbox, s3_key)
-papers          + doi/arxiv_id/openalex_id, metadata_source per field; drop parser/ocr/raw_content/
+papers          + doi/arxiv_id/openalex_id, metadata_source per field ('user' = edited by
+                  you, never overwritten); drop parser/ocr/raw_content/
                   page_offset_map/upload_job_id after the switch
 highlights      + origin ('user' | 'ai')
 model_slots     (slot, provider, model, effort)    -- §7

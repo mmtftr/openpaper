@@ -50,6 +50,8 @@ class SlotDefault:
     role: ModelRole
     reasoning_effort: str | None = None  # None = don't send one
     description: str = ""
+    # The call sends page images: only vision-capable models may fill it.
+    requires_vision: bool = False
 
 
 SLOT_DEFAULTS: dict[str, SlotDefault] = {
@@ -81,6 +83,25 @@ SLOT_DEFAULTS: dict[str, SlotDefault] = {
         LLMProvider.OPENAI,
         ModelRole.FAST,
         description="Outline cleanup of OCR headings",
+    ),
+    # The three below reproduce the old `jobs/` pipeline: OCR repair on
+    # `OPENAI_OCR_MODEL` (default gpt-5.4-mini = the OpenAI fast model),
+    # metadata and highlights on `OPENAI_MODEL`, all on Azure/OpenAI.
+    "ingest.ocr_repair": SlotDefault(
+        LLMProvider.OPENAI,
+        ModelRole.FAST,
+        description="Ingest: re-OCR pages whose OCR scored badly (vision)",
+        requires_vision=True,
+    ),
+    "ingest.metadata": SlotDefault(
+        LLMProvider.OPENAI,
+        ModelRole.DEFAULT,
+        description="Ingest: extract title/authors when no record is found",
+    ),
+    "ingest.highlights": SlotDefault(
+        LLMProvider.OPENAI,
+        ModelRole.DEFAULT,
+        description="Ingest: pick the paper's AI highlights",
     ),
 }
 
@@ -226,7 +247,10 @@ def resolve_slot(
     if override is not None and override.picks_model:
         try:
             spec = lookup_choice(reg, override.provider, override.model, default.role)
+            if default.requires_vision and not spec.supports_vision:
+                raise ValueError(f"model '{spec.id}' has no image input")
         except ValueError as exc:
+            spec = None
             logger.warning(
                 "Slot %s: ignoring override %s/%s (%s); using the default",
                 slot,

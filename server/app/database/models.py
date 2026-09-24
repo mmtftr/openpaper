@@ -358,6 +358,14 @@ class Paper(Base):
 
     # Additional metadata
     doi = Column(String, nullable=True)  # Digital Object Identifier
+    arxiv_id = Column(Text, nullable=True)  # e.g. "2512.11949" (no version)
+    openalex_id = Column(Text, nullable=True)  # e.g. "W4388230712"
+    # Where each metadata field came from: {"title": "crossref", ...}; values
+    # are `app.ingest.models.MetadataSource`. "user" = edited by the owner,
+    # which ingest must never overwrite.
+    metadata_source = Column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
     journal = Column(String, nullable=True)
     publisher = Column(String, nullable=True)
     attempted_metadata_at = Column(DateTime(timezone=True), nullable=True)
@@ -556,6 +564,9 @@ class HighlightType(str, Enum):
 
 class Highlight(Base):
     __tablename__ = "highlights"
+    __table_args__ = (
+        CheckConstraint("origin IN ('user', 'ai')", name="ck_highlights_origin"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     paper_id = Column(
@@ -574,6 +585,9 @@ class Highlight(Base):
     # Role
     # This can be user for user-created highlights or assistant for AI-generated highlights
     role = Column(String, nullable=False, default="user")  # 'user' or 'assistant'
+    # Who created it: "user" or "ai" (the ingest `highlights` stage). AI
+    # highlights the owner has annotated survive regeneration.
+    origin = Column(Text, nullable=False, default="user", server_default="user")
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     color = Column(String, nullable=True, default="blue")
 
@@ -602,6 +616,9 @@ class Annotation(Base):
 
     # Role tracking
     role = Column(String, nullable=False, default="user")  # 'user' or 'assistant'
+    # Who created it: "user" or "ai" (the ingest `highlights` stage). AI
+    # highlights the owner has annotated survive regeneration.
+    origin = Column(Text, nullable=False, default="user", server_default="user")
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
 
     # Relationships
@@ -639,3 +656,9 @@ class ModelSlot(Base):
 
     def __repr__(self):
         return f"<ModelSlot slot={self.slot}>"
+
+
+# Ingest v2 tables live in their own module but on this `Base`, so anything
+# that imports the models (alembic, the app) sees the whole schema. Imported
+# last: `app.ingest.models` imports `Base` from here.
+from app.ingest import models as _ingest_models  # noqa: E402, F401

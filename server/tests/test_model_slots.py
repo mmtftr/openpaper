@@ -17,7 +17,7 @@ from app.llm.model_registry import (
     ModelSpec,
     _ProviderConfig,
 )
-from app.llm.model_slots import SLOT_DEFAULTS, resolve_slot
+from app.llm.model_slots import SLOT_DEFAULTS, SlotOverride, resolve_slot
 
 
 def _registry(default=LLMProvider.CODEX_PROXY, *, with_openai=True):
@@ -44,6 +44,11 @@ def _registry(default=LLMProvider.CODEX_PROXY, *, with_openai=True):
         ("chat.title", LLMProvider.OPENAI, "gpt-5.4-mini-azure"),
         ("discover", LLMProvider.OPENAI, "gpt-5.4-mini-azure"),
         ("ingest.outline", LLMProvider.OPENAI, "gpt-5.4-mini-azure"),
+        # jobs/ parity: OCR repair on the fast model, metadata/highlights on
+        # the OpenAI default model.
+        ("ingest.ocr_repair", LLMProvider.OPENAI, "gpt-5.4-mini-azure"),
+        ("ingest.metadata", LLMProvider.OPENAI, "gpt-5.5"),
+        ("ingest.highlights", LLMProvider.OPENAI, "gpt-5.5"),
     ],
 )
 def test_slot_defaults_reproduce_call_site_choices(slot, provider, model_id):
@@ -60,7 +65,25 @@ def test_every_slot_is_listed():
         "quick_question",
         "discover",
         "ingest.outline",
+        "ingest.ocr_repair",
+        "ingest.metadata",
+        "ingest.highlights",
     }
+
+
+def test_vision_slot_ignores_a_text_only_override():
+    registry = _registry()
+    registry = ModelRegistry(
+        [ModelSpec("text-only", LLMProvider.OPENAI, "T", supports_vision=False)],
+        registry._configs,
+        registry.default_provider,
+    )
+    pick = SlotOverride(provider="openai", model="text-only")
+    resolved = resolve_slot("ingest.ocr_repair", registry, {"ingest.ocr_repair": pick})
+    assert resolved.spec.id == "gpt-5.4-mini-azure"  # the default, not the pick
+    # The same override is fine on a text-only slot.
+    resolved = resolve_slot("ingest.metadata", registry, {"ingest.metadata": pick})
+    assert resolved.spec.id == "text-only"
 
 
 def test_chat_default_matches_the_registry_default():

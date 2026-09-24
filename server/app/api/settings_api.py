@@ -229,6 +229,11 @@ def update_model_slot(
             spec = resolve_slot(slot, registry, overrides={}).spec
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    if default.requires_vision and not spec.supports_vision:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model '{spec.id}' can't read images; this slot needs one that can.",
+        )
     if body.reasoning_effort and not spec.supports_reasoning_effort:
         raise HTTPException(
             status_code=400,

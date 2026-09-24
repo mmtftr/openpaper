@@ -37,8 +37,6 @@ import asyncio
 import logging
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
 from typing import (
     Any,
     AsyncIterator,
@@ -52,18 +50,20 @@ from typing import (
     Tuple,
 )
 
-import httpx
-import httpx2
-from pydantic_ai.exceptions import (
-    ModelAPIError,
-    ModelHTTPError,
-    UnexpectedModelBehavior,
-)
 from pydantic_ai.messages import ModelMessage, ModelResponse
 from pydantic_ai.models import Model, ModelRequestParameters, StreamedResponse
 from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.settings import ModelSettings
 
+from app.core.errors import (  # noqa: F401 — re-exported for callers/tests
+    EMPTY_STREAM_MESSAGE,
+    NON_RETRYABLE_STATUS_CODES,
+    RETRYABLE_STATUS_CODES,
+    classify,
+    is_retryable,
+    retry_after_seconds,
+)
+from app.core.errors import short_error_text as _short_error_text
 from app.schemas.chat_stream import retry_status_data
 
 logger = logging.getLogger(__name__)
@@ -77,17 +77,6 @@ BACKOFF_SECONDS: Tuple[float, ...] = (1.0, 2.0)
 MAX_BACKOFF_SECONDS = 15.0
 # Cap on the error text handed to the callback (it goes over the wire).
 MAX_ERROR_CHARS = 200
-
-# Transient by nature: overload, rate limit, gateway hiccup, request timeout.
-# The one `UnexpectedModelBehavior` worth retrying: every provider raises it
-# with this exact text when a stream closes without producing anything, which
-# is what an overloaded deployment does.
-EMPTY_STREAM_MESSAGE = "Streamed response ended without content or tool calls"
-
-RETRYABLE_STATUS_CODES = frozenset({408, 409, 429, 500, 502, 503, 504})
-# Deterministic failures — a retry burns latency and money for the same
-# answer. 400 in particular is where content filters land.
-NON_RETRYABLE_STATUS_CODES = frozenset({400, 401, 403, 404, 422})
 
 
 @dataclass(frozen=True)
@@ -104,146 +93,9 @@ class RetryStatus:
 OnRetry = Callable[[RetryStatus], Awaitable[None]]
 
 
-def _status_code(error: BaseException) -> Optional[int]:
-    """HTTP status carried by `error`, if it is an HTTP failure at all."""
-    if isinstance(error, ModelHTTPError):
-        return error.status_code
-    response = getattr(error, "response", None)
-    if isinstance(response, (httpx.Response, httpx2.Response)):
-        return response.status_code
-    status = getattr(error, "status_code", None)
-    if isinstance(status, int):
-        return status
-    # google-genai's `APIError.code`. GoogleModel peeks the first chunk
-    # outside pydantic-ai's error mapper, so first-chunk failures surface as
-    # the raw SDK error with no `status_code` at all.
-    code = getattr(error, "code", None)
-    if isinstance(code, int):
-        return code
-    return None
-
-
-def is_retryable(error: BaseException) -> bool:
-    """Whether re-issuing the identical request could plausibly succeed."""
-    if isinstance(error, UnexpectedModelBehavior):
-        # NARROW on purpose. Low-capacity deployments do hang up with an
-        # empty stream — squarely the transient class this wrapper exists
-        # for — but most `UnexpectedModelBehavior`s (exceeded tool retries,
-        # unparseable output) are deterministic and would just cost 3x.
-        return EMPTY_STREAM_MESSAGE in str(error)
-    status = _status_code(error)
-    if status is not None:
-        if status in NON_RETRYABLE_STATUS_CODES:
-            return False
-        # Everything 5xx is treated as transient (covers 529 "overloaded"
-        # and other provider-specific server codes), plus the explicit list.
-        return status in RETRYABLE_STATUS_CODES or status >= 500
-    # Connection resets, DNS failures, read timeouts — httpx raises these
-    # directly when they happen mid-stream-consumption, and pydantic-ai
-    # wraps them in ModelAPIError when they happen at request time.
-    if isinstance(error, (httpx.TransportError, httpx2.TransportError)):
-        return True
-    if isinstance(error, (ConnectionError, TimeoutError, asyncio.TimeoutError)):
-        return True
-    if isinstance(error, ModelAPIError):
-        return True
-    return False
-
-
-def _header_bag(error: BaseException) -> Optional[Any]:
-    """Best-effort headers for `error`, following one `__cause__` hop.
-
-    Pydantic AI 2.x preserves headers on `ModelHTTPError`; raw SDK errors
-    and connection failures may still carry them on their response/cause.
-    """
-    seen = 0
-    candidate: Optional[BaseException] = error
-    while candidate is not None and seen < 3:
-        headers = getattr(candidate, "headers", None)
-        if headers is not None and hasattr(headers, "get"):
-            return headers
-        response = getattr(candidate, "response", None)
-        headers = getattr(response, "headers", None)
-        if headers is not None and hasattr(headers, "get"):
-            return headers
-        candidate = candidate.__cause__
-        seen += 1
-    return None
-
-
-def _positive_float(raw: Any) -> Optional[float]:
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        return None
-    return value if value > 0 else None
-
-
-def _http_date_delay(raw: Any) -> Optional[float]:
-    """Seconds until an HTTP-date `Retry-After`, or None.
-
-    RFC 9110 allows either a delta in seconds or an absolute date; providers
-    do send the date form. A date already in the past means "retry now".
-    """
-    if not isinstance(raw, str) or not raw.strip():
-        return None
-    try:
-        when = parsedate_to_datetime(raw)
-    except (TypeError, ValueError):
-        return None
-    if when is None:
-        return None
-    if when.tzinfo is None:
-        when = when.replace(tzinfo=timezone.utc)
-    delay = (when - datetime.now(timezone.utc)).total_seconds()
-    return delay if delay > 0 else None
-
-
-def retry_after_seconds(error: BaseException) -> Optional[float]:
-    """The provider's own backoff hint, in seconds, if it gave one.
-
-    Handles `Retry-After` in both RFC 9110 forms (delta-seconds and
-    HTTP-date), `retry-after-ms`, and the `retry_after` / `retry_after_ms`
-    fields some JSON error bodies carry.
-    """
-    headers = _header_bag(error)
-    if headers is not None:
-        for name, scale in (
-            ("retry-after-ms", 0.001),
-            ("x-ratelimit-reset-after", 1.0),
-            ("retry-after", 1.0),
-        ):
-            value = _positive_float(headers.get(name))
-            if value is not None:
-                return value * scale
-        date_delay = _http_date_delay(headers.get("retry-after"))
-        if date_delay is not None:
-            return date_delay
-
-    body = getattr(error, "body", None)
-    if isinstance(body, dict):
-        nested = body.get("error")
-        for source in (body, nested if isinstance(nested, dict) else {}):
-            value = _positive_float(source.get("retry_after_ms"))
-            if value is not None:
-                return value * 0.001
-            value = _positive_float(source.get("retry_after"))
-            if value is not None:
-                return value
-    return None
-
-
 def short_error_text(error: BaseException) -> str:
     """A compact, wire-safe description of a failure."""
-    status = _status_code(error)
-    prefix = type(error).__name__
-    if status is not None:
-        prefix = f"{prefix} ({status})"
-    detail = str(error).strip().replace("\n", " ")
-    text = f"{prefix}: {detail}" if detail else prefix
-    if len(text) > MAX_ERROR_CHARS:
-        text = text[: MAX_ERROR_CHARS - 1] + "…"
-    return text
+    return _short_error_text(error, MAX_ERROR_CHARS)
 
 
 class RetryingModel(WrapperModel):
@@ -281,10 +133,11 @@ class RetryingModel(WrapperModel):
         """Seconds to wait before attempt `attempt + 1`, or None to give up."""
         if attempt >= self._max_attempts:
             return None
-        if not is_retryable(error):
+        classified = classify(error)
+        if not classified.retryable:
             return None
         base = self._backoff[min(attempt - 1, len(self._backoff) - 1)]
-        hinted = retry_after_seconds(error)
+        hinted = classified.retry_after
         delay = max(base, hinted) if hinted is not None else base
         return min(delay, MAX_BACKOFF_SECONDS)
 
