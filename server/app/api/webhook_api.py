@@ -15,6 +15,7 @@ from app.database.models import JobStatus
 from app.database.telemetry import track_event
 from app.helpers.paper_search import get_doi
 from app.helpers.s3 import s3_service
+from app.schemas.highlight import ScaledPosition
 from app.schemas.responses import PaperMetadataExtraction
 from app.schemas.user import CurrentUser
 from fastapi import APIRouter, Depends, HTTPException
@@ -69,6 +70,14 @@ def handle_failed_upload(
     paper_upload_job_crud.mark_as_failed(db=db, job_id=job_id, user=job_user)
 
 
+class AIHighlightAnchor(BaseModel):
+    """Where the jobs service anchored an AI highlight in the PDF
+    (`jobs/src/highlight_anchor.py`)."""
+
+    page_number: int
+    position: ScaledPosition
+
+
 class PDFProcessingResult(BaseModel):
     """Result of PDF processing"""
 
@@ -77,7 +86,8 @@ class PDFProcessingResult(BaseModel):
     raw_content: Optional[str] = None
     page_offset_map: Optional[dict[int, list[int]]] = None
     metadata: Optional[PaperMetadataExtraction] = None
-    ai_highlight_anchors: Optional[list[Optional[Dict[str, Any]]]] = None
+    # One entry per metadata highlight, None where PyMuPDF found no match.
+    ai_highlight_anchors: Optional[list[Optional[AIHighlightAnchor]]] = None
     s3_object_key: Optional[str] = None
     file_url: Optional[str] = None
     preview_url: Optional[str] = None
@@ -101,10 +111,14 @@ class PdfProcessingWebhookData(BaseModel):
     error: Optional[str] = None
 
 
+class WebhookStatusResponse(BaseModel):
+    status: str
+
+
 @webhook_router.post("/paper-processing/{job_id}")
-async def handle_paper_processing_webhook(
+def handle_paper_processing_webhook(
     job_id: str, webhook_data: PdfProcessingWebhookData, db: Session = Depends(get_db)
-):
+) -> WebhookStatusResponse:
     """Handle webhook from paper processing jobs service."""
 
     # Get the job from your database (without user filtering since this is a webhook)
@@ -121,7 +135,7 @@ async def handle_paper_processing_webhook(
 
     if job.status == JobStatus.COMPLETED:
         logger.warning(f"Received webhook for already completed job {job_id}, ignoring")
-        return {"status": "webhook ignored - job already completed"}
+        return WebhookStatusResponse(status="webhook ignored - job already completed")
 
     # Get the user object from the relationship
     user = job.user
@@ -150,14 +164,18 @@ async def handle_paper_processing_webhook(
                 handle_failed_upload(
                     db=db, job_id=job_id, job_user=job_user, reason="Missing file_url"
                 )
-                return {"status": "webhook processed - failed due to missing file_url"}
+                return WebhookStatusResponse(
+                    status="webhook processed - failed due to missing file_url"
+                )
 
             if not metadata:
                 logger.error(f"No metadata in webhook result for job {job_id}")
                 handle_failed_upload(
                     db=db, job_id=job_id, job_user=job_user, reason="Missing metadata"
                 )
-                return {"status": "webhook processed - failed due to missing metadata"}
+                return WebhookStatusResponse(
+                    status="webhook processed - failed due to missing metadata"
+                )
 
             if not result.raw_content:
                 logger.error(f"No raw_content in webhook result for job {job_id}")
@@ -167,16 +185,18 @@ async def handle_paper_processing_webhook(
                     job_user=job_user,
                     reason="Missing raw_content",
                 )
-                return {
-                    "status": "webhook processed - failed due to missing raw_content"
-                }
+                return WebhookStatusResponse(
+                    status="webhook processed - failed due to missing raw_content"
+                )
 
             if not metadata or not metadata.title:
                 logger.error(f"No metadata in webhook result for job {job_id}")
                 handle_failed_upload(
                     db=db, job_id=job_id, job_user=job_user, reason="Missing metadata"
                 )
-                return {"status": "webhook processed - failed due to missing metadata"}
+                return WebhookStatusResponse(
+                    status="webhook processed - failed due to missing metadata"
+                )
 
             if not result.raw_content:
                 logger.error(f"No raw_content in webhook result for job {job_id}")
@@ -186,9 +206,9 @@ async def handle_paper_processing_webhook(
                     job_user=job_user,
                     reason="Missing raw_content",
                 )
-                return {
-                    "status": "webhook processed - failed due to missing raw_content"
-                }
+                return WebhookStatusResponse(
+                    status="webhook processed - failed due to missing raw_content"
+                )
 
             size_in_kb = (
                 s3_service.get_file_size_in_kb(result.s3_object_key)
@@ -241,7 +261,19 @@ async def handle_paper_processing_webhook(
                             db=db,
                             paper_id=str(paper.id),
                             extract_metadata=metadata,
-                            ai_highlight_anchors=result.ai_highlight_anchors,
+                            ai_highlight_anchors=(
+                                [
+                                    {
+                                        "page_number": anchor.page_number,
+                                        "position": anchor.position.to_json(),
+                                    }
+                                    if anchor
+                                    else None
+                                    for anchor in result.ai_highlight_anchors
+                                ]
+                                if result.ai_highlight_anchors is not None
+                                else None
+                            ),
                             current_user=job_user,
                         )
                     except Exception as e:
@@ -319,4 +351,4 @@ async def handle_paper_processing_webhook(
 
         raise HTTPException(status_code=500, detail="Error processing webhook")
 
-    return {"status": "webhook processed"}
+    return WebhookStatusResponse(status="webhook processed")

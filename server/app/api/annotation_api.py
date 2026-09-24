@@ -10,9 +10,10 @@ from app.database.crud.annotation_crud import (
 from app.database.database import get_db
 from app.database.models import RoleType
 from app.database.telemetry import track_event
+from app.schemas.common import MessageResponse
+from app.schemas.highlight import AnnotationResponse
 from app.schemas.user import CurrentUser
-from fastapi import APIRouter, Depends
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -23,8 +24,8 @@ annotation_router = APIRouter()
 
 
 class CreateAnnotationRequest(BaseModel):
-    paper_id: str
-    highlight_id: str
+    paper_id: uuid.UUID
+    highlight_id: uuid.UUID
     content: str
 
 
@@ -32,155 +33,105 @@ class UpdateAnnotationRequest(BaseModel):
     content: str
 
 
-@annotation_router.post("")
-async def create_annotation(
+def _annotation_not_found(annotation_id: uuid.UUID) -> HTTPException:
+    return HTTPException(
+        status_code=404, detail=f"Annotation with ID {annotation_id} not found."
+    )
+
+
+@annotation_router.post("", status_code=201)
+def create_annotation(
     request: CreateAnnotationRequest,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-) -> JSONResponse:
+) -> AnnotationResponse:
     """Create a new annotation for a highlight"""
-    try:
-        annotation = annotation_crud.create(
-            db,
-            obj_in=AnnotationCreate(
-                paper_id=uuid.UUID(request.paper_id),
-                highlight_id=uuid.UUID(request.highlight_id),
-                content=request.content,
-                role=RoleType.USER,
-            ),
-            user=current_user,
-        )
-        if not annotation:
-            raise ValueError(
-                "Failed to create annotation, please check the input data."
-            )
-
-        track_event(
-            "annotation_created",
-            user_id=str(current_user.id),
-        )
-
-        return JSONResponse(
-            status_code=201,
-            content=annotation.to_dict(),
-        )
-    except Exception as e:
-        logger.error(f"Error creating annotation: {e}", exc_info=True)
-        return JSONResponse(
+    annotation = annotation_crud.create(
+        db,
+        obj_in=AnnotationCreate(
+            paper_id=request.paper_id,
+            highlight_id=request.highlight_id,
+            content=request.content,
+            role=RoleType.USER,
+        ),
+        user=current_user,
+    )
+    if not annotation:
+        raise HTTPException(
             status_code=400,
-            content={"message": f"Failed to create annotation: {str(e)}"},
+            detail="Failed to create annotation, please check the input data.",
         )
+
+    track_event("annotation_created", user_id=str(current_user.id))
+    return AnnotationResponse.model_validate(annotation)
 
 
 @annotation_router.get("/{paper_id}")
-async def get_document_annotations(
-    paper_id: str,
+def get_document_annotations(
+    paper_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-) -> JSONResponse:
+) -> list[AnnotationResponse]:
     """Get all annotations for a specific document"""
-    try:
-        annotations = annotation_crud.get_annotations_by_paper_id(
-            db, paper_id=uuid.UUID(paper_id), user=current_user
-        )
-        return JSONResponse(
-            status_code=200,
-            content=[annotation.to_dict() for annotation in annotations],
-        )
-    except Exception as e:
-        logger.error(f"Error fetching annotations: {e}")
-        return JSONResponse(
-            status_code=400,
-            content={"message": f"Failed to fetch annotations: {str(e)}"},
-        )
+    annotations = annotation_crud.get_annotations_by_paper_id(
+        db, paper_id=paper_id, user=current_user
+    )
+    return [AnnotationResponse.model_validate(a) for a in annotations]
 
 
 @annotation_router.delete("/{annotation_id}")
-async def delete_annotation(
-    annotation_id: str,
+def delete_annotation(
+    annotation_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-) -> JSONResponse:
+) -> MessageResponse:
     """Delete a specific annotation"""
-    try:
-        # First verify the annotation exists and belongs to the user
-        existing_annotation = annotation_crud.get(
-            db, id=annotation_id, user=current_user
-        )
-        if not existing_annotation:
-            return JSONResponse(
-                status_code=404,
-                content={"message": f"Annotation with ID {annotation_id} not found."},
-            )
+    existing_annotation = annotation_crud.get(db, id=annotation_id, user=current_user)
+    if not existing_annotation:
+        raise _annotation_not_found(annotation_id)
 
-        if existing_annotation.role == RoleType.ASSISTANT:
-            return JSONResponse(
-                status_code=403,
-                content={"message": "Cannot delete assistant annotations."},
-            )
+    if existing_annotation.role == RoleType.ASSISTANT:
+        raise HTTPException(
+            status_code=403, detail="Cannot delete assistant annotations."
+        )
 
-        annotation_crud.remove(db, id=annotation_id, user=current_user)
-        return JSONResponse(
-            status_code=200,
-            content={"message": "Annotation deleted successfully"},
-        )
-    except Exception as e:
-        logger.error(f"Error deleting annotation: {e}")
-        return JSONResponse(
-            status_code=404,
-            content={
-                "message": f"Annotation not found or couldn't be deleted: {str(e)}"
-            },
-        )
+    if not annotation_crud.remove(db, id=annotation_id, user=current_user):
+        raise HTTPException(status_code=500, detail="Failed to delete annotation.")
+    return MessageResponse(message="Annotation deleted successfully")
 
 
 @annotation_router.patch("/{annotation_id}")
-async def update_annotation(
-    annotation_id: str,
+def update_annotation(
+    annotation_id: uuid.UUID,
     request: UpdateAnnotationRequest,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-) -> JSONResponse:
+) -> AnnotationResponse:
     """Update an existing annotation"""
-    try:
-        existing_annotation = annotation_crud.get(
-            db, id=annotation_id, user=current_user
-        )
-        if not existing_annotation:
-            raise ValueError(f"Annotation with ID {annotation_id} not found.")
+    existing_annotation = annotation_crud.get(db, id=annotation_id, user=current_user)
+    if not existing_annotation:
+        raise _annotation_not_found(annotation_id)
 
-        if existing_annotation.role == RoleType.ASSISTANT:
-            return JSONResponse(
-                status_code=403,
-                content={"message": "Cannot update assistant annotations."},
-            )
-
-        annotation = annotation_crud.update(
-            db,
-            db_obj=existing_annotation,
-            obj_in=AnnotationUpdate(
-                paper_id=uuid.UUID(str(existing_annotation.paper_id)),
-                highlight_id=uuid.UUID(str(existing_annotation.highlight_id)),
-                content=request.content,
-            ),
-            user=current_user,
-        )
-        if not annotation:
-            raise ValueError(
-                "Failed to update annotation, please check the input data."
-            )
-
-        track_event(
-            "annotation_updated",
-            user_id=str(current_user.id),
+    if existing_annotation.role == RoleType.ASSISTANT:
+        raise HTTPException(
+            status_code=403, detail="Cannot update assistant annotations."
         )
 
-        return JSONResponse(status_code=200, content=annotation.to_dict())
-    except ValueError as e:
-        return JSONResponse(status_code=404, content={"message": str(e)})
-    except Exception as e:
-        logger.error(f"Error updating annotation: {e}")
-        return JSONResponse(
+    annotation = annotation_crud.update(
+        db,
+        db_obj=existing_annotation,
+        obj_in=AnnotationUpdate(
+            paper_id=uuid.UUID(str(existing_annotation.paper_id)),
+            highlight_id=uuid.UUID(str(existing_annotation.highlight_id)),
+            content=request.content,
+        ),
+        user=current_user,
+    )
+    if not annotation:
+        raise HTTPException(
             status_code=400,
-            content={"message": f"Failed to update annotation: {str(e)}"},
+            detail="Failed to update annotation, please check the input data.",
         )
+
+    track_event("annotation_updated", user_id=str(current_user.id))
+    return AnnotationResponse.model_validate(annotation)

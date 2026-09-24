@@ -13,12 +13,15 @@ read-only repo lookups on a small budget, but nothing is persisted. See
 app/llm/chat/quick_question.py.
 
 GET /models lists user-selectable chat models with capability flags.
+
+GET /stream-parts is schema-only: it types OpenPaper's custom stream parts
+(app/schemas/chat_stream.py) in the OpenAPI document.
 """
 
-import json
 import logging
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
+from app.api.errors import ApiError
 from app.auth.dependencies import get_required_user
 from app.database.database import get_db
 from app.llm.chat.quick_question import (
@@ -27,12 +30,14 @@ from app.llm.chat.quick_question import (
 from app.llm.chat.quick_question import QuickQuestionError, run_quick_question
 from app.llm.chat.runtime import ChatRequestError, run_paper_chat
 from app.llm.chat.stream import OpenPaperAdapter
-from app.llm.model_registry import get_registry
+from app.llm.model_registry import LLMProvider, get_registry
 from app.llm.model_slots import resolve_slot
+from app.schemas.chat_stream import ChatStreamSchema
 from app.schemas.user import CurrentUser
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic_ai.ui.vercel_ai.request_types import UIMessage
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -41,19 +46,51 @@ message_router = APIRouter()
 
 # See https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol
 UI_MESSAGE_STREAM_HEADERS = {"x-vercel-ai-ui-message-stream": "v1"}
+UI_MESSAGE_STREAM_RESPONSES: dict[int | str, dict[str, Any]] = {
+    200: {
+        "description": (
+            "Vercel AI SDK UIMessage stream (SSE). OpenPaper's custom parts "
+            "are typed by GET /api/message/stream-parts."
+        ),
+        "content": {"text/event-stream": {"schema": {"type": "string"}}},
+    }
+}
+
+
+class ChatModelOption(BaseModel):
+    id: str
+    name: str
+    provider: LLMProvider
+    supports_reasoning_effort: bool
+    supports_vision: bool
+
+
+class ChatModelsResponse(BaseModel):
+    models: list[ChatModelOption]
+    default: str
+    default_provider: LLMProvider
 
 
 @message_router.get("/models")
-async def get_available_models() -> dict:
+def get_available_models() -> ChatModelsResponse:
     """User-selectable chat models with capabilities, for the picker."""
     registry = get_registry()
     specs = registry.chat_models()
     default_spec = resolve_slot("chat.default", registry).spec
-    return {
-        "models": [spec.to_public_dict() for spec in specs],
-        "default": default_spec.id,
-        "default_provider": default_spec.provider.value,
-    }
+    return ChatModelsResponse(
+        models=[ChatModelOption(**spec.to_public_dict()) for spec in specs],
+        default=default_spec.id,
+        default_provider=default_spec.provider,
+    )
+
+
+@message_router.get("/stream-parts", responses={404: {"model": ApiError}})
+def stream_parts_schema() -> ChatStreamSchema:
+    """Schema-only: types OpenPaper's custom parts on the chat and
+    quick-question UIMessage streams (`data-citations`, the transient
+    `data-retry-status`, and assistant message metadata). Nothing to fetch;
+    always 404."""
+    raise HTTPException(status_code=404, detail="Schema-only route.")
 
 
 class PaperChatBody(BaseModel):
@@ -83,6 +120,19 @@ class PaperChatBody(BaseModel):
         return value
 
 
+class PaperChatRequest(PaperChatBody):
+    """The whole POST body: the AI SDK submit payload plus OpenPaper's fields.
+
+    `messages` carries only the NEW user message; server-side history is
+    ground truth.
+    """
+
+    trigger: Literal["submit-message", "regenerate-message"] = "submit-message"
+    id: str
+    messages: list[UIMessage]
+    messageId: Optional[str] = None
+
+
 class QuickQuestionCodeBody(BaseModel):
     """Inline code question. Ephemeral: no conversation, nothing persisted."""
 
@@ -96,8 +146,13 @@ class QuickQuestionCodeBody(BaseModel):
     reasoning_effort: Optional[Literal["low", "medium", "high", "xhigh"]] = None
 
 
-@message_router.post("/quick-question/code")
+@message_router.post(
+    "/quick-question/code",
+    response_class=StreamingResponse,
+    responses=UI_MESSAGE_STREAM_RESPONSES,
+)
 async def quick_question_code(
+    extras: QuickQuestionCodeBody,
     request: Request,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
@@ -108,11 +163,6 @@ async def quick_question_code(
     reader), with read-only repo lookup tools but no citations and nothing
     written to conversations or messages.
     """
-    try:
-        extras = QuickQuestionCodeBody.model_validate(json.loads(await request.body()))
-    except (ValidationError, json.JSONDecodeError) as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-
     try:
         stream = run_quick_question(
             db=db,
@@ -156,17 +206,23 @@ async def quick_question_code(
     )
 
 
-@message_router.post("/chat/paper")
+@message_router.post(
+    "/chat/paper",
+    response_class=StreamingResponse,
+    responses=UI_MESSAGE_STREAM_RESPONSES,
+)
 async def chat_paper(
+    extras: PaperChatRequest,
     request: Request,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
 ) -> StreamingResponse:
-    body = await request.body()
+    # `extras` is the validated body (typed schema + OpenPaper's fields); the
+    # adapter builds its own run input from the same raw bytes, which
+    # Starlette has cached on the request.
     try:
-        run_input = OpenPaperAdapter.build_run_input(body)
-        extras = PaperChatBody.model_validate(json.loads(body))
-    except (ValidationError, json.JSONDecodeError) as exc:
+        run_input = OpenPaperAdapter.build_run_input(await request.body())
+    except ValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
     try:

@@ -28,7 +28,7 @@ class AnnotationCrud(CRUDBase[Annotation, AnnotationCreate, AnnotationUpdate]):
 
     def get_annotations_by_paper_id(
         self, db: Session, *, paper_id: UUID, user: CurrentUser
-    ):
+    ) -> list[Annotation]:
         """Get annotations associated with document"""
 
         return (
