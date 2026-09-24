@@ -1,9 +1,9 @@
 from typing import List, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+from pydantic import BaseModel, ConfigDict, HttpUrl
 
-from app.database.models import JobStatus, PaperStatus
+from app.database.models import PaperStatus
 from app.schemas.common import MessageResponse  # noqa: F401  (re-export)
 from app.schemas.json_datetime import IsoDatetime, StrDatetime
 
@@ -11,12 +11,6 @@ from app.schemas.json_datetime import IsoDatetime, StrDatetime
 class BulkTagRequest(BaseModel):
     paper_ids: List[UUID]
     tag_ids: List[UUID]
-
-
-class EnrichedData(BaseModel):
-    publisher: Optional[str]
-    journal: Optional[str]
-    publication_date: Optional[str]
 
 
 # -- tags -----------------------------------------------------------------
@@ -68,6 +62,8 @@ class LibraryPaper(ActivePaper):
 
     file_url: Optional[str] = None
     tags: List[PaperTagResponse] = []
+    # Ingest is still running (some stage pending/queued/running).
+    processing: bool = False
 
 
 class RelevantPapersResponse(BaseModel):
@@ -88,9 +84,8 @@ class LibraryPapersResponse(BaseModel):
 class PaperRecord(BaseModel):
     """A paper row's metadata columns.
 
-    Large or internal columns (`raw_content`, `ocr`, `ts_vector`,
-    `page_offset_map`, `generated_outline`, storage keys and the
-    presigned-URL cache) are left out.
+    Large or internal columns (`ts_vector`, `generated_outline`, storage
+    keys, upload sources and the presigned-URL cache) are left out.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -110,21 +105,10 @@ class PaperRecord(BaseModel):
     journal: Optional[str] = None
     publisher: Optional[str] = None
     size_in_kb: Optional[int] = None
-    # Always "mistral" now: every paper's chat reads per-page markdown
-    # (`paper_pages`), so the client offers the structured context modes.
-    # The legacy `papers.parser` column is ignored; the field stays until
-    # the client stops reading it.
-    parser: Optional[str] = Field(default=None, validate_default=True)
-    figure_count: Optional[int] = None
     page_count: Optional[int] = None
     supplementary_of_paper_id: Optional[UUID] = None
     created_at: Optional[StrDatetime] = None
     updated_at: Optional[StrDatetime] = None
-
-    @field_validator("parser", mode="before")
-    @classmethod
-    def _structured_pages(cls, _: object) -> str:
-        return "mistral"
 
 
 class PaperDetail(PaperRecord):
@@ -158,14 +142,13 @@ class PaperConversationSummary(BaseModel):
 
 
 class SupplementaryMaterialItem(BaseModel):
-    """A finished supplementary paper, or an upload job still producing one."""
+    """A supplementary material (its own paper row; see `/ingest` for progress)."""
 
     id: UUID
     title: Optional[str] = None
     preview_url: Optional[str] = None
     page_count: Optional[int] = None
     created_at: Optional[IsoDatetime] = None
-    status: JobStatus
 
 
 class PaperFigureSummary(BaseModel):
@@ -183,22 +166,7 @@ class UploadFromUrlRequest(BaseModel):
     url: HttpUrl
 
 
-class UploadStartedResponse(BaseModel):
-    message: str
-    job_id: UUID
+class UploadedPaper(BaseModel):
+    """The new paper: readable at once, the rest of ingest runs in the worker."""
 
-
-class UploadJobStatusResponse(BaseModel):
-    """The `celery_*` keys are present only while a Celery task is live."""
-
-    job_id: UUID
-    status: JobStatus
-    task_id: Optional[str] = None
-    started_at: IsoDatetime
-    completed_at: Optional[IsoDatetime] = None
-    has_file_url: bool
-    has_metadata: bool
-    paper_id: Optional[UUID] = None
-    celery_status: Optional[str] = None
-    celery_progress_message: Optional[str] = None
-    celery_error: Optional[str] = None
+    paper_id: UUID

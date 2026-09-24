@@ -53,9 +53,7 @@ from app.schemas.user import CurrentUser
 
 logger = logging.getLogger(__name__)
 
-# "adaptive" | "comprehensive" | "full". The old "raw" mode (pymupdf-only
-# papers) is gone — every paper has per-page markdown — and is treated as
-# "adaptive" when an old client still sends it.
+# "adaptive" | "comprehensive" | "full".
 ContextMode = str
 
 MAX_AGENTIC_ITERATIONS = 60  # Tool-call budget for retrieval-heavy turns.
@@ -155,8 +153,6 @@ def build_paper_chat_context(
     if not paper:
         raise ValueError(f"Paper with ID {paper_id} not found.")
 
-    if context_mode == "raw":
-        context_mode = "adaptive"
     pages = content.pages(db, paper.id)
     figures = content.figures(db, paper.id)
 

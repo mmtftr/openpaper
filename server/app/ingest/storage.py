@@ -119,9 +119,8 @@ def delete_key(s3: "S3Service", key: str) -> None:
     )
 
 
-def delete_paper_objects(s3: "S3Service", paper_id: uuid.UUID | str) -> int:
-    """Delete everything under `papers/{paper_id}/`; returns how many."""
-    prefix = paper_prefix(paper_id)
+def delete_prefix(s3: "S3Service", prefix: str) -> int:
+    """Delete every object under `prefix`; returns how many."""
     deleted = 0
 
     def run() -> None:
@@ -137,6 +136,20 @@ def delete_paper_objects(s3: "S3Service", paper_id: uuid.UUID | str) -> int:
 
     _translated("delete", prefix, run)
     return deleted
+
+
+def delete_paper_objects(s3: "S3Service", paper_id: uuid.UUID | str) -> int:
+    """Delete everything under `papers/{paper_id}/`; returns how many."""
+    return delete_prefix(s3, paper_prefix(paper_id))
+
+
+def key_from_public_url(s3: "S3Service", url: str | None) -> str | None:
+    """The object key behind one of our public URLs (`preview_url`), or None
+    for URLs that aren't ours."""
+    base = public_url(s3, "")
+    if url and url.startswith(base) and len(url) > len(base):
+        return url[len(base) :].split("?", 1)[0]
+    return None
 
 
 # -- for stages -----------------------------------------------------------------

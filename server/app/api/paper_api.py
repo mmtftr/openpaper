@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_required_user
@@ -13,13 +14,12 @@ from app.database.crud.conversation_crud import conversation_crud
 from app.database.crud.paper_crud import PaperUpdate, paper_crud
 from app.database.crud.projects.project_paper_crud import project_paper_crud
 from app.database.database import get_db
-from app.database.models import JobStatus, Paper, PaperStatus, PaperUploadJob
+from app.database.models import Paper, PaperStatus
 from app.database.telemetry import track_event
-from app.helpers.paper_search import get_doi, get_enriched_data
-from app.helpers.parser import parse_publication_date
 from app.helpers.s3 import s3_service
-from app.ingest import content
-from app.llm.paper_outline import OutlineEntry, cached_outline
+from app.ingest import content, storage
+from app.ingest.models import IngestStage, StageStatus
+from app.llm.paper_outline import OutlineEntry
 from app.schemas.paper import (
     ActivePaper,
     ActivePapersResponse,
@@ -43,8 +43,6 @@ logger = logging.getLogger(__name__)
 
 # Create API router with prefix
 paper_router = APIRouter()
-
-CHECK_METADATA_INTERVAL_DAYS = 30
 
 
 # `![alt](src)` / `![alt](src "title")` image references in page markdown.
@@ -75,6 +73,40 @@ def _paper_markdown_payload(db: Session, paper: Paper) -> PaperMarkdown:
     return PaperMarkdown(markdown=markdown, source="mistral")
 
 
+def _paper_files(db: Session, paper: Paper) -> tuple[list[str], set[str]]:
+    """A paper's S3 objects as (prefixes, keys): everything under
+    `papers/{id}/` plus, for papers the old pipeline stored, the PDF /
+    preview / figure images it kept elsewhere (`uploads/…`, `figures/{id}/…`)."""
+    prefix = storage.paper_prefix(paper.id)  # pyright: ignore[reportArgumentType]
+    keys = [
+        str(paper.s3_object_key) if paper.s3_object_key else None,
+        storage.key_from_public_url(s3_service, paper.preview_url),  # pyright: ignore[reportArgumentType]
+        *(f.s3_key for f in content.figures(db, paper.id)),  # pyright: ignore[reportArgumentType]
+    ]
+    return (
+        [prefix, f"figures/{paper.id}/"],
+        {k for k in keys if k and not k.startswith(prefix)},
+    )
+
+
+def _processing_ids(db: Session, paper_ids: list[uuid.UUID]) -> set[uuid.UUID]:
+    """The papers among `paper_ids` whose ingest is still running."""
+    if not paper_ids:
+        return set()
+    return set(
+        db.scalars(
+            select(IngestStage.paper_id)
+            .where(
+                IngestStage.paper_id.in_(paper_ids),
+                IngestStage.status.in_(
+                    [StageStatus.PENDING, StageStatus.QUEUED, StageStatus.RUNNING]
+                ),
+            )
+            .distinct()
+        )
+    )
+
+
 def _list_item_fields(paper: Paper) -> Dict[str, Any]:
     """Fields shared by every paper-list item (see `RelevantPaper`)."""
     return {
@@ -100,7 +132,7 @@ def get_paper_ids(
     """
     Get all paper IDs
     """
-    papers: List[Paper] = paper_crud.get_multi_uploads_completed(db, user=current_user)
+    papers: List[Paper] = paper_crud.get_library(db, user=current_user)
 
     # Bulk retrieve presigned URLs for all papers (optimized with parallelization)
     file_urls = {}
@@ -110,6 +142,7 @@ def get_paper_ids(
             papers=papers,
         )
 
+    processing = _processing_ids(db, [p.id for p in papers])  # pyright: ignore[reportArgumentType]
     return LibraryPapersResponse(
         papers=[
             LibraryPaper(
@@ -117,6 +150,7 @@ def get_paper_ids(
                 publish_date=paper.publish_date,  # pyright: ignore[reportArgumentType]
                 file_url=file_urls.get(str(paper.id)),
                 tags=paper.tags,  # pyright: ignore[reportArgumentType]
+                processing=paper.id in processing,
             )
             for paper in papers
         ]
@@ -131,7 +165,7 @@ def get_active_paper_ids(
     """
     Get all active paper IDs
     """
-    papers: List[Paper] = paper_crud.get_multi_uploads_completed(
+    papers: List[Paper] = paper_crud.get_library(
         db, user=current_user, status=PaperStatus.reading
     )
     return ActivePapersResponse(
@@ -268,51 +302,29 @@ def list_supplementary_materials(
     current_user: CurrentUser = Depends(get_required_user),
     db: Session = Depends(get_db),
 ) -> List[SupplementaryMaterialItem]:
-    """List supplementary materials attached to a paper, plus any in-flight upload jobs."""
+    """Supplementary materials attached to a paper, oldest first."""
     parent = paper_crud.get(db, id=paper_id, user=current_user)
     if not parent:
         raise HTTPException(status_code=404, detail="Parent paper not found")
 
-    # In-flight upload jobs targeting this parent
-    in_flight_jobs = (
-        db.query(PaperUploadJob)
-        .filter(
-            PaperUploadJob.supplementary_of_paper_id == paper_id,
-            PaperUploadJob.user_id == current_user.id,
-            PaperUploadJob.status.notin_([JobStatus.COMPLETED, JobStatus.FAILED]),
-        )
-        .all()
-    )
-
     supplementary_papers = paper_crud.list_supplementary_for(
         db, parent_paper_id=paper_id, user=current_user
     )
-
-    job_items = [
-        SupplementaryMaterialItem(
-            id=job.id,  # type: ignore[arg-type]
-            created_at=job.started_at,  # type: ignore[arg-type]
-            status=job.status,  # type: ignore[arg-type]
-        )
-        for job in in_flight_jobs
-    ]
-
-    paper_items = [
+    return [
         SupplementaryMaterialItem(
             id=paper.id,  # type: ignore[arg-type]
-            title=paper.title,  # type: ignore[arg-type]
+            # Supplementaries get no metadata lookup: the PDF's embedded
+            # title (text_layer) or else the uploaded file's name.
+            title=paper.title or paper.source_filename,  # type: ignore[arg-type]
             preview_url=paper.preview_url,  # type: ignore[arg-type]
             page_count=paper.page_count,  # type: ignore[arg-type]
             created_at=paper.created_at,  # type: ignore[arg-type]
-            status=JobStatus.COMPLETED,
         )
         for paper in sorted(
             supplementary_papers,
             key=lambda p: p.created_at or datetime.min.replace(tzinfo=timezone.utc),  # type: ignore[arg-type]
         )
     ]
-
-    return job_items + paper_items
 
 
 @paper_router.get("")
@@ -330,11 +342,6 @@ def get_pdf(
     if not paper:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    # Snapshot the row before the metadata refresh below writes to it; the
-    # refreshed journal/publisher/date are reported through `overrides`.
-    detail = PaperDetail.model_validate(paper)
-    overrides: Dict[str, Any] = {}
-
     signed_url = s3_service.get_cached_presigned_url(
         db,
         paper_id=str(paper.id),
@@ -344,65 +351,7 @@ def get_pdf(
     if not signed_url:
         raise HTTPException(status_code=404, detail="File not found")
 
-    should_check_doi = (not paper.doi) and (paper.title is not None)
-    is_cache_stale = (not paper.attempted_metadata_at) or (
-        paper.attempted_metadata_at
-        and (datetime.now(timezone.utc) - paper.attempted_metadata_at).days
-        >= CHECK_METADATA_INTERVAL_DAYS
-    )
-
-    try:
-        if should_check_doi and is_cache_stale:
-            doi = get_doi(
-                str(paper.title),
-                list(paper.authors) if paper.authors else None,  # pyright: ignore[reportArgumentType]
-            )  # type: ignore
-            if doi:
-                paper_crud.update(
-                    db=db, db_obj=paper, obj_in=PaperUpdate(doi=doi), user=current_user
-                )
-            paper_crud.update(
-                db=db,
-                db_obj=paper,
-                obj_in=PaperUpdate(attempted_metadata_at=datetime.now(timezone.utc)),
-                user=current_user,
-            )
-
-        if paper.doi and (not paper.journal and not paper.publisher) and is_cache_stale:
-            enriched_data = get_enriched_data(str(paper.doi))
-            if enriched_data:
-                publish_datetime = (
-                    parse_publication_date(enriched_data.publication_date)
-                    if enriched_data.publication_date
-                    else paper.publish_date
-                )
-                overrides["journal"] = enriched_data.journal
-                overrides["publisher"] = enriched_data.publisher
-                overrides["publish_date"] = publish_datetime
-
-                paper_crud.update(
-                    db=db,
-                    db_obj=paper,
-                    obj_in=PaperUpdate(
-                        journal=enriched_data.journal,
-                        publisher=enriched_data.publisher,
-                        publish_date=(
-                            publish_datetime.isoformat() if publish_datetime else None
-                        ),
-                    ),
-                    user=current_user,
-                )
-            paper_crud.update(
-                db=db,
-                db_obj=paper,
-                obj_in=PaperUpdate(attempted_metadata_at=datetime.now(timezone.utc)),
-                user=current_user,
-            )
-    except Exception:
-        logger.exception("Error updating enriched data for paper %s", id, exc_info=True)
-
-    overrides["file_url"] = signed_url
-    return detail.model_copy(update=overrides)
+    return PaperDetail.model_validate(paper).model_copy(update={"file_url": signed_url})
 
 
 @paper_router.get("/outline", response_model=List[OutlineEntry])
@@ -411,10 +360,11 @@ def get_paper_outline(
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
 ):
+    """The outline the ingest `outline` stage built (empty until it ran)."""
     paper = paper_crud.get(db, id=id, user=current_user)
     if not paper:
         raise HTTPException(status_code=404, detail="Document not found")
-    return cached_outline(db, paper)
+    return paper.generated_outline or []
 
 
 @paper_router.get("/markdown")
@@ -445,8 +395,6 @@ def delete_pdf(
     if not paper:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    s3_object_key = paper.s3_object_key
-
     projects = project_paper_crud.get_projects_by_paper_id(
         db, paper_id=id, user=current_user
     )
@@ -456,16 +404,28 @@ def delete_pdf(
             detail="Cannot delete document associated with projects. Please remove the document from all projects before deleting.",
         )
 
-    # Delete the document from the database
+    # Collect the files while the rows exist (figure keys); supplementary
+    # materials go with the paper (FK CASCADE), so their files go too.
+    files = [
+        _paper_files(db, doc)
+        for doc in [
+            paper,
+            *paper_crud.list_supplementary_for(
+                db, parent_paper_id=id, user=current_user
+            ),
+        ]
+    ]
+
     removed_paper = paper_crud.remove(db, id=id, user=current_user)
     if not removed_paper:
         raise HTTPException(status_code=500, detail="Failed to delete document")
 
     try:
-        # Delete the file from S3 if s3_object_key exists
-        if s3_object_key:
-            s3_service.delete_file(str(s3_object_key))
-            logger.info(f"Deleted S3 object: {s3_object_key}")
+        for prefixes, keys in files:
+            for prefix in prefixes:
+                storage.delete_prefix(s3_service, prefix)
+            for key in keys:
+                storage.delete_key(s3_service, key)
 
         # The paper_repos row goes with the paper (FK CASCADE), but the
         # ingested snapshot lives on a volume — drop it here.
@@ -473,7 +433,7 @@ def delete_pdf(
 
         repo_storage.delete_paper_snapshots(str(id))
     except Exception as e:
-        logger.error(f"Error deleting document: {str(e)}")
+        logger.error(f"Error deleting document files: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Error deleting document: {str(e)}"
         )

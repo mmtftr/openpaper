@@ -57,6 +57,13 @@ heartbeat every `HEARTBEAT_INTERVAL_SECONDS`; SIGTERM drains then requeues.
 `complete_stage`, `retry_stage`, `reprocess` (raises `IngestConflict`),
 `ingest_status`. `Stage.reset_outputs()` runs on reprocess only.
 
+**Upload** (`app/api/paper_upload_api.py`) — the request runs `source`
+(`stages/source.store_source`: validate, store at `papers/{id}/…`), creates
+the `Paper` (+ `source_filename` / `source_url` for the metadata stage) and
+calls `enqueue_paper(..., source_succeeded=True)` in one commit; if that
+commit fails the stored objects are deleted. Paper delete removes the
+`papers/{id}/` prefix plus the old pipeline's keys (`paper_api.delete_pdf`).
+
 **Read side** (`content.py`) — what chat, search and the API read instead
 of the legacy `papers.ocr/raw_content/page_offset_map/parser`: `pages()`
 (final `markdown` per page), `full_text()` (pages joined by a blank line +

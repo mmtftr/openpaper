@@ -1,10 +1,12 @@
 """Check the `ingest_v2_data_20260927` migration (docs/INGEST_DESIGN.md §10).
 
-Read-only. Two steps around `alembic upgrade head`:
+Read-only. Two steps around the data migration — `check` reads the legacy
+columns, so run it before `drop_legacy_ingest_20260929` drops them:
 
     python -m app.scripts.verify_ingest_migration snapshot before.json
-    alembic upgrade head
+    alembic upgrade paper_source_20260928
     python -m app.scripts.verify_ingest_migration check before.json
+    alembic upgrade head    # drops the legacy columns
 
 `snapshot` records per-paper highlight / annotation / conversation / message
 counts. `check` compares them (papers deleted by the migration must be the
@@ -12,7 +14,7 @@ ones without OCR) and verifies, for every paper with a legacy `ocr` object:
 page count = `page_count` = `len(ocr.pages)`, figure count =
 `len(ocr.figures)`, the pages' markdown joined = `raw_content` (so chat,
 search and highlight offsets see the same text), `ts_vector` = the old
-title + raw_content vector, the stage rows, and the AI highlights' / annotations' origin.
+title + raw_content vector, the stage rows, and the AI highlights' origin.
 Exits 1 on any mismatch.
 """
 
@@ -135,7 +137,7 @@ def check_papers(conn: Connection) -> list[str]:
 
 def check_origins(conn: Connection) -> list[str]:
     problems: list[str] = []
-    for table in ("highlights", "annotations"):
+    for table in ("highlights",):  # annotations have no origin column
         wrong = conn.execute(
             text(
                 f"SELECT count(*) FROM {table}"

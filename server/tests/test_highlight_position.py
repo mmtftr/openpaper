@@ -16,7 +16,6 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from app.api.webhook_api import PDFProcessingResult
 from app.schemas.highlight import HighlightResponse, ScaledPosition
 
 
@@ -182,23 +181,3 @@ def test_ai_highlight_row_validates():
     assert body["type"] == "evidence"
     assert body["role"] == "assistant"
     assert body["id"] == str(row.id)
-
-
-def test_webhook_anchor_payload_validates():
-    """The jobs service's `anchor_ai_highlights` output, as it arrives on the
-    processing webhook (one entry per highlight, None where unanchored)."""
-    result = PDFProcessingResult.model_validate(
-        {
-            "success": True,
-            "job_id": "j1",
-            "ai_highlight_anchors": [
-                {"page_number": 6, "position": AI_POSITION},
-                None,
-                {"page_number": 1, "position": AI_SINGLE_RECT_POSITION},
-            ],
-        }
-    )
-    anchors = result.ai_highlight_anchors
-    assert anchors is not None
-    assert anchors[1] is None
-    assert anchors[0] is not None and anchors[0].position.to_json() == AI_POSITION

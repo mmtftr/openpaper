@@ -122,9 +122,6 @@ class User(Base):
     annotations = relationship(
         "Annotation", back_populates="user", cascade="all, delete-orphan"
     )
-    paper_upload_jobs = relationship(
-        "PaperUploadJob", back_populates="user", cascade="all, delete-orphan"
-    )
 
     paper_tags = relationship(
         "PaperTag", back_populates="user", cascade="all, delete-orphan"
@@ -146,37 +143,9 @@ class Session(Base):
     user = relationship("User", back_populates="sessions")
 
 
-class JobStatus(str, Enum):
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-
-
 class RoleType(str, Enum):
     USER = "user"
     ASSISTANT = "assistant"
-
-
-class PaperUploadJob(Base):
-    __tablename__ = "paper_upload_jobs"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-    status = Column(String, nullable=False, default=JobStatus.PENDING)
-    started_at = Column(DateTime(timezone=True), nullable=True)
-    completed_at = Column(DateTime(timezone=True), nullable=True)
-    task_id = Column(String, nullable=True)  # For tracking task in Celery
-    # When set, this upload is producing a supplementary material for the
-    # referenced parent paper. The webhook stamps the resulting Paper row's
-    # supplementary_of_paper_id with this value. No FK here — the job is
-    # transient; the durable link lives on Paper.
-    supplementary_of_paper_id = Column(UUID(as_uuid=True), nullable=True)
-
-    user = relationship("User", back_populates="paper_upload_jobs")
 
 
 class PaperStatus(str, Enum):
@@ -337,19 +306,11 @@ class Paper(Base):
     institutions = Column(ARRAY(String), nullable=True)
     keywords = Column(ARRAY(String), nullable=True)
     publish_date = Column(DateTime, nullable=True)
-    raw_content = Column(Text, nullable=True)
+    # Kept by triggers from the title + the pages' markdown (search).
     ts_vector = Column(TSVECTOR, nullable=True)
-    page_offset_map = Column(
-        JSONB, nullable=True
-    )  # Maps page numbers to text offsets. Useful for re-annotation.
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     last_accessed_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-    upload_job_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("paper_upload_jobs.id", ondelete="SET NULL"),
-        nullable=True,
     )
 
     # Cached presigned URL fields
@@ -372,14 +333,13 @@ class Paper(Base):
 
     size_in_kb = Column(Integer, nullable=True)  # Size of the paper file in KB
 
-    # OCR pipeline. parser is "mistral" | "pymupdf" — selects the chat
-    # context-mode surface for this paper. ocr is the per-page jsonb (Mistral
-    # response with image_base64 stripped); used by the agentic chat tools.
-    parser = Column(Text, nullable=True)
-    ocr = Column(JSONB, nullable=True)
+    # Written by the ingest `outline` stage (`/api/paper/outline` serves it).
     generated_outline = Column(JSONB, nullable=True)
-    figure_count = Column(Integer, nullable=True)
     page_count = Column(Integer, nullable=True)
+    # What the upload came from; hints for the ingest `metadata` stage
+    # (arXiv ids / DOIs are often in file names and URLs).
+    source_filename = Column(Text, nullable=True)
+    source_url = Column(Text, nullable=True)
 
     # Supplementary materials are themselves Paper rows that point back to
     # their parent paper. Library listings filter rows where this is non-null

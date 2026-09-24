@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import classify
 from app.core.http import shared_client
 from app.ingest import metadata_ids as ids
+from app.ingest import storage
 from app.ingest.config import Resource
 from app.ingest.metadata_ids import Identifier, PdfHints
 from app.ingest.metadata_lookup import (
@@ -50,8 +51,8 @@ class PageText:
 class MetadataInputs:
     pages: dict[int, PageText]  # page_no (1-based) -> text, first pages only
     s3_key: Optional[str] = None
-    # Neither is stored yet: the upload doesn't keep the original filename
-    # or URL (the S3 key is a UUID). Wired up here for when it does.
+    # What the upload recorded: the original file name / the URL the PDF
+    # was fetched from (`papers.source_filename` / `source_url`).
     filename: Optional[str] = None
     source_url: Optional[str] = None
 
@@ -78,6 +79,8 @@ def load_inputs(
         .all()
     )
     s3_key = str(paper.s3_object_key) if paper and paper.s3_object_key else None
+    filename = str(paper.source_filename) if paper and paper.source_filename else None
+    source_url = str(paper.source_url) if paper and paper.source_url else None
     return MetadataInputs(
         pages={
             row.page_no: PageText(
@@ -87,7 +90,8 @@ def load_inputs(
             for row in rows
         },
         s3_key=s3_key,
-        filename=s3_key.rsplit("/", 1)[-1] if s3_key else None,
+        filename=filename or (s3_key.rsplit("/", 1)[-1] if s3_key else None),
+        source_url=source_url,
     )
 
 
@@ -100,7 +104,7 @@ async def load_pdf_hints(ctx: StageContext, s3_key: Optional[str]) -> PdfHints:
     if not s3_key:
         return PdfHints()
     try:
-        data = await asyncio.to_thread(ctx.get_s3().get_object_bytes, s3_key)
+        data = await asyncio.to_thread(storage.get_bytes, ctx.get_s3(), s3_key)
         return await ctx.cpu(ids.read_pdf_hints, data)
     except Exception as exc:
         ctx.log.warning(

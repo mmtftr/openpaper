@@ -52,7 +52,7 @@ class OcrConfig:
 
 
 def ocr_config() -> OcrConfig:
-    """Mistral OCR settings from the environment (same names as `jobs/`)."""
+    """Mistral OCR settings from the environment (server/.env)."""
     return OcrConfig(
         api_key=(os.getenv("MISTRAL_API_KEY") or "").strip() or None,
         endpoint=os.getenv("MISTRAL_OCR_ENDPOINT") or "https://api.mistral.ai/v1/ocr",

@@ -4,9 +4,9 @@ Auth is paper ownership on every route (the `paper_repos` row has no
 `user_id` of its own — the paper is the ownership anchor).
 
 Ingestion runs in a FastAPI `BackgroundTask` on a FRESH session — never the
-request session, which FastAPI closes as soon as the response is sent. No
-Celery: a single tarball fetch + prune is seconds of work, and the status
-column already carries the state a poller needs.
+request session, which FastAPI closes as soon as the response is sent. Not
+an ingest stage: a single tarball fetch + prune is seconds of work, and the
+status column already carries the state a poller needs.
 
 The tree/file endpoints serve OUR snapshot, not GitHub: the user sees the
 exact bytes the agent read, and private-repo support stays possible later.

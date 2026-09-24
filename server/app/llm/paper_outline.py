@@ -1,27 +1,21 @@
 """Grounded reader outlines: OCR headings supply every navigation target.
 
-Two entry points share the extraction and cleanup:
-- `cached_outline(db, paper)` — the reader's `/api/paper/outline` today,
-  reading `papers.ocr` and caching into `papers.generated_outline`.
-- `candidates_from_pages` + `clean_outline` / `build_tree` — the ingest
-  `outline` stage (`app.ingest.stages.outline`), from `paper_pages` rows and
-  the PDF's bookmarks.
+Used by the ingest `outline` stage (`app.ingest.stages.outline`), which
+saves the result to `papers.generated_outline` (what `/api/paper/outline`
+serves): `candidates_from_pages` + `clean_outline` from `paper_pages`
+rows, or `build_tree` from the PDF's bookmarks.
 """
 
 import json
 import logging
 import math
 import re
-import threading
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Iterable
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import update
-from sqlalchemy.orm import Session
 
-from app.database.models import Paper
 from app.llm import oneshot
 from app.llm.tools.section_tools import _HEADING_RE
 
@@ -101,45 +95,6 @@ class OutlinePage:
     markdown: str
     blocks: list[dict] = field(default_factory=list)
     dimensions: dict = field(default_factory=dict)
-
-
-def extract_candidates(paper: Paper) -> list[dict]:
-    """Heading candidates from a paper's stored Mistral OCR (`papers.ocr`).
-
-    Raw fallback text has no reliable page locations, so return no outline.
-    """
-    ocr = getattr(paper, "ocr", None)
-    if getattr(paper, "parser", None) != "mistral" or not isinstance(ocr, dict):
-        return []
-    pages = ocr.get("pages")
-    if not isinstance(pages, list):
-        return []
-    page_count = getattr(paper, "page_count", None)
-    inputs = []
-    for page in pages:
-        if not isinstance(page, dict):
-            continue
-        index = page.get("index")
-        if type(index) is not int or index < 0:
-            continue
-        if isinstance(page_count, int) and index >= page_count:
-            continue
-        markdown = page.get("markdown")
-        if not isinstance(markdown, str):
-            continue
-        blocks = page.get("blocks")
-        dimensions = page.get("dimensions")
-        inputs.append(
-            OutlinePage(
-                page=index + 1,
-                markdown=markdown,
-                blocks=[b for b in blocks if isinstance(b, dict)]
-                if isinstance(blocks, list)
-                else [],
-                dimensions=dimensions if isinstance(dimensions, dict) else {},
-            )
-        )
-    return candidates_from_pages(inputs)
 
 
 def candidates_from_pages(pages: Iterable[OutlinePage]) -> list[dict]:
@@ -262,20 +217,6 @@ Never invent headings, pages or coordinates. Return entries=[] if none are secti
 """
 
 
-class OutlineCleanupUnavailable(Exception):
-    """The LLM pass failed; carries the uncleaned outline to serve meanwhile."""
-
-    def __init__(self, fallback: list[dict]):
-        super().__init__("Outline cleanup unavailable")
-        self.fallback = fallback
-
-
-def generate_outline(paper: Paper) -> list[dict]:
-    """Raises OutlineCleanupUnavailable when the LLM pass fails, so a transient
-    provider error isn't cached as the paper's permanent (uncleaned) outline."""
-    return _outline_from_candidates(extract_candidates(paper))
-
-
 # Bound the one-shot prompt on books or pathological OCR without losing
 # headings: above this many candidates the uncleaned tree is served.
 MAX_CLEANUP_CANDIDATES = 300
@@ -293,10 +234,10 @@ def build_tree(entries: list[dict]) -> list[dict]:
 
 
 async def clean_outline(candidates: list[dict]) -> list[dict]:
-    """The LLM-cleaned outline of `candidates` (async; the ingest stage).
+    """The LLM-cleaned outline of `candidates`.
 
-    Unlike `generate_outline`, a failed cleanup raises the provider's error
-    as is, so the stage's retry/backoff handles it.
+    A failed cleanup raises the provider's error as is, so the stage's
+    retry/backoff handles it.
     """
     if not needs_cleanup(candidates):
         return _tree(candidates)
@@ -307,86 +248,3 @@ async def clean_outline(candidates: list[dict]) -> list[dict]:
         instructions=OUTLINE_PROMPT,
     )
     return validate_selection(candidates, selection)
-
-
-def _outline_from_candidates(candidates: list[dict]) -> list[dict]:
-    if not candidates:
-        return []
-    fallback = _tree(candidates)
-    if not needs_cleanup(candidates):
-        return fallback
-    try:
-        # The `ingest.outline` slot defaults to the inexpensive OpenAI/Azure
-        # fast deployment: the Codex subscription proxy does not necessarily
-        # support its configured fast model. It still falls back to the
-        # default provider in single-provider setups.
-        selection = oneshot.complete_sync(
-            "ingest.outline",
-            json.dumps(candidates, ensure_ascii=False),
-            output_type=OutlineSelection,  # pydantic-ai tool output
-            instructions=OUTLINE_PROMPT,
-        )
-        return validate_selection(candidates, selection)
-    except Exception as exc:
-        logger.warning(
-            "Outline cleanup failed; serving OCR headings uncached", exc_info=True
-        )
-        raise OutlineCleanupUnavailable(fallback) from exc
-
-
-# Papers whose outline this worker is generating right now.
-_in_flight: set[str] = set()
-_in_flight_lock = threading.Lock()
-
-
-def cached_outline(db: Session, paper: Paper) -> list[dict]:
-    """The paper's outline, generating (and caching) it on first request.
-
-    No DB connection or lock is held across the LLM call: candidates are read,
-    the request's transaction is ended, and the result is written back with a
-    conditional UPDATE. A second request for a paper already being generated in
-    this worker gets the uncleaned OCR headings instead of queueing behind the
-    LLM call; across workers the worst case is a duplicate generation, and the
-    first write wins.
-
-    Nothing is cached unless the LLM pass succeeded: an empty result (OCR not
-    finished yet, or a non-Mistral parse) and a failed cleanup are both cheap
-    to recompute and may change, so caching them would pin a stale outline.
-    """
-    if paper.generated_outline is not None:
-        return paper.generated_outline  # pyright: ignore[reportReturnType]
-    # Read everything needed before ending the transaction: the rollback
-    # expires `paper`, and touching it afterwards would reopen one.
-    row_id = paper.id
-    paper_id = str(row_id)
-    candidates = extract_candidates(paper)
-    if not candidates:
-        return []
-    # End the read transaction so its pooled connection isn't held while the
-    # LLM call runs.
-    db.rollback()
-
-    with _in_flight_lock:
-        busy = paper_id in _in_flight
-        if not busy:
-            _in_flight.add(paper_id)
-    if busy:
-        return _tree(candidates)
-    try:
-        try:
-            outline = _outline_from_candidates(candidates)
-        except OutlineCleanupUnavailable as unavailable:
-            return unavailable.fallback
-        db.execute(
-            update(Paper)
-            .where(Paper.id == row_id, Paper.generated_outline.is_(None))
-            .values(generated_outline=outline)
-        )
-        db.commit()
-        return outline
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        with _in_flight_lock:
-            _in_flight.discard(paper_id)

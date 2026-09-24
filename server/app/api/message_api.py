@@ -106,7 +106,7 @@ class PaperChatBody(BaseModel):
     llm_provider: Optional[str] = None
     model: Optional[str] = None
     reasoning_effort: Optional[Literal["low", "medium", "high", "xhigh"]] = None
-    context_mode: Optional[Literal["adaptive", "comprehensive", "full", "raw"]] = None
+    context_mode: Optional[Literal["adaptive", "comprehensive", "full"]] = None
     # PDF text selections attached by the user. Bounded: they flow into the
     # model prompt.
     user_references: Optional[list[str]] = Field(default=None, max_length=20)

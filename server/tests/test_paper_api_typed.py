@@ -27,9 +27,7 @@ def _client(router, prefix: str) -> TestClient:
 def test_empty_paper_lists_are_200_not_404(monkeypatch, route):
     # A 404 here used to reject the client's Promise.all and blank the
     # projects list fetched alongside it.
-    monkeypatch.setattr(
-        paper_api.paper_crud, "get_multi_uploads_completed", lambda *a, **k: []
-    )
+    monkeypatch.setattr(paper_api.paper_crud, "get_library", lambda *a, **k: [])
     monkeypatch.setattr(
         paper_api.paper_crud, "get_top_relevant_papers", lambda *a, **k: []
     )

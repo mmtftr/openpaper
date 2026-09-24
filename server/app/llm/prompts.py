@@ -92,14 +92,6 @@ The complete paper TEXT is below, so you rarely need read_section, read_pages or
 {preloaded_content}
 """
 
-RAW_MODE_PRELOAD = """
-## Pre-loaded paper content (Raw / fallback mode)
-This paper was parsed in fallback mode (pymupdf), so structured navigation is limited and figure tools are unavailable. The paper is below as flat markdown.
-
-{preloaded_content}
-"""
-
-
 RENAME_CONVERSATION_SYSTEM_PROMPT = """
 You are an expert at summarizing conversations. Your task is to generate a concise and descriptive title for the given chat history. The title should be no more than 5 words and should accurately reflect the main topic of the conversation.
 """

@@ -15,7 +15,7 @@ cd ..
 docker compose up --build
 ```
 
-Compose provides Postgres, RabbitMQ, Redis, MinIO, the server, the client, and the jobs service. It also runs migrations before starting the server.
+Compose provides Postgres, MinIO, the server, the ingest worker and the client. It also runs migrations before starting the server.
 
 1. Install dependencies
 ```bash
@@ -68,6 +68,13 @@ GEMINI_API_KEY="your_gemini_api_key"
 Run the command below to install dependencies, run db migrations and start the app:
 ```bash
 uv run start
+```
+
+Uploaded papers are processed by the ingest worker (OCR, metadata, figures,
+outline, AI highlights — `docs/INGEST_DESIGN.md`). Run it next to the server,
+against the same database and S3:
+```bash
+uv run python -m app.ingest.worker
 ```
 
 ## API Documentation

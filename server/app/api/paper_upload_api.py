@@ -1,320 +1,243 @@
+"""Paper uploads (docs/INGEST_DESIGN.md §2 `source`, §8).
+
+The request itself runs the `source` stage: validate the PDF, store it at
+`papers/{id}/{file name}.pdf`, create the `Paper` row and its
+`ingest_stages` rows (source already succeeded) in one transaction, and
+return the new paper's id. The PDF is readable as soon as this returns; the
+ingest worker picks up the queued stages within a poll (≤ 250 ms).
+
+- `POST /api/paper/upload` — multipart file.
+- `POST /api/paper/upload/from-url` — the server downloads the PDF.
+
+Both take `project_id` (add the paper to that project) or
+`supplementary_of` (attach it to a parent paper as supplementary material).
 """
-Paper Upload API - Microservice Integration
 
-This module handles PDF upload and processing by integrating with a separate
-PDF processing microservice. The architecture is:
-
-1. Client uploads PDF to this API
-2. API creates a PaperUploadJob record with status 'pending'
-3. API submits the PDF to the separate jobs service via Celery/HTTP
-4. Jobs service processes PDF (S3 upload, metadata extraction, preview generation)
-5. Jobs service sends results back via webhook
-6. Webhook handler updates PaperUploadJob status and creates Paper record
-
-The client can poll the job status using the same job_id throughout the process.
-"""
-
+import asyncio
 import logging
-from datetime import datetime, timezone
-from typing import Any, Dict, Optional
-from uuid import UUID
+import os
+import uuid
+from typing import Optional
+from urllib.parse import unquote, urlparse
 
-from dotenv import load_dotenv
-from fastapi import (
-    APIRouter,
-    BackgroundTasks,
-    Depends,
-    File,
-    HTTPException,
-    Request,
-    UploadFile,
-)
+import httpx
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
-from app.api.webhook_api import handle_failed_upload
 from app.auth.dependencies import get_required_user
+from app.core.errors import PermanentError, TemporaryError
+from app.core.http import make_client
 from app.database.crud.paper_crud import paper_crud
-from app.database.crud.paper_upload_crud import (
-    PaperUploadJobCreate,
-    PaperUploadJobUpdate,
-    paper_upload_job_crud,
-)
 from app.database.database import get_db
-from app.database.models import JobStatus, PaperUploadJob
+from app.database.models import Paper, Project, ProjectPaper
 from app.database.telemetry import track_event
-from app.helpers.parser import validate_pdf_content, validate_url_and_fetch_pdf
-from app.helpers.pdf_jobs import jobs_client
-from app.schemas.paper import (
-    UploadFromUrlRequest,
-    UploadJobStatusResponse,
-    UploadStartedResponse,
-)
+from app.helpers.s3 import s3_service
+from app.ingest import service, storage
+from app.ingest.pdf.document import InvalidPdfError
+from app.ingest.stages.source import store_source
+from app.schemas.paper import UploadedPaper, UploadFromUrlRequest
 from app.schemas.user import CurrentUser
-
-load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# Create API router with prefix
 paper_upload_router = APIRouter()
 
+MAX_UPLOAD_SIZE_MB = int(os.environ.get("MAX_UPLOAD_SIZE_MB", "50"))
+MAX_UPLOAD_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
+URL_FETCH_TIMEOUT = httpx.Timeout(60.0, connect=10.0)
 
-@paper_upload_router.get(
-    "/status/{job_id}",
-    response_model=UploadJobStatusResponse,
-    # The celery_* keys are only sent while a Celery task is being tracked.
-    response_model_exclude_unset=True,
-)
-def get_upload_status(
-    job_id: UUID,
-    current_user: CurrentUser = Depends(get_required_user),
-    db: Session = Depends(get_db),
-) -> UploadJobStatusResponse:
-    """
-    Get the status of a paper upload job, including real-time Celery task status.
-    """
-    paper_upload_job = paper_upload_job_crud.get(db=db, id=job_id, user=current_user)
 
-    if not paper_upload_job:
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    paper = paper_crud.get_by_upload_job_id(
-        db=db, upload_job_id=str(paper_upload_job.id), user=current_user
+def _too_large() -> HTTPException:
+    return HTTPException(
+        status_code=400, detail=f"File too large (max {MAX_UPLOAD_SIZE_MB} MB)"
     )
 
-    if paper_upload_job.status == JobStatus.COMPLETED:
-        # Verify the paper exists
-        if not paper:
-            raise HTTPException(status_code=404, detail="Paper not found")
 
-    # Get real-time Celery task status if we have a task_id and job is still in progress
-    # (completed/failed jobs no longer have active Celery tasks)
-    celery_task_status = None
-    if paper_upload_job.task_id and paper_upload_job.status not in (
-        JobStatus.COMPLETED,
-        JobStatus.FAILED,
-    ):
-        try:
-            celery_task_status = jobs_client.check_celery_task_status(
-                str(paper_upload_job.task_id)
-            )
-        except Exception as e:
-            logger.warning(
-                f"Failed to get Celery task status for {paper_upload_job.task_id}: {e}"
-            )
+# -- the shared flow ------------------------------------------------------------
 
-    # If Celery reports failure, clean up and update the job status to match
-    if (
-        celery_task_status
-        and celery_task_status.get("status", "").lower() == JobStatus.FAILED
-    ):
-        handle_failed_upload(
-            db=db,
-            job_id=str(paper_upload_job.id),
-            job_user=current_user,
-            reason=celery_task_status.get("error", "Celery task failed"),
+
+def _check_targets(
+    db: Session,
+    user: CurrentUser,
+    project_id: Optional[uuid.UUID],
+    supplementary_of: Optional[uuid.UUID],
+) -> None:
+    """404 before anything is stored if the project / parent isn't the owner's."""
+    if supplementary_of and not paper_crud.get(db, id=supplementary_of, user=user):
+        raise HTTPException(status_code=404, detail="Parent paper not found")
+    if project_id:
+        project = (
+            db.query(Project)
+            .filter(Project.id == project_id, Project.owner_id == user.id)
+            .first()
         )
+        if project is None:
+            raise HTTPException(status_code=404, detail="Project not found")
 
-    # Build response with both job status and task status
-    response_content: Dict[str, Any] = {
-        "job_id": paper_upload_job.id,
-        "status": paper_upload_job.status,
-        "task_id": paper_upload_job.task_id,
-        "started_at": paper_upload_job.started_at,
-        "completed_at": paper_upload_job.completed_at,
-        "has_file_url": bool(paper.file_url) if paper else False,
-        "has_metadata": bool(paper.abstract) if paper else False,
-        "paper_id": paper.id if paper else None,
-    }
 
-    # Add Celery task information if available
-    if celery_task_status:
-        response_content.update(
-            {
-                "celery_status": celery_task_status.get("status"),
-                "celery_progress_message": celery_task_status.get("progress_message"),
-                "celery_error": celery_task_status.get("error"),
-            }
+def _create_rows(
+    db: Session,
+    paper: Paper,
+    project_id: Optional[uuid.UUID],
+    is_supplementary: bool,
+) -> None:
+    """The paper, its project link and its stage rows, in one commit."""
+    db.flush()  # the paper row first: the others reference it
+    if project_id:
+        db.add(ProjectPaper(paper_id=paper.id, project_id=project_id))
+    service.enqueue_paper(
+        db,
+        paper.id,  # pyright: ignore[reportArgumentType]
+        is_supplementary=is_supplementary,
+        source_succeeded=True,
+    )
+    db.commit()
+
+
+def _discard(db: Session, paper_id: uuid.UUID) -> None:
+    db.rollback()
+    try:
+        storage.delete_paper_objects(s3_service, paper_id)
+    except Exception:
+        logger.exception("Could not delete the objects of failed upload %s", paper_id)
+
+
+async def _ingest_upload(
+    db: Session,
+    user: CurrentUser,
+    pdf_bytes: bytes,
+    *,
+    filename: Optional[str],
+    source_url: Optional[str],
+    project_id: Optional[uuid.UUID],
+    supplementary_of: Optional[uuid.UUID],
+) -> UploadedPaper:
+    await asyncio.to_thread(_check_targets, db, user, project_id, supplementary_of)
+    if len(pdf_bytes) > MAX_UPLOAD_BYTES:
+        raise _too_large()
+
+    paper_id = uuid.uuid4()
+    paper = Paper(
+        id=paper_id,
+        user_id=user.id,
+        supplementary_of_paper_id=supplementary_of,
+        source_filename=filename or None,
+        source_url=source_url,
+    )
+    try:
+        await store_source(db, paper, pdf_bytes, filename)
+    except InvalidPdfError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (TemporaryError, PermanentError) as exc:
+        logger.error("Storing upload %s failed: %s", paper_id, exc)
+        raise HTTPException(
+            status_code=503, detail="Couldn't store the PDF; try again"
+        ) from exc
+
+    try:
+        await asyncio.to_thread(
+            _create_rows, db, paper, project_id, supplementary_of is not None
         )
+    except Exception as exc:
+        logger.exception("Creating paper %s failed", paper_id)
+        await asyncio.to_thread(_discard, db, paper_id)
+        raise HTTPException(
+            status_code=500, detail="Couldn't save the paper; try again"
+        ) from exc
 
-    return UploadJobStatusResponse(**response_content)
+    track_event(
+        "paper_upload",
+        properties={
+            "paper_id": str(paper_id),
+            "size_in_kb": len(pdf_bytes) // 1024,
+            "from_url": source_url is not None,
+            "supplementary": supplementary_of is not None,
+        },
+        user_id=str(user.id),
+    )
+    return UploadedPaper(paper_id=paper_id)
 
 
-@paper_upload_router.post("/from-url", status_code=202)
+# -- downloads -----------------------------------------------------------------
+
+
+def _url_file_name(url: str) -> Optional[str]:
+    name = unquote(urlparse(url).path.rstrip("/").rsplit("/", 1)[-1])
+    return name or None
+
+
+async def fetch_pdf(url: str) -> bytes:
+    """Download `url`, capped at the upload size limit (400 on failure)."""
+    try:
+        async with make_client(
+            timeout=URL_FETCH_TIMEOUT, headers={"Accept": "application/pdf, */*"}
+        ) as client:
+            async with client.stream("GET", url) as response:
+                if response.status_code >= 400:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Failed to download the PDF: HTTP {response.status_code}",
+                    )
+                declared = response.headers.get("content-length")
+                if declared and declared.isdigit() and int(declared) > MAX_UPLOAD_BYTES:
+                    raise _too_large()
+                chunks: list[bytes] = []
+                total = 0
+                async for chunk in response.aiter_bytes():
+                    total += len(chunk)
+                    if total > MAX_UPLOAD_BYTES:
+                        raise _too_large()
+                    chunks.append(chunk)
+                return b"".join(chunks)
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Failed to download the PDF: {exc}"
+        ) from exc
+
+
+# -- routes --------------------------------------------------------------------
+
+
+@paper_upload_router.post("/from-url", status_code=201)
 async def upload_pdf_from_url(
     request: UploadFromUrlRequest,
-    background_tasks: BackgroundTasks,
     current_user: CurrentUser = Depends(get_required_user),
     db: Session = Depends(get_db),
-    project_id: Optional[UUID] = None,
-    supplementary_of: Optional[UUID] = None,
-) -> UploadStartedResponse:
-    """
-    Upload a document from a given URL, rather than the raw file.
-    """
-
-    # If this is a supplementary upload, verify the parent paper belongs to
-    # the user.
-    if supplementary_of:
-        parent_paper = paper_crud.get(db, id=supplementary_of, user=current_user)
-        if not parent_paper:
-            raise HTTPException(status_code=404, detail="Parent paper not found")
-
-    # Validate the URL and fetch PDF content
+    project_id: Optional[uuid.UUID] = None,
+    supplementary_of: Optional[uuid.UUID] = None,
+) -> UploadedPaper:
+    """Import a PDF from a URL."""
     url = str(request.url)
-    is_valid, pdf_bytes, error_message = await validate_url_and_fetch_pdf(url)
-    if not is_valid:
-        raise HTTPException(status_code=400, detail=error_message)
-
-    # Create the paper upload job
-    paper_upload_job_obj = PaperUploadJobCreate(
-        started_at=datetime.now(timezone.utc),
-        supplementary_of_paper_id=supplementary_of,
-    )
-
-    paper_upload_job: PaperUploadJob = paper_upload_job_crud.create(
-        db=db,
-        obj_in=paper_upload_job_obj,
-        user=current_user,
-    )
-
-    if not paper_upload_job:
-        raise HTTPException(status_code=500, detail="Failed to create paper upload job")
-
-    # Get filename from URL
-    filename = url.split("/")[-1]
-
-    # Pass file contents and filename instead of the UploadFile object
-    background_tasks.add_task(
-        upload_raw_file_microservice,
-        file_contents=pdf_bytes,
-        filename=filename,
-        paper_upload_job=paper_upload_job,
-        current_user=current_user,
-        db=db,
+    pdf_bytes = await fetch_pdf(url)
+    return await _ingest_upload(
+        db,
+        current_user,
+        pdf_bytes,
+        filename=_url_file_name(url),
+        source_url=url,
         project_id=project_id,
-    )
-
-    return UploadStartedResponse(
-        message="File upload started",
-        job_id=paper_upload_job.id,  # type: ignore[arg-type]
+        supplementary_of=supplementary_of,
     )
 
 
-@paper_upload_router.post("", status_code=202)
+@paper_upload_router.post("", status_code=201)
 async def upload_pdf(
-    request: Request,
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     current_user: CurrentUser = Depends(get_required_user),
     db: Session = Depends(get_db),
-    project_id: Optional[UUID] = None,
-    supplementary_of: Optional[UUID] = None,
-) -> UploadStartedResponse:
-    """
-    Upload a PDF file
-    """
-    # If this is a supplementary upload, verify the parent paper belongs to
-    # the user.
-    if supplementary_of:
-        parent_paper = paper_crud.get(db, id=supplementary_of, user=current_user)
-        if not parent_paper:
-            raise HTTPException(status_code=404, detail="Parent paper not found")
-
-    # Read the file contents BEFORE adding to background task. We need this because the UploadFile object becomes inaccessible after the request is processed.
-    try:
-        file_contents = await file.read()
-        filename = file.filename
-    except Exception as e:
-        logger.error(f"Error reading uploaded file: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=400, detail="Error reading uploaded file")
-
-    # Validate PDF content
-    is_valid, error_message = await validate_pdf_content(file_contents, source="upload")
-    if not is_valid:
-        raise HTTPException(status_code=400, detail=error_message)
-
-    # Create the paper upload job
-    paper_upload_job_obj = PaperUploadJobCreate(
-        started_at=datetime.now(timezone.utc),
-        supplementary_of_paper_id=supplementary_of,
-    )
-
-    paper_upload_job: PaperUploadJob = paper_upload_job_crud.create(
-        db=db,
-        obj_in=paper_upload_job_obj,
-        user=current_user,
-    )
-
-    if not paper_upload_job:
-        raise HTTPException(status_code=500, detail="Failed to create paper upload job")
-
-    # Pass file contents and filename instead of the UploadFile object
-    background_tasks.add_task(
-        upload_raw_file_microservice,
-        file_contents=file_contents,
-        filename=str(filename),
-        paper_upload_job=paper_upload_job,
-        current_user=current_user,
-        db=db,
+    project_id: Optional[uuid.UUID] = None,
+    supplementary_of: Optional[uuid.UUID] = None,
+) -> UploadedPaper:
+    """Upload a PDF file."""
+    if file.size is not None and file.size > MAX_UPLOAD_BYTES:
+        raise _too_large()
+    pdf_bytes = await file.read()
+    return await _ingest_upload(
+        db,
+        current_user,
+        pdf_bytes,
+        filename=file.filename,
+        source_url=None,
         project_id=project_id,
+        supplementary_of=supplementary_of,
     )
-
-    return UploadStartedResponse(
-        message="File upload started",
-        job_id=paper_upload_job.id,  # type: ignore[arg-type]
-    )
-
-
-async def upload_raw_file_microservice(
-    file_contents: bytes,
-    filename: str,
-    paper_upload_job: PaperUploadJob,
-    current_user: CurrentUser,
-    db: Session,
-    project_id: Optional[UUID] = None,
-) -> None:
-    """
-    Helper function to upload a raw file using the microservice.
-    """
-
-    paper_upload_job_crud.mark_as_running(
-        db=db,
-        job_id=str(paper_upload_job.id),
-        user=current_user,
-    )
-
-    try:
-        # Submit to microservice
-        task_id = await jobs_client.submit_pdf_processing_job_with_upload(
-            pdf_bytes=file_contents,
-            paper_upload_job=paper_upload_job,
-            db=db,
-            user=current_user,
-            project_id=project_id,
-        )
-
-        # Update job with task_id
-        paper_upload_job_crud.update(
-            db=db,
-            db_obj=paper_upload_job,
-            obj_in=PaperUploadJobUpdate(task_id=task_id),
-            user=current_user,
-        )
-
-        # Track paper upload event
-        track_event(
-            "paper_upload_submitted_to_microservice",
-            properties={
-                "task_id": task_id,
-            },
-            user_id=str(current_user.id),
-        )
-
-    except Exception as e:
-        logger.error(f"Error submitting file to microservice: {str(e)}", exc_info=True)
-        paper_upload_job_crud.mark_as_failed(
-            db=db,
-            job_id=str(paper_upload_job.id),
-            user=current_user,
-        )

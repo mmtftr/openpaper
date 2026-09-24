@@ -10,9 +10,9 @@
 Both POSTs return the updated status. A request that doesn't fit the stages'
 current state (`IngestConflict`) is a 409 with the readable message.
 
-Papers with no stage rows predate ingest v2 (legacy papers not yet migrated,
-or uploads still handled by the old jobs pipeline). They report `legacy: true`
-and every feature enabled, so nothing on the page is gated for them.
+Papers with no stage rows predate ingest v2 (not migrated by
+`ingest_v2_data_20260927`). They report `legacy: true` and every feature
+enabled, so nothing on the page is gated for them.
 """
 
 from __future__ import annotations
