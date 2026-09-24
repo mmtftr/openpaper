@@ -16,6 +16,11 @@ docstring), so every call is offloaded to a small dedicated thread pool,
 serialized by a per-request lock, admitted through a process-wide slot
 limit (`MAX_CONCURRENT_LOOKUPS`), and given a fresh per-call DoS budget via
 `start_call()`.
+
+The per-question lookup budget is the shared `ToolBudgetCapability`
+(`lookup_budget_capability`): a call with a missing argument is answered for
+free, a call past `MAX_LOOKUPS` gets `BUDGET_SPENT`, and a call that found
+every slot busy is refunded (`NotCharged`).
 """
 
 from __future__ import annotations
@@ -25,10 +30,16 @@ import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Dict, Optional
 
 from pydantic_ai import Agent
 
+from app.llm.chat.budget import (
+    NotCharged,
+    Refusal,
+    ToolBudget,
+    ToolBudgetCapability,
+)
 from app.llm.repo.prelude import (
     MAX_RESULTS,
     MAX_TREE_DEPTH,
@@ -38,11 +49,12 @@ from app.llm.repo.prelude import (
 
 logger = logging.getLogger(__name__)
 
-# Lookups one question gets. Enforced HERE (a spent budget answers with a
-# stop message) rather than by `UsageLimits` alone: pydantic-ai raises on an
-# over-budget tool call, which would kill a stream that may already have text
-# in it. `run_quick_question` sets the hard limits above this for the same
-# reason `run_paper_chat` leaves headroom over its manual tool budget.
+# Lookups one question gets. A soft budget (a spent budget answers with a
+# stop message, see `app.llm.chat.budget`) rather than `UsageLimits` alone:
+# pydantic-ai raises on an over-budget tool call, which would kill a stream
+# that may already have text in it. `run_quick_question` sets the hard limits
+# above this for the same reason `run_paper_chat` leaves headroom over its
+# tool budget.
 MAX_LOOKUPS = 4
 
 # Cap on what the MODEL sees from one lookup. Same sizing as the sandbox's
@@ -60,6 +72,9 @@ BUDGET_SPENT = (
     "another tool — answer from the file, the selection and what you have "
     "already read, and say plainly what you could not check."
 )
+
+PATH_REQUIRED = "read_file: path is required, e.g. '/repo/pkg/module.py'."
+PATTERN_REQUIRED = "grep_repo: pattern is required."
 
 LOOKUP_FAILED = (
     "{tool}: the lookup failed and returned nothing. Answer from what you already have."
@@ -130,24 +145,43 @@ def _clip(text: str) -> str:
     return text[:MAX_LOOKUP_OUTPUT] + TRUNCATION_NOTICE.format(cap=MAX_LOOKUP_OUTPUT)
 
 
-class QuickQuestionRepoTools:
-    """Per-request lookup budget and serialization around one `RepoPrelude`.
+def missing_argument(name: str, args: Dict[str, Any]) -> Optional[str]:
+    """The reply to a lookup without its required argument, else None.
 
-    One instance per question: the budget, like the snapshot it reads, is
-    scoped to a single request.
+    Answered before the budget is consulted, and never charged: it is a
+    malformed call, not a lookup.
+    """
+    if name == "read_file" and not str(args.get("path") or "").strip():
+        return PATH_REQUIRED
+    if name == "grep_repo" and not str(args.get("pattern") or "").strip():
+        return PATTERN_REQUIRED
+    return None
+
+
+def lookup_budget_capability(budget: ToolBudget) -> ToolBudgetCapability[Any]:
+    """The quick-question agent's budget: `budget.max_calls` lookups."""
+
+    def spent(name: str, refusal: Refusal, budget: ToolBudget) -> str:
+        return BUDGET_SPENT.format(max=budget.max_calls)
+
+    return ToolBudgetCapability(
+        budget_for=lambda ctx: budget, refuse=spent, free_reply=missing_argument
+    )
+
+
+class QuickQuestionRepoTools:
+    """Serialized lookups over one `RepoPrelude`.
+
+    One instance per question, like the snapshot it reads. The lookup budget
+    is not kept here: `lookup_budget_capability` enforces it around the
+    agent's tools.
     """
 
-    def __init__(self, prelude: RepoPrelude, *, max_lookups: int = MAX_LOOKUPS) -> None:
+    def __init__(self, prelude: RepoPrelude) -> None:
         self._prelude = prelude
-        self._max_lookups = max(0, int(max_lookups))
         self._lock = asyncio.Lock()
-        # Lookups charged against the budget (telemetry reads this).
-        self.calls = 0
 
     async def _lookup(self, tool: str, fn: Callable[..., str], *args: Any) -> str:
-        if self.calls >= self._max_lookups:
-            return BUDGET_SPENT.format(max=self._max_lookups)
-        self.calls += 1
         try:
             # The prelude is not thread-safe and its DoS budgets are per
             # feed; pydantic-ai runs a response's tool calls in parallel, so
@@ -157,8 +191,7 @@ class QuickQuestionRepoTools:
             async with self._lock:
                 if not await _acquire_slot(LOOKUP_SLOT_WAIT):
                     # Not the model's doing: a busy worker costs no lookup.
-                    self.calls -= 1
-                    return LOOKUPS_BUSY.format(tool=tool)
+                    raise NotCharged(LOOKUPS_BUSY.format(tool=tool))
                 self._prelude.start_call()
                 loop = asyncio.get_running_loop()
                 try:
@@ -170,6 +203,8 @@ class QuickQuestionRepoTools:
                     _slots.release()
                     raise
                 output = await future
+        except NotCharged:
+            raise
         except Exception as exc:
             # A failed lookup must degrade into a note for the model, never
             # into a failed answer.
@@ -191,7 +226,7 @@ class QuickQuestionRepoTools:
     async def read_file(self, path: str, start: int, end: Optional[int]) -> str:
         target = str(path or "").strip()
         if not target:
-            return "read_file: path is required, e.g. '/repo/pkg/module.py'."
+            return PATH_REQUIRED
         start_line = max(1, _as_int(start, 1))
         end_line = None if end is None else max(start_line, _as_int(end, start_line))
         return await self._lookup(
@@ -207,7 +242,7 @@ class QuickQuestionRepoTools:
     ) -> str:
         text = str(pattern or "").strip()
         if not text:
-            return "grep_repo: pattern is required."
+            return PATTERN_REQUIRED
         target = str(path or "").strip() or VIRTUAL_ROOT
         glob_filter = str(glob or "").strip() or "*"
         cap = max(1, min(_as_int(max_results, DEFAULT_GREP_RESULTS), MAX_RESULTS))

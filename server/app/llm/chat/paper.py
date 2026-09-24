@@ -28,6 +28,7 @@ from app.database.telemetry import track_event
 from app.helpers.s3 import s3_service
 from app.ingest import content
 from app.ingest.content import PAGE_SEPARATOR, Figure, Page
+from app.llm.chat.budget import Refusal, ToolBudget, ToolBudgetCapability
 from app.llm.chat.history import FIGURE_ID_PREFIX
 from app.llm.model_registry import ModelSpec
 from app.llm.prompts import (
@@ -83,6 +84,15 @@ REPO_BUDGET_EXHAUSTED = {
 }
 
 
+def paper_tool_budget() -> ToolBudget:
+    """A fresh per-turn budget: MAX_AGENTIC_ITERATIONS calls over all tools,
+    at most MAX_REPO_TOOL_CALLS of them `run_python`."""
+    return ToolBudget(
+        max_calls=MAX_AGENTIC_ITERATIONS,
+        per_tool={"run_python": MAX_REPO_TOOL_CALLS},
+    )
+
+
 @dataclass
 class PaperAgentDeps:
     paper_id: str
@@ -90,8 +100,6 @@ class PaperAgentDeps:
     current_user: CurrentUser
     db: Session
     context_mode: ContextMode
-    max_tool_calls: int = MAX_AGENTIC_ITERATIONS
-    tool_calls_used: int = 0
     # Paper ids the agent is allowed to read this turn — parent + any
     # supplementary papers.
     allowed_paper_ids: List[str] = field(default_factory=list)
@@ -99,8 +107,8 @@ class PaperAgentDeps:
     # Owned by `run_paper_chat`, which opens it before the run and closes it
     # in its `finally`.
     repo_sandbox: Optional[Any] = None
-    repo_calls_used: int = 0
-    max_repo_calls: int = MAX_REPO_TOOL_CALLS
+    # This turn's tool calls, counted and capped by `ToolBudgetCapability`.
+    tool_budget: ToolBudget = field(default_factory=paper_tool_budget)
 
 
 # ---------------------------------------------------------------------
@@ -341,11 +349,19 @@ def _build_system_prompt(
 # ---------------------------------------------------------------------
 
 
-def _consume_tool_budget(deps: PaperAgentDeps) -> Optional[Dict[str, Any]]:
-    if deps.tool_calls_used >= deps.max_tool_calls:
-        return dict(TOOL_BUDGET_EXHAUSTED)
-    deps.tool_calls_used += 1
-    return None
+def _refuse_paper_tool(name: str, refusal: Refusal, budget: ToolBudget) -> Any:
+    """The tool result for a call past the turn's budget."""
+    if refusal == "tool":
+        # Only run_python has a cap of its own.
+        return dict(REPO_BUDGET_EXHAUSTED)
+    if name == "run_python":
+        # Keep run_python's result shape: the client renders it as output.
+        return {"files": [], "output": f"[budget] {TOOL_BUDGET_EXHAUSTED['message']}"}
+    return dict(TOOL_BUDGET_EXHAUSTED)
+
+
+def _paper_budget(ctx: RunContext[PaperAgentDeps]) -> ToolBudget:
+    return ctx.deps.tool_budget
 
 
 async def _run_sync_tool(
@@ -420,7 +436,7 @@ async def _run_repo_tool(deps: PaperAgentDeps, code: str) -> Dict[str, Any]:
             "context_mode": deps.context_mode,
             "runtime": "pydantic_ai",
             "files_touched": len(result.get("files") or []),
-            "call_index": deps.repo_calls_used,
+            "call_index": deps.tool_budget.calls_by_tool["run_python"],
         },
         user_id=str(deps.current_user.id),
     )
@@ -444,6 +460,10 @@ def build_paper_agent(
         deps_type=PaperAgentDeps,
         retries=1,
         end_strategy="early",
+        # Every tool below counts against the turn's budget.
+        capabilities=[
+            ToolBudgetCapability(budget_for=_paper_budget, refuse=_refuse_paper_tool)
+        ],
     )
 
     # The paper-reading tools are registered in EVERY context mode, Full
@@ -467,8 +487,6 @@ def build_paper_agent(
         text_only: bool = False,
         paper_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        if exhausted := _consume_tool_budget(ctx.deps):
-            return exhausted
         return await _run_sync_tool(
             read_section,
             ctx.deps,
@@ -495,8 +513,6 @@ def build_paper_agent(
         end: int,
         paper_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        if exhausted := _consume_tool_budget(ctx.deps):
-            return exhausted
         return await _run_sync_tool(
             read_pages,
             ctx.deps,
@@ -522,8 +538,6 @@ def build_paper_agent(
         context_lines: int = 3,
         paper_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        if exhausted := _consume_tool_budget(ctx.deps):
-            return exhausted
         return await _run_sync_tool(
             search_paper,
             ctx.deps,
@@ -556,8 +570,6 @@ def build_paper_agent(
         label: str,
         paper_id: Optional[str] = None,
     ) -> Any:
-        if exhausted := _consume_tool_budget(ctx.deps):
-            return exhausted
         payload = await _run_sync_tool(
             _resolve_figure_with_image,
             ctx.deps,
@@ -603,13 +615,6 @@ def build_paper_agent(
         async def run_python_tool(
             ctx: RunContext[PaperAgentDeps], code: str
         ) -> Dict[str, Any]:
-            # Check the repo sub-budget BEFORE charging the shared budget: a
-            # refused call must not also burn one of the paper tools' slots.
-            if ctx.deps.repo_calls_used >= ctx.deps.max_repo_calls:
-                return dict(REPO_BUDGET_EXHAUSTED)
-            if exhausted := _consume_tool_budget(ctx.deps):
-                return {"files": [], "output": f"[budget] {exhausted['message']}"}
-            ctx.deps.repo_calls_used += 1
             return await _run_repo_tool(ctx.deps, code)
 
     @agent.tool(
@@ -621,8 +626,6 @@ def build_paper_agent(
         ),
     )
     async def list_docs_tool(ctx: RunContext[PaperAgentDeps]) -> Dict[str, Any]:
-        if exhausted := _consume_tool_budget(ctx.deps):
-            return exhausted
         return await _run_sync_tool(list_docs, ctx.deps, tool_name="list_docs")
 
     @agent.tool(
@@ -637,8 +640,6 @@ def build_paper_agent(
     async def read_doc_tool(
         ctx: RunContext[PaperAgentDeps], name: str
     ) -> Dict[str, Any]:
-        if exhausted := _consume_tool_budget(ctx.deps):
-            return exhausted
         return await _run_sync_tool(read_doc, ctx.deps, tool_name="read_doc", name=name)
 
     @agent.tool(
@@ -656,8 +657,6 @@ def build_paper_agent(
         content: str,
         expected_revision: Optional[int] = None,
     ) -> Dict[str, Any]:
-        if exhausted := _consume_tool_budget(ctx.deps):
-            return exhausted
         return await _run_sync_tool(
             write_doc,
             ctx.deps,

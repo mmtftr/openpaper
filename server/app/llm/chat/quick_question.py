@@ -41,10 +41,12 @@ from pydantic_ai.ui.vercel_ai.request_types import RequestData
 from sqlalchemy.orm import Session
 
 from app.database.telemetry import track_event
+from app.llm.chat.budget import ToolBudget
 from app.llm.chat.paper import build_paper_chat_context
 from app.llm.chat.quick_question_tools import (
     MAX_LOOKUPS,
     QuickQuestionRepoTools,
+    lookup_budget_capability,
     register_repo_tools,
 )
 from app.llm.chat.stream import OpenPaperAdapter
@@ -464,18 +466,22 @@ async def run_quick_question(
         paper_preload=paper_preload, code=code, question=text
     )
 
+    # Bound to this request: the lookup budget dies with the answer.
+    lookups = ToolBudget(max_calls=MAX_LOOKUPS)
     agent: Agent[None, str] = Agent(
         pai_model,
         output_type=str,
         instructions=QUICK_QUESTION_SYSTEM_PROMPT,
         retries=1,
+        capabilities=[lookup_budget_capability(lookups)],
     )
-    # Bound to the snapshot the selection came from, and to this request: the
-    # lookup budget dies with the answer.
-    repo_tools = QuickQuestionRepoTools(
-        RepoPrelude(snapshot_file.root, snapshot_file.manifest_files)
+    # Bound to the snapshot the selection came from.
+    register_repo_tools(
+        agent,
+        QuickQuestionRepoTools(
+            RepoPrelude(snapshot_file.root, snapshot_file.manifest_files)
+        ),
     )
-    register_repo_tools(agent, repo_tools)
     adapter: OpenPaperAdapter = OpenPaperAdapter(
         agent=agent,
         run_input=_build_run_input(prompt),
@@ -496,9 +502,9 @@ async def run_quick_question(
             model_settings=registry.build_settings(
                 spec, reasoning_effort, cache_key=f"openpaper:qq:{paper_id}"
             ),
-            # The REAL budget is MAX_LOOKUPS, enforced inside the tools so a
+            # The REAL budget is MAX_LOOKUPS, enforced around the tools so a
             # spent budget degrades into "answer now" (see
-            # quick_question_tools). These are the hard backstop and sit
+            # app.llm.chat.budget). These are the hard backstop and sit
             # well above it on purpose: pydantic-ai RAISES on an over-budget
             # call — checked against the PROJECTED batch, so one response
             # carrying N parallel calls trips it before any of them runs —
@@ -533,7 +539,7 @@ async def run_quick_question(
                     "llm_provider": spec.provider.value,
                     "model": spec.id,
                     "delivered": delivered,
-                    "tool_calls": repo_tools.calls,
+                    "tool_calls": lookups.calls,
                 },
                 user_id=str(current_user.id),
             )
