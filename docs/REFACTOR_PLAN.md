@@ -31,6 +31,9 @@ owner asked for plus fixes for real bugs.
   highlight + note. (`smoke_chat.py` was deleted in `0977058`; there's no
   end-to-end check today.)
 - Record baseline: pytest, `tsc`, `next build`, compose build, smoke.
+  Recorded 2026-09-24 @ `57a527d`: pytest 591 passed; `tsc` clean; `next build`
+  ok; compose build (server, client) ok; smoke all passed. Backups in
+  `~/backups/openpaper-2026-09-24/` (`openpaper.dump`, `bucket/`).
 
 ## Phase 1 — Deletions
 
