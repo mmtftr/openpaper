@@ -7,6 +7,7 @@ import {
 	foldPdfMatchChar,
 	normalizeForPdfMatch,
 	findServerAlignedMatchInNormalizedPdfText,
+	SOFT_HYPHEN,
 } from "./textNormalization";
 
 /**
@@ -347,9 +348,9 @@ async function extractPageTextIndex(
 				while (end < item.str.length && COMBINING_MARK_RE.test(item.str[end])) {
 					end += 1;
 				}
-				// Per-character entry point on purpose: `normalizePdfTextForMatch`
-				// works on whole strings and ends with `.trim()`, which would delete
-				// every space in the page if applied here.
+				// Per-character on purpose: whole-string normalisation ends with
+				// `.trim()`, which would delete every space in the page if applied
+				// here.
 				const folded = foldPdfMatchChar(item.str.slice(i, end)).normalize("NFKC");
 				for (const ch of folded) {
 					text += ch;
@@ -379,13 +380,34 @@ async function extractPageTextIndex(
 	return index;
 }
 
-/** Collapse runs of whitespace, keeping a map back into the source string. */
+/**
+ * Collapse runs of whitespace, keeping a map back into the source string.
+ *
+ * Also resolves soft hyphens (kept in the page index by `foldPdfMatchChar`):
+ * one before whitespace is a line-end hyphenation mark and becomes '-', so the
+ * matcher's hyphen-rejoin rungs can glue "effi- cient" back into "efficient";
+ * anywhere else it's an invisible break opportunity and is dropped.
+ */
 function compact(text: string): { value: string; map: number[] } {
 	let value = "";
 	const map: number[] = [];
 	let lastWasSpace = true;
 	for (let i = 0; i < text.length; i++) {
 		const ch = text[i];
+		if (ch === SOFT_HYPHEN) {
+			const next = text[i + 1];
+			if (next !== undefined && !/\s/.test(next)) continue;
+			// A soft hyphen emitted as its own text item gets a space in front
+			// of it; the hyphen must sit directly after the word to rejoin.
+			if (value.endsWith(" ")) {
+				value = value.slice(0, -1);
+				map.pop();
+			}
+			value += "-";
+			map.push(i);
+			lastWasSpace = false;
+			continue;
+		}
 		if (/\s/.test(ch)) {
 			if (lastWasSpace) continue;
 			lastWasSpace = true;
@@ -404,9 +426,12 @@ function findMatchRange(
 	haystack: string,
 	needle: string
 ): { start: number; end: number } | null {
-	// Reuse the server-aligned, conservative normalization ladder (ligatures,
-	// line-break hyphens, whitespace, then punctuation for long quotes). Keep
-	// the source map so every match still resolves to actual PDF text items.
+	// Ligatures are already expanded in the page index (pdf.js normalises them
+	// in getTextContent, then NFKC + `foldPdfMatchChar`) and in the needle
+	// (`normalizeForPdfMatch`). `compact` turns line-end soft hyphens into '-';
+	// the server-aligned ladder then tries exact, line-break hyphen rejoin
+	// (keeping / dropping the hyphen), whitespace, then punctuation for long
+	// quotes. The source map keeps every match tied to actual PDF text items.
 	const hay = compact(haystack);
 	const hit = findServerAlignedMatchInNormalizedPdfText(needle, hay.value);
 	if (!hit) return null;

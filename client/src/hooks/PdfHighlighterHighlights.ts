@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { PaperHighlight, ScaledPosition, HighlightColor } from "@/lib/schema";
 import { fetchFromApi } from "@/lib/api";
 
@@ -6,6 +6,11 @@ export function useHighlighterHighlights(paperId: string) {
 	const [highlights, setHighlights] = useState<Array<PaperHighlight>>([]);
 	const [activeHighlight, setActiveHighlight] =
 		useState<PaperHighlight | null>(null);
+	// The paper whose highlights are wanted right now. Responses that land
+	// after a switch to another paper (parent <-> supplementary) are dropped
+	// instead of being mixed into the new paper's list.
+	const currentPaperIdRef = useRef(paperId);
+	currentPaperIdRef.current = paperId;
 
 	// Fetch highlights from server
 	const fetchHighlights = useCallback(async () => {
@@ -42,6 +47,7 @@ export function useHighlighterHighlights(paperId: string) {
 					)
 			);
 
+			if (currentPaperIdRef.current !== paperId) return;
 			setHighlights(deduplicatedHighlights);
 		} catch (error) {
 			console.error("Error loading highlights from server:", error);
@@ -142,14 +148,15 @@ export function useHighlighterHighlights(paperId: string) {
 				const saved = await sendHighlightToServer(newHighlight);
 				savedHighlight = saved;
 
-				if (saved) setHighlights((prev) => [...prev, saved]);
+				if (saved && currentPaperIdRef.current === paperId)
+					setHighlights((prev) => [...prev, saved]);
 			} catch (error) {
 				console.error("Error adding highlight:", error);
 			}
 
 			return savedHighlight;
 		},
-		[highlights]
+		[highlights, paperId]
 	);
 
 	// Remove a highlight
@@ -194,8 +201,11 @@ export function useHighlighterHighlights(paperId: string) {
 		[]
 	);
 
-	// Load highlights on mount or when paperId changes
+	// Load highlights on mount or when paperId changes, dropping the previous
+	// paper's highlights (and active selection) right away.
 	useEffect(() => {
+		setHighlights([]);
+		setActiveHighlight(null);
 		fetchHighlights();
 	}, [paperId, fetchHighlights]);
 

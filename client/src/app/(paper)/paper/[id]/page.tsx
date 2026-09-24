@@ -70,7 +70,7 @@ export default function PaperView() {
     const { user, loading: authLoading } = useAuth();
     // `paperData` always refers to the *parent* paper. When the route id is a
     // supplementary, an effect below resolves the parent and re-fetches into
-    // this slot. The chat / doc / annotations panels all bind to this.
+    // this slot. The chat / doc panels bind to this.
     const [paperData, setPaperData] = useState<PaperData | null>(null);
     const [loading, setLoading] = useState(true);
     // The id of the parent paper (= route id for normal papers; = paperData.supplementary_of_paper_id
@@ -88,6 +88,9 @@ export default function PaperView() {
     const [displayedPaperData, setDisplayedPaperData] = useState<PaperData | null>(null);
     const [supplementaryMaterials, setSupplementaryMaterials] = useState<SupplementaryMaterialSummary[] | null>(null);
 
+    // Highlights and annotations belong to the PDF being shown, not the parent:
+    // a supplementary's highlights render on (and new ones attach to) the
+    // supplementary. Both hooks re-fetch when the displayed paper changes.
     const {
         highlights,
         activeHighlight,
@@ -96,7 +99,7 @@ export default function PaperView() {
         removeHighlight,
         recolorHighlight,
         fetchHighlights
-    } = useHighlighterHighlights(parentPaperId);
+    } = useHighlighterHighlights(displayedPaperId);
 
     const {
         annotations,
@@ -104,7 +107,7 @@ export default function PaperView() {
         removeAnnotation,
         updateAnnotation,
         refreshAnnotations,
-    } = useAnnotations(parentPaperId);
+    } = useAnnotations(displayedPaperId);
 
     const [activeCitationKey, setActiveCitationKey] = useState<string | null>(null);
     const [activeCitationMessageIndex, setActiveCitationMessageIndex] = useState<number | null>(null);
@@ -468,11 +471,6 @@ export default function PaperView() {
                     } catch (parentErr) {
                         console.error('Error fetching parent paper:', parentErr);
                     }
-                    // Note: useHighlighterHighlights re-fetches on paperId change
-                    // (its effect lists paperId as a dep). useAnnotations only
-                    // fetches on mount, so for the rare direct-visit-to-supplementary
-                    // case the annotations panel may need a manual refresh until
-                    // that hook is updated.
                 } else {
                     // Route id is the parent. Honor any existing `display` query param.
                     setParentPaperId(id);
@@ -657,8 +655,8 @@ export default function PaperView() {
 
     const sidePanelProps = {
         rightSideFunction,
-        // Side panel content (chat / doc / annotations) is always
-        // bound to the parent — even when a supplementary PDF is shown.
+        // Chat / doc are bound to the parent even when a supplementary PDF
+        // is shown; the annotations list follows the displayed PDF.
         paperData,
         annotations,
         highlights,

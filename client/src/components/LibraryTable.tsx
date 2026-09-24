@@ -28,6 +28,16 @@ import { Badge } from "@/components/ui/badge";
 import { TagSelector } from "./TagSelector";
 import { toast } from "sonner";
 import { usePapers } from "@/hooks/usePapers";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 
 interface LibraryTableProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -54,6 +64,7 @@ export function LibraryTable({
 	const { state: sidebarState } = useSidebar();
 	const isMobile = useIsMobile();
 	const [selectedPapers, setSelectedPapers] = useState<Set<string>>(new Set());
+	const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 	const [searchTerm, setSearchTerm] = useState('');
 	const [filters, setFilters] = useState<Filter[]>([]);
 	type SortKey = keyof PaperItem;
@@ -257,7 +268,9 @@ export function LibraryTable({
 	if (papersFetchError) {
 		return (
 			<div className="flex items-center justify-center py-12">
-				<div className="text-destructive">{papersFetchError}</div>
+				<div className="text-destructive">
+					Failed to load papers: {papersFetchError instanceof Error ? papersFetchError.message : String(papersFetchError)}
+				</div>
 			</div>
 		);
 	}
@@ -360,7 +373,7 @@ export function LibraryTable({
 											<DropdownMenuContent>
 												{handleDelete && (
 													<DropdownMenuItem
-														onClick={handleDeletePapers}
+														onSelect={() => setConfirmDeleteOpen(true)}
 														disabled={selectedPapers.size === 0}
 														className="text-red-500"
 													>
@@ -370,6 +383,27 @@ export function LibraryTable({
 												)}
 											</DropdownMenuContent>
 										</DropdownMenu>
+										<AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+											<AlertDialogContent>
+												<AlertDialogHeader>
+													<AlertDialogTitle>
+														Delete {selectedPapers.size} {selectedPapers.size === 1 ? 'paper' : 'papers'}?
+													</AlertDialogTitle>
+													<AlertDialogDescription>
+														{selectedPapers.size === 1 ? 'The selected paper' : `All ${selectedPapers.size} selected papers`} will be permanently deleted. This cannot be undone.
+													</AlertDialogDescription>
+												</AlertDialogHeader>
+												<AlertDialogFooter>
+													<AlertDialogCancel>Cancel</AlertDialogCancel>
+													<AlertDialogAction
+														onClick={handleDeletePapers}
+														className="bg-destructive text-white hover:bg-destructive/90"
+													>
+														Delete
+													</AlertDialogAction>
+												</AlertDialogFooter>
+											</AlertDialogContent>
+										</AlertDialog>
 									</>
 								)}
 							</div>
