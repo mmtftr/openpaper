@@ -167,6 +167,16 @@ Target for the same 18-page paper (to be verified at the end): PDF readable at
 0 s; title/authors ~1–3 s (Crossref/OpenAlex); chat + figures ~6–7 s (OCR +
 scoring); outline + AI highlights ~15–20 s; server overhead well under 1 s.
 
+Measured (I9 rehearsal, 2026-09-24, restored live DB + disposable MinIO, one
+worker; seconds after the upload request): 18-page paper (file upload,
+request 0.10 s) — first stages start 0.26, title/authors 1.2 (OpenAlex via
+the embedded arXiv id), OCR 7.7 s run (2 batches, ≈0.43 s/page) → chat
+8.0, figures 8.7, outline 8.1 (PDF bookmarks), AI highlights 22.0 (one
+13.9 s `gpt-5.5` call). 21-page arXiv URL import (request 0.64 s incl.
+download) — title 1.3, chat 6.2, figures 6.4, outline 6.3, highlights 22.5.
+Stage-to-stage hops ≈ 10–50 ms. The 42 outlines the data migration queues
+ran in 54 s (34 from bookmarks, 8 LLM cleanups).
+
 ## 9. Code layout
 
 ```
