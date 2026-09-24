@@ -588,7 +588,7 @@ def quick_question_run(ready_snapshot, monkeypatch):
         lambda name, **kwargs: recorded.events.append((name, kwargs)),
     )
 
-    def run(model, *, question="What does this do?"):
+    def run(model, *, question="What does this do?", stop_after=None):
         class FakeRegistry:
             def resolve(self, provider=None, model_id=None, role=None):
                 return spec
@@ -620,12 +620,44 @@ def quick_question_run(ready_snapshot, monkeypatch):
             )
             async for encoded in stream:
                 out.append(encoded)
+                if stop_after is not None and len(out) >= stop_after:
+                    # A reader that stalls, then goes away.
+                    await asyncio.sleep(0.05)
+                    await stream.aclose()
+                    break
             return out
 
         recorded.chunks = _parse_sse(asyncio.run(drive()))
         return recorded
 
     return run
+
+
+def test_an_abandoned_question_does_not_run_ahead(quick_question_run):
+    """The stream is paced by its reader (lookahead 1): a client that read
+    only the `start` chunk and left must not have driven the run on into
+    extra model requests and lookups."""
+    requests: List[int] = []
+    script = [_read_call(1), _read_call(2), ["Done."]]
+    model = _script_model(script)
+    inner = model.stream_function
+    assert inner is not None
+
+    async def counting(messages, info):
+        requests.append(len(messages))
+        async for item in inner(messages, info):
+            yield item
+
+    model.stream_function = counting
+    recorded = quick_question_run(model, stop_after=1)
+    assert [c["type"] for c in recorded.chunks] == ["start"]
+    assert len(requests) <= 1
+    event = next(
+        kwargs["properties"]
+        for name, kwargs in recorded.events
+        if name == "quick_question_asked"
+    )
+    assert event["tool_calls"] == 0
 
 
 def test_the_per_request_client_is_closed_after_the_answer(quick_question_run):

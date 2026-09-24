@@ -86,16 +86,23 @@ OnComplete = Callable[[Any], AsyncIterator[Any]]
 
 
 class StreamPump:
-    """One run's chunk queue, pump task and teardown. Single-use."""
+    """One run's chunk queue, pump task and teardown. Single-use.
 
-    def __init__(self) -> None:
+    `lookahead` is how many encoded chunks the run may get ahead of the
+    reader (default `CHUNK_QUEUE_SIZE`). A pump can never be purely
+    demand-driven, but a lookahead of 1 comes closest to a plain pull loop:
+    a stalled or departed client then costs at most one chunk of extra work.
+    """
+
+    def __init__(self, *, lookahead: Optional[int] = None) -> None:
         # Bounded, so a client that stops reading still throttles the
         # provider stream the way a direct loop would instead of buffering a
         # whole turn. The bound is why iteration ALSO stops on a finished
         # pump: the end-of-stream sentinel is pushed from a `finally` that
         # runs under cancellation too, where it must never suspend and so
         # may be dropped.
-        self._queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=CHUNK_QUEUE_SIZE)
+        size = CHUNK_QUEUE_SIZE if lookahead is None else max(1, lookahead)
+        self._queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=size)
         self._adapter: Optional[OpenPaperAdapter[Any, Any]] = None
         self._native_stream: Optional[Any] = None
         self._event_stream: Optional[Any] = None

@@ -480,7 +480,9 @@ async def run_quick_question(
         server_message_id=str(uuid.uuid4()),
     )
 
-    pump = StreamPump()
+    # Paced by the reader, as the plain pull loop this replaced was: an
+    # abandoned popover must not let the run race ahead into more lookups.
+    pump = StreamPump(lookahead=1)
     delivered = False
     try:
         native_stream = adapter.run_stream_native(
