@@ -227,5 +227,14 @@ class Stage[Output]:
         """Write `output`. Runs inside the worker's transaction; don't commit."""
         raise NotImplementedError(f"stage {self.name}: save() not implemented")
 
+    def reset_outputs(self, session: Session, paper_id: uuid.UUID) -> None:
+        """Drop partial results a re-run would otherwise resume from.
+
+        Called when the owner reprocesses this stage (or one upstream), in
+        that request's transaction; don't commit. Plain retries don't call
+        it, so they resume. Default: nothing — `save()` overwrites. OCR
+        overrides it to forget its saved batches.
+        """
+
     def __repr__(self) -> str:
         return f"<Stage {self.name}>"

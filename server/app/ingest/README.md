@@ -44,12 +44,16 @@ succeeded/skipped, `blocked_by(failed, statuses)`, `is_done(status)`.
   `await read(fn)` (read-only session in a thread), `read_session()`,
   `await cpu(fn, *args)` (process pool in the worker), `get_s3()`, `log`.
 
-**Worker duties** (`worker.py`, to write): poll every
-`config.POLL_INTERVAL_SECONDS`; run up to `config.CONCURRENCY[resource]`;
-`asyncio.timeout(stage.timeout_s)`; on failure `classify` then
-`core.retry.next_stage_delay(classified, attempt, max_attempts)` → requeue
-at now+delay, or `failed` + `graph.blocked_by`; on start, `running` →
-`queued`; heartbeat every `HEARTBEAT_INTERVAL_SECONDS`.
+**Worker** (`worker.py` entry point, `engine.py` loop): poll every
+`config.POLL_INTERVAL_SECONDS` (and right after any stage finishes); run up
+to `config.CONCURRENCY[resource]`; `asyncio.timeout(stage.timeout_s)`; on
+failure `classify` then `core.retry.next_stage_delay` → requeue at
+now+delay, or `failed` + `graph.blocked_by`; on start, `running` → `queued`;
+heartbeat every `HEARTBEAT_INTERVAL_SECONDS`; SIGTERM drains then requeues.
+
+**Operations** (`service.py`, never commit): `enqueue_paper`,
+`complete_stage`, `retry_stage`, `reprocess` (raises `IngestConflict`),
+`ingest_status`. `Stage.reset_outputs()` runs on reprocess only.
 
 **Features** (`features.py`) — `features({name: row_or_status})` →
 `{feature: FeatureState(enabled, waiting_on, cause, reason)}`; `cause` is the
