@@ -26,6 +26,8 @@ from app.database.crud.paper_crud import paper_crud
 from app.database.models import Paper
 from app.database.telemetry import track_event
 from app.helpers.s3 import s3_service
+from app.ingest import content
+from app.ingest.content import PAGE_SEPARATOR, Figure, Page
 from app.llm.chat.history import FIGURE_ID_PREFIX
 from app.llm.model_registry import ModelSpec
 from app.llm.prompts import (
@@ -36,11 +38,11 @@ from app.llm.prompts import (
     FULL_MODE_PRELOAD,
     NORMAL_MODE_INSTRUCTIONS,
     PAPER_AGENT_BASE,
-    RAW_MODE_PRELOAD,
 )
 from app.llm.tools.doc_tools import list_docs, read_doc, write_doc
 from app.llm.tools.section_tools import (
     build_outline,
+    find_figure,
     read_pages,
     read_section,
     render_outline_text,
@@ -51,7 +53,10 @@ from app.schemas.user import CurrentUser
 
 logger = logging.getLogger(__name__)
 
-ContextMode = str  # "adaptive" | "comprehensive" | "full" | "raw"
+# "adaptive" | "comprehensive" | "full". The old "raw" mode (pymupdf-only
+# papers) is gone — every paper has per-page markdown — and is treated as
+# "adaptive" when an old client still sends it.
+ContextMode = str
 
 MAX_AGENTIC_ITERATIONS = 60  # Tool-call budget for retrieval-heavy turns.
 
@@ -115,6 +120,8 @@ class PaperChatContext:
     family_index: Dict[str, Paper]
     # Published snapshot of the paper's companion repo, when one is ready.
     repo_snapshot: Optional[Any] = None
+    # The paper text pre-loaded into the system prompt for `context_mode`.
+    preload: str = ""
 
 
 def _load_repo_snapshot(db: Session, paper_id: str) -> Optional[Any]:
@@ -148,13 +155,10 @@ def build_paper_chat_context(
     if not paper:
         raise ValueError(f"Paper with ID {paper_id} not found.")
 
-    # paper.parser determines which modes are allowed: pymupdf-parsed papers
-    # force Raw; Mistral-parsed papers reject Raw.
-    parser = str(getattr(paper, "parser", "") or "")
-    if parser != "mistral" and context_mode != "raw":
-        context_mode = "raw"
-    if parser == "mistral" and context_mode == "raw":
+    if context_mode == "raw":
         context_mode = "adaptive"
+    pages = content.pages(db, paper.id)
+    figures = content.figures(db, paper.id)
 
     supplementary_papers: List[Paper] = []
     try:
@@ -168,8 +172,16 @@ def build_paper_chat_context(
         logger.warning("Failed to load supplementary papers for %s: %s", paper_id, exc)
 
     repo_snapshot = _load_repo_snapshot(db, paper_id)
+    preload = _select_preload(context_mode, paper, pages)
     system_prompt = _build_system_prompt(
-        paper, context_mode, response_style, supplementary_papers, repo_snapshot
+        paper,
+        pages,
+        figures,
+        preload,
+        context_mode,
+        response_style,
+        supplementary_papers,
+        repo_snapshot,
     )
     family_index: Dict[str, Paper] = {paper_id: paper}
     for sup in supplementary_papers:
@@ -183,6 +195,7 @@ def build_paper_chat_context(
         allowed_paper_ids=list(family_index.keys()),
         family_index=family_index,
         repo_snapshot=repo_snapshot,
+        preload=preload,
     )
 
 
@@ -200,39 +213,31 @@ _BACK_MATTER_RE = re.compile(
 )
 
 
-def _first_back_matter_page(pages: List[Dict[str, Any]]) -> Optional[int]:
+def _first_back_matter_page(pages: Sequence[Page]) -> Optional[int]:
     for i, page in enumerate(pages):
-        md = page.get("markdown") or ""
-        if _BACK_MATTER_RE.search(md):
+        if _BACK_MATTER_RE.search(page.markdown):
             return i
     return None
 
 
-def _select_preload(mode: ContextMode, paper: Paper) -> str:
+def _select_preload(mode: ContextMode, paper: Paper, pages: Sequence[Page]) -> str:
     """Return the body content pre-loaded for this mode."""
-    parser = str(getattr(paper, "parser", "") or "")
-
-    if mode == "raw" or parser != "mistral":
-        return str(getattr(paper, "raw_content", "") or "")
-
-    pages = (getattr(paper, "ocr", None) or {}).get("pages") or []
-    page_md = [p.get("markdown") or "" for p in pages]
+    page_md = [p.markdown for p in pages]
 
     if mode == "full":
-        return "\n\n".join(page_md)
+        return PAGE_SEPARATOR.join(page_md)
 
     if mode == "comprehensive":
         cutoff_page_idx = _first_back_matter_page(pages)
         if cutoff_page_idx is None:
-            return "\n\n".join(page_md)
-        return "\n\n".join(page_md[:cutoff_page_idx])
+            return PAGE_SEPARATOR.join(page_md)
+        return PAGE_SEPARATOR.join(page_md[:cutoff_page_idx])
 
-    return _adaptive_preload(paper)
+    return _adaptive_preload(paper, pages)
 
 
-def _adaptive_preload(paper: Paper) -> str:
+def _adaptive_preload(paper: Paper, pages: Sequence[Page]) -> str:
     """Abstract + introduction + conclusion, or the full body as fallback."""
-    pages = (getattr(paper, "ocr", None) or {}).get("pages") or []
     if not pages:
         return str(getattr(paper, "abstract", "") or "")
 
@@ -243,7 +248,7 @@ def _adaptive_preload(paper: Paper) -> str:
     if abstract:
         chunks.append(f"## Abstract\n\n{abstract}")
 
-    flat_pages = "\n\n".join(p.get("markdown") or "" for p in pages)
+    flat_pages = PAGE_SEPARATOR.join(p.markdown for p in pages)
     heading_re = re.compile(r"^(#{1,6})\s+(.*?)\s*$", re.MULTILINE)
     matches = list(heading_re.finditer(flat_pages))
 
@@ -300,12 +305,15 @@ def _render_supplementary_block(supplementary_papers: Sequence[Paper]) -> str:
 
 def _build_system_prompt(
     paper: Paper,
+    pages: List[Page],
+    figures: List[Figure],
+    preload: str,
     mode: ContextMode,
     response_style: Optional[str],
     supplementary_papers: Sequence[Paper],
     repo_snapshot: Optional[Any] = None,
 ) -> str:
-    outline = build_outline(paper)
+    outline = build_outline(paper, pages, figures)
     outline_text = render_outline_text(outline)
     base = PAPER_AGENT_BASE.format(
         outline=outline_text,
@@ -323,11 +331,6 @@ def _build_system_prompt(
 
         base = base + "\n\n" + build_repo_prompt_section(repo_snapshot)
 
-    parser = str(getattr(paper, "parser", "") or "")
-    preload = _select_preload(mode, paper)
-
-    if mode == "raw" or parser != "mistral":
-        return base + "\n\n" + RAW_MODE_PRELOAD.format(preloaded_content=preload)
     if mode == "full":
         return base + "\n\n" + FULL_MODE_PRELOAD.format(preloaded_content=preload)
     if mode == "comprehensive":
@@ -535,58 +538,54 @@ def build_paper_agent(
             allowed_paper_ids=ctx.deps.allowed_paper_ids,
         )
 
-    # Figures only exist for Mistral-parsed papers; Raw mode is the pymupdf
-    # fallback, where there are no rendered bitmaps to fetch.
-    if str(getattr(paper, "parser", "") or "") == "mistral" and context_mode != "raw":
-
-        @agent.tool(
-            name="get_figure",
-            description=(
-                "Fetch a figure or table by label, such as Figure 2 or "
-                "Table 4. Returns metadata (label, page, caption) "
-                + (
-                    "plus the rendered image so you can read the figure directly. "
-                    if supports_vision
-                    else "— this model doesn't support image input, so "
-                    "only the caption/label/page is returned, not the "
-                    "rendered image. "
-                )
-                + "Pass paper_id to target a supplementary paper; "
-                "defaults to the main paper."
-            ),
+    @agent.tool(
+        name="get_figure",
+        description=(
+            "Fetch a figure or table by label, such as Figure 2 or "
+            "Table 4. Returns metadata (label, page, caption) "
+            + (
+                "plus the rendered image so you can read the figure directly. "
+                if supports_vision
+                else "— this model doesn't support image input, so "
+                "only the caption/label/page is returned, not the "
+                "rendered image. "
+            )
+            + "Pass paper_id to target a supplementary paper; "
+            "defaults to the main paper."
+        ),
+    )
+    async def get_figure_tool(
+        ctx: RunContext[PaperAgentDeps],
+        label: str,
+        paper_id: Optional[str] = None,
+    ) -> Any:
+        if exhausted := _consume_tool_budget(ctx.deps):
+            return exhausted
+        payload = await _run_sync_tool(
+            _resolve_figure_with_image,
+            ctx.deps,
+            tool_name="get_figure",
+            label=label,
+            target_paper_id=paper_id,
+            allowed_paper_ids=ctx.deps.allowed_paper_ids,
         )
-        async def get_figure_tool(
-            ctx: RunContext[PaperAgentDeps],
-            label: str,
-            paper_id: Optional[str] = None,
-        ) -> Any:
-            if exhausted := _consume_tool_budget(ctx.deps):
-                return exhausted
-            payload = await _run_sync_tool(
-                _resolve_figure_with_image,
-                ctx.deps,
-                tool_name="get_figure",
-                label=label,
-                target_paper_id=paper_id,
-                allowed_paper_ids=ctx.deps.allowed_paper_ids,
-            )
-            if "error" in payload:
-                return payload
-            if not supports_vision:
-                return payload["metadata"]
-            return ToolReturn(
-                return_value=payload["metadata"],
-                content=[
-                    BinaryImage(
-                        data=payload["image_bytes"],
-                        media_type=payload["media_type"],
-                        # Identifier doubles as the S3 key so the bytes
-                        # can be dropped from the persisted dump and
-                        # rehydrated on replay.
-                        identifier=f"{FIGURE_ID_PREFIX}{payload['s3_key']}",
-                    )
-                ],
-            )
+        if "error" in payload:
+            return payload
+        if not supports_vision:
+            return payload["metadata"]
+        return ToolReturn(
+            return_value=payload["metadata"],
+            content=[
+                BinaryImage(
+                    data=payload["image_bytes"],
+                    media_type=payload["media_type"],
+                    # Identifier doubles as the S3 key so the bytes
+                    # can be dropped from the persisted dump and
+                    # rehydrated on replay.
+                    identifier=f"{FIGURE_ID_PREFIX}{payload['s3_key']}",
+                )
+            ],
+        )
 
     if repo_snapshot is not None:
 
@@ -690,8 +689,6 @@ def _resolve_figure_with_image(
     emits a URL — the raw bytes are needed for `BinaryImage` so the model
     can look at the figure rather than just read the caption.
     """
-    from app.api.paper_figure_api import resolve_figure
-
     effective_paper_id = target_paper_id or paper_id
     if (
         target_paper_id is not None
@@ -704,16 +701,11 @@ def _resolve_figure_with_image(
     paper = paper_crud.get(db, id=effective_paper_id, user=current_user)
     if not paper:
         return {"error": "Paper not found"}
-    if str(getattr(paper, "parser", "") or "") != "mistral":
-        return {
-            "error": "Figures are unavailable for this paper (parsed in fallback mode)"
-        }
-    figure = resolve_figure(getattr(paper, "ocr", None), label)
-    if not figure:
-        return {"error": f"No figure matching '{label}'"}
-    s3_key = figure.get("s3_key")
-    if not s3_key:
-        return {"error": f"Figure '{figure.get('label') or label}' is not yet rendered"}
+    found = find_figure(db, paper, label)
+    if "error" in found:
+        return found
+    figure: Figure = found["figure"]
+    s3_key = str(figure.s3_key)
     try:
         image_bytes = s3_service.get_object_bytes(str(s3_key))
     except Exception as exc:
@@ -721,13 +713,13 @@ def _resolve_figure_with_image(
         return {"error": "Failed to fetch figure image"}
     return {
         "metadata": {
-            "label": figure.get("label"),
-            "page": figure.get("page"),
-            "caption": figure.get("caption"),
-            "id": figure.get("id"),
+            "label": figure.label,
+            "page": figure.page_no,
+            "caption": figure.caption,
+            "id": figure.ocr_image_id,
             "paper_id": effective_paper_id,
         },
         "image_bytes": image_bytes,
         "media_type": "image/png",
-        "s3_key": str(s3_key),
+        "s3_key": s3_key,
     }

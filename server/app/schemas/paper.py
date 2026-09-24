@@ -1,7 +1,7 @@
 from typing import List, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
 from app.database.models import JobStatus, PaperStatus
 from app.schemas.common import MessageResponse  # noqa: F401  (re-export)
@@ -110,13 +110,21 @@ class PaperRecord(BaseModel):
     journal: Optional[str] = None
     publisher: Optional[str] = None
     size_in_kb: Optional[int] = None
-    # "mistral" | "pymupdf": selects the chat context modes for this paper.
-    parser: Optional[str] = None
+    # Always "mistral" now: every paper's chat reads per-page markdown
+    # (`paper_pages`), so the client offers the structured context modes.
+    # The legacy `papers.parser` column is ignored; the field stays until
+    # the client stops reading it.
+    parser: Optional[str] = Field(default=None, validate_default=True)
     figure_count: Optional[int] = None
     page_count: Optional[int] = None
     supplementary_of_paper_id: Optional[UUID] = None
     created_at: Optional[StrDatetime] = None
     updated_at: Optional[StrDatetime] = None
+
+    @field_validator("parser", mode="before")
+    @classmethod
+    def _structured_pages(cls, _: object) -> str:
+        return "mistral"
 
 
 class PaperDetail(PaperRecord):

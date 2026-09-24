@@ -17,6 +17,7 @@ from app.database.models import (
     RoleType,
 )
 from app.helpers.parser import get_start_page_from_offset
+from app.ingest import content
 from app.llm.utils import find_offsets
 from app.schemas.responses import PaperMetadataExtraction
 from app.schemas.user import CurrentUser
@@ -88,23 +89,17 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
         paper_id: str,
         current_user: CurrentUser,
     ) -> PaperDocumentMetadata:
-        """
-        Read raw document content by ID.
-        For PDF files, extract and return the text content.
-        """
+        """The paper's full text (its pages' markdown, see
+        `content.full_text`) and each page's offsets in it."""
         paper: Paper | None = self.get(db, paper_id, user=current_user)
         if paper is None:
             raise ValueError(f"Paper with ID {paper_id} not found.")
 
-        if not paper.raw_content:
+        text, offsets = content.full_text(content.pages(db, paper.id))
+        if not text:
             raise ValueError(f"Raw content for paper {paper_id} is not set.")
 
-        offsets = {k: tuple(v) for k, v in paper.page_offset_map.items()}
-
-        return PaperDocumentMetadata(
-            raw_content=str(paper.raw_content),
-            page_offsets=offsets,
-        )
+        return PaperDocumentMetadata(raw_content=text, page_offsets=offsets)
 
     def get_top_relevant_papers(
         self, db: Session, *, user: CurrentUser, limit: int = 9

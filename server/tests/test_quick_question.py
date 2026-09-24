@@ -526,10 +526,9 @@ def quick_question_run(ready_snapshot, monkeypatch):
         qq,
         "build_paper_chat_context",
         lambda *a, **k: SimpleNamespace(
-            paper=SimpleNamespace(id=PAPER_ID), context_mode="adaptive"
+            paper=SimpleNamespace(id=PAPER_ID), context_mode="adaptive", preload=""
         ),
     )
-    monkeypatch.setattr(qq, "_select_preload", lambda mode, paper: "")
     monkeypatch.setattr(
         qq,
         "track_event",

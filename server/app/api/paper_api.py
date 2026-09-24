@@ -1,4 +1,5 @@
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List
@@ -17,6 +18,7 @@ from app.database.telemetry import track_event
 from app.helpers.paper_search import get_doi, get_enriched_data
 from app.helpers.parser import parse_publication_date
 from app.helpers.s3 import s3_service
+from app.ingest import content
 from app.llm.paper_outline import OutlineEntry, cached_outline
 from app.schemas.paper import (
     ActivePaper,
@@ -45,18 +47,32 @@ paper_router = APIRouter()
 CHECK_METADATA_INTERVAL_DAYS = 30
 
 
-def _paper_markdown_payload(paper: Paper) -> PaperMarkdown:
-    parser = str(getattr(paper, "parser", "") or "")
-    if parser == "mistral":
-        pages = (getattr(paper, "ocr", None) or {}).get("pages") or []
-        markdown = "\n\n".join(
-            str(page.get("markdown") or "").strip() for page in pages
-        ).strip()
-        return PaperMarkdown(markdown=markdown, source="mistral")
+# `![alt](src)` / `![alt](src "title")` image references in page markdown.
+_MARKDOWN_IMAGE_RE = re.compile(r"(!\[[^\]]*\]\()([^)\s]+)((?:\s+\"[^\"]*\")?\))")
 
-    return PaperMarkdown(
-        markdown=str(getattr(paper, "raw_content", "") or ""), source="pymupdf"
-    )
+
+def _paper_markdown_payload(db: Session, paper: Paper) -> PaperMarkdown:
+    """The whole paper as one markdown document (the markdown reader).
+
+    Mistral numbers images per OCR batch, so "img-0.jpeg" can occur on
+    several pages; each page's image references are pointed at the figure's
+    row id instead, which the figure endpoint resolves unambiguously.
+    """
+    figure_ids = {
+        (fig.page_no, fig.ocr_image_id): str(fig.id)
+        for fig in content.figures(db, paper.id)
+    }
+
+    def page_text(page: content.Page) -> str:
+        def point_at_row(m: re.Match[str]) -> str:
+            row_id = figure_ids.get((page.page_no, m.group(2)))
+            return m.group(1) + row_id + m.group(3) if row_id else m.group(0)
+
+        return _MARKDOWN_IMAGE_RE.sub(point_at_row, page.markdown).strip()
+
+    pages = content.pages(db, paper.id)
+    markdown = "\n\n".join(page_text(page) for page in pages).strip()
+    return PaperMarkdown(markdown=markdown, source="mistral")
 
 
 def _list_item_fields(paper: Paper) -> Dict[str, Any]:
@@ -411,7 +427,7 @@ def get_paper_markdown(
     if not paper:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    return _paper_markdown_payload(paper)
+    return _paper_markdown_payload(db, paper)
 
 
 @paper_router.delete("")

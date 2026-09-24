@@ -1,15 +1,16 @@
 """
-Endpoints for high-DPI figure bitmaps re-rendered from Mistral-parsed papers.
+Endpoints for the high-DPI figure bitmaps rendered at ingest.
 
-The OCR pipeline stores a `figures` map on the paper's `ocr` jsonb where
-each entry has `{label, id, page, s3_key, caption}`. This module resolves
-human labels ("Figure 2", "Fig. 3a", "Table 4") or the internal bbox id
-to the s3_key and streams the PNG.
+Figures are `paper_figures` rows (`{label, ocr_image_id, page_no, s3_key,
+caption}`, read via `app.ingest.content`). This module resolves human labels
+("Figure 2", "Fig. 3a", "Table 4"), the Mistral image id ("img-0.jpeg") or
+the row id to the stored PNG and streams it. Stored keys are never rewritten,
+so images saved in chat history (legacy `figures/{paper_id}/img-N.jpeg.png`
+keys included) keep resolving.
 """
 
 import logging
-import re
-from typing import Any, Dict, List, Optional
+from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -20,72 +21,13 @@ from app.auth.dependencies import get_required_user
 from app.database.crud.paper_crud import paper_crud
 from app.database.database import get_db
 from app.helpers.s3 import s3_service
+from app.ingest import content
 from app.schemas.paper import PaperFigureSummary
 from app.schemas.user import CurrentUser
 
 logger = logging.getLogger(__name__)
 
 paper_figure_router = APIRouter()
-
-
-_LABEL_NORMALIZE_RE = re.compile(r"\s+")
-
-
-def _normalize_label(s: str) -> str:
-    """'Fig. 3a' / 'figure 3 a' / 'FIG3A' all collapse to 'fig 3a' style.
-
-    The agent and the user both call figures by varying conventions;
-    normalize once for the lookup so we don't litter the resolver with
-    branches.
-    """
-    s = s.strip().lower()
-    s = s.replace("fig.", "figure")
-    s = _LABEL_NORMALIZE_RE.sub(" ", s)
-    return s
-
-
-def _figures_from_ocr(ocr: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    if not ocr:
-        return []
-    figures = ocr.get("figures") or []
-    if not isinstance(figures, list):
-        return []
-    return figures
-
-
-def resolve_figure(
-    ocr: Optional[Dict[str, Any]], label_or_id: str
-) -> Optional[Dict[str, Any]]:
-    """Resolve a label or internal id against the paper's figures map.
-
-    Returns the figure dict (with s3_key, caption, page) on hit, None on miss.
-    Tries id-exact first, then label-normalized exact, then a label
-    contains-match for partial inputs like '3a' that omit the kind.
-    """
-    figures = _figures_from_ocr(ocr)
-    if not figures:
-        return None
-
-    target_norm = _normalize_label(label_or_id)
-
-    # 1. id exact match
-    for fig in figures:
-        if str(fig.get("id") or "") == label_or_id:
-            return fig
-
-    # 2. label exact (normalized)
-    for fig in figures:
-        label = fig.get("label")
-        if label and _normalize_label(label) == target_norm:
-            return fig
-
-    # 3. label contains target — covers "3a" matching "Figure 3a"
-    for fig in figures:
-        label = fig.get("label")
-        if label and target_norm in _normalize_label(label):
-            return fig
-
-    return None
 
 
 @paper_figure_router.get(
@@ -117,31 +59,22 @@ def get_paper_figure(
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
 
-    if str(getattr(paper, "parser", "") or "") != "mistral":
-        raise HTTPException(
-            status_code=404,
-            detail="Figures are only available on Mistral-parsed papers",
-        )
-
-    figure = resolve_figure(getattr(paper, "ocr", None), label_or_id)
+    figure = content.resolve_figure(content.figures(db, paper_id), label_or_id)
     if not figure:
         raise HTTPException(status_code=404, detail="Figure not found")
 
-    s3_key = figure.get("s3_key")
-    if not s3_key:
+    if not figure.s3_key:
         raise HTTPException(status_code=404, detail="Figure not yet rendered")
 
     try:
-        png_bytes = s3_service.get_object_bytes(str(s3_key))
+        png_bytes = s3_service.get_object_bytes(figure.s3_key)
     except Exception as e:
-        logger.error(f"Failed to fetch figure {s3_key} from S3: {e}")
+        logger.error(f"Failed to fetch figure {figure.s3_key} from S3: {e}")
         raise HTTPException(status_code=502, detail="Figure storage unavailable")
 
-    headers = {}
-    if figure.get("label"):
-        headers["X-Figure-Label"] = str(figure["label"])
-    if figure.get("page") is not None:
-        headers["X-Figure-Page"] = str(figure["page"])
+    headers = {"X-Figure-Page": str(figure.page_no)}
+    if figure.label:
+        headers["X-Figure-Label"] = figure.label
 
     return Response(content=png_bytes, media_type="image/png", headers=headers)
 
@@ -161,14 +94,13 @@ def list_paper_figures(
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
 
-    figures = _figures_from_ocr(getattr(paper, "ocr", None))
     return [
         PaperFigureSummary(
-            id=fig.get("id"),
-            label=fig.get("label"),
-            caption=fig.get("caption"),
-            page=fig.get("page"),
-            available=bool(fig.get("s3_key")),
+            id=fig.ocr_image_id,
+            label=fig.label,
+            caption=fig.caption,
+            page=fig.page_no,
+            available=fig.available,
         )
-        for fig in figures
+        for fig in content.figures(db, paper_id)
     ]

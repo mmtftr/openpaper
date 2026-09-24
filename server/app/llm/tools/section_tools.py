@@ -1,9 +1,9 @@
 """
 Single-paper agentic tools: read_section, read_pages, search_paper, get_figure.
 
-Each tool branches on the paper's parser ("mistral" | "pymupdf"). Mistral mode
-uses the structured per-page jsonb; pymupdf mode degrades to flat-text fallbacks
-over raw_content. read_section returns {error, available_sections} on no-match
+Every tool reads the paper's per-page text and figures from `paper_pages` /
+`paper_figures` (via `app.ingest.content`). read_section returns
+{error, available_sections} on no-match
 rather than silently fuzzy-picking the wrong section — honest failure beats
 hallucination, and the agent can pick again from the listed top-level headings.
 
@@ -23,6 +23,8 @@ from sqlalchemy.orm import Session
 
 from app.database.crud.paper_crud import paper_crud
 from app.database.models import Paper
+from app.ingest import content
+from app.ingest.content import PAGE_SEPARATOR, Figure, Page
 from app.schemas.user import CurrentUser
 
 logger = getLogger(__name__)
@@ -34,7 +36,7 @@ RESPONSE_CHAR_CAP = 32_000
 
 
 # --------------------------------------------------------------
-# Helpers shared between Mistral and pymupdf modes
+# Helpers
 # --------------------------------------------------------------
 
 # Markdown ATX heading: '#'..'######' followed by space and text.
@@ -56,15 +58,12 @@ def _truncate(text: str) -> Tuple[str, bool]:
     return text[:RESPONSE_CHAR_CAP], True
 
 
-def _pages_from_paper(paper: Paper) -> List[Dict[str, Any]]:
-    ocr = getattr(paper, "ocr", None)
-    if not ocr:
-        return []
-    return ocr.get("pages") or []
+def _load_pages(db: Session, paper: Paper) -> List[Page]:
+    return content.pages(db, paper.id)
 
 
-def _is_mistral(paper: Paper) -> bool:
-    return str(getattr(paper, "parser", "") or "") == "mistral"
+def _load_figures(db: Session, paper: Paper) -> List[Figure]:
+    return content.figures(db, paper.id)
 
 
 def _get_paper_or_raise(
@@ -121,60 +120,33 @@ def _resolve_target_paper_id(
 # --------------------------------------------------------------
 
 
-def build_outline(paper: Paper) -> Dict[str, Any]:
-    """Build the paper outline injected into every system prompt.
-
-    For Mistral: walks per-page markdown for headings + figures map.
-    For pymupdf fallback: regex over flat raw_content for headings; figures
-    are listed as 'unavailable'.
-    """
-    title = getattr(paper, "title", None) or "(untitled)"
-    authors = getattr(paper, "authors", None) or []
-    page_count = getattr(paper, "page_count", None)
-    parser = str(getattr(paper, "parser", "") or "")
-
+def build_outline(
+    paper: Paper, pages: List[Page], figures: List[Figure]
+) -> Dict[str, Any]:
+    """Build the paper outline injected into every system prompt: the
+    headings of every page's markdown plus the figures map."""
     headings: List[Dict[str, Any]] = []
-    figure_entries: List[Dict[str, Any]] = []
-
-    if parser == "mistral":
-        pages = _pages_from_paper(paper)
-        for page_dict in pages:
-            page_idx_raw = page_dict.get("index")
-            page_num = (int(page_idx_raw) + 1) if page_idx_raw is not None else None
-            md = page_dict.get("markdown") or ""
-            for m in _HEADING_RE.finditer(md):
-                level = len(m.group(1))
-                text = m.group(2).strip()
-                headings.append({"level": level, "text": text, "page": page_num})
-
-        ocr = getattr(paper, "ocr", None) or {}
-        for fig in ocr.get("figures") or []:
-            figure_entries.append(
-                {
-                    "label": fig.get("label"),
-                    "page": fig.get("page"),
-                    "caption": fig.get("caption"),
-                    "id": fig.get("id"),
-                    "available": bool(fig.get("s3_key")),
-                }
-            )
-
-    else:  # pymupdf fallback
-        raw = str(getattr(paper, "raw_content", "") or "")
-        for m in _HEADING_RE.finditer(raw):
+    for page in pages:
+        for m in _HEADING_RE.finditer(page.markdown):
             level = len(m.group(1))
             text = m.group(2).strip()
-            headings.append({"level": level, "text": text, "page": None})
+            headings.append({"level": level, "text": text, "page": page.page_no})
 
-    if page_count is None and parser != "mistral":
-        page_offset_map = getattr(paper, "page_offset_map", None) or {}
-        page_count = len(page_offset_map) if page_offset_map else None
+    figure_entries = [
+        {
+            "label": fig.label,
+            "page": fig.page_no,
+            "caption": fig.caption,
+            "id": fig.ocr_image_id,
+            "available": fig.available,
+        }
+        for fig in figures
+    ]
 
     return {
-        "title": title,
-        "authors": authors,
-        "page_count": page_count,
-        "parser": parser or "pymupdf",
+        "title": getattr(paper, "title", None) or "(untitled)",
+        "authors": getattr(paper, "authors", None) or [],
+        "page_count": getattr(paper, "page_count", None),
         "headings": headings,
         "figures": figure_entries,
     }
@@ -217,12 +189,11 @@ def render_outline_text(outline: Dict[str, Any]) -> str:
 
 
 # --------------------------------------------------------------
-# Tool implementations — branch on paper.parser
+# Tool implementations
 # --------------------------------------------------------------
 
 
-def _read_section_mistral(paper: Paper, name: str, text_only: bool) -> Dict[str, Any]:
-    pages = _pages_from_paper(paper)
+def _read_section(pages: List[Page], name: str, text_only: bool) -> Dict[str, Any]:
     if not pages:
         return {"error": "Paper has no parsed pages"}
 
@@ -232,29 +203,19 @@ def _read_section_mistral(paper: Paper, name: str, text_only: bool) -> Dict[str,
     # absolute char offset within the joined content, line, level).
     matches: List[Tuple[int, int, str, int]] = []
     available_top: List[str] = []
-    flat_chunks: List[str] = []
     page_starts: List[int] = []
 
-    cursor = 0
-    sep = "\n\n"
-    for i, page_dict in enumerate(pages):
-        md = page_dict.get("markdown") or ""
-        page_starts.append(cursor)
-        flat_chunks.append(md)
-        page_idx_raw = page_dict.get("index")
-        page_num = (int(page_idx_raw) + 1) if page_idx_raw is not None else (i + 1)
-        for m in _HEADING_RE.finditer(md):
+    flat, offsets = content.full_text(pages)
+    for page in pages:
+        page_start = offsets[page.page_no][0]
+        page_starts.append(page_start)
+        for m in _HEADING_RE.finditer(page.markdown):
             level = len(m.group(1))
             text = m.group(2).strip()
-            abs_offset = cursor + m.start()
             if level <= 2:
                 available_top.append(text)
             if name_lc in text.lower():
-                matches.append((page_num, abs_offset, text, level))
-        cursor += len(md)
-        if i < len(pages) - 1:
-            cursor += len(sep)
-            flat_chunks.append(sep)
+                matches.append((page.page_no, page_start + m.start(), text, level))
 
     if not matches:
         return {
@@ -264,7 +225,6 @@ def _read_section_mistral(paper: Paper, name: str, text_only: bool) -> Dict[str,
 
     # Use the first match.
     page_num, abs_offset, heading_text, level = matches[0]
-    flat = "".join(flat_chunks)
 
     # Find the next heading at the same-or-higher level (smaller-or-equal #
     # count means same or higher importance).
@@ -290,64 +250,17 @@ def _read_section_mistral(paper: Paper, name: str, text_only: bool) -> Dict[str,
         # Tell the agent which pages it's missing so it can read_pages for
         # the rest deterministically rather than guessing.
         response["truncated"] = True
-        end_page = _page_for_offset(page_starts, next_offset, len(pages))
-        response["full_pages"] = [page_num, end_page]
+        end_index = _page_index_for_offset(page_starts, next_offset)
+        response["full_pages"] = [page_num, pages[end_index].page_no]
     return response
 
 
-def _read_section_pymupdf(paper: Paper, name: str, text_only: bool) -> Dict[str, Any]:
-    raw = str(getattr(paper, "raw_content", "") or "")
-    if not raw:
-        return {"error": "Paper has no raw_content"}
-
-    name_lc = name.strip().lower()
-    matches: List[Tuple[int, str, int]] = []
-    available_top: List[str] = []
-    for m in _HEADING_RE.finditer(raw):
-        level = len(m.group(1))
-        text = m.group(2).strip()
-        if level <= 2:
-            available_top.append(text)
-        if name_lc in text.lower():
-            matches.append((m.start(), text, level))
-
-    if not matches:
-        return {
-            "error": f"No section matching '{name}'",
-            "available_sections": available_top,
-        }
-
-    abs_offset, heading_text, level = matches[0]
-    next_offset = len(raw)
-    for m in _HEADING_RE.finditer(raw, abs_offset + 1):
-        m_level = len(m.group(1))
-        if m_level <= level:
-            next_offset = m.start()
-            break
-
-    body = raw[abs_offset:next_offset]
-    if text_only:
-        body = _strip_images(body)
-
-    out, truncated = _truncate(body)
-    response: Dict[str, Any] = {
-        "section": heading_text,
-        "level": level,
-        "content": out,
-    }
-    if truncated:
-        response["truncated"] = True
-    return response
-
-
-def _page_for_offset(page_starts: List[int], offset: int, total_pages: int) -> int:
-    """Find the 1-indexed page number containing the given absolute offset."""
-    for i, start in enumerate(page_starts):
-        if i + 1 < len(page_starts) and offset < page_starts[i + 1]:
-            return i + 1
-        if i + 1 == len(page_starts):
-            return i + 1
-    return total_pages
+def _page_index_for_offset(page_starts: List[int], offset: int) -> int:
+    """Index (into `page_starts`) of the page containing the absolute offset."""
+    for i in range(len(page_starts) - 1):
+        if offset < page_starts[i + 1]:
+            return i
+    return len(page_starts) - 1
 
 
 def read_section(
@@ -364,12 +277,7 @@ def read_section(
         paper_id, target_paper_id, allowed_paper_ids
     )
     paper = _get_paper_or_raise(effective_id, current_user, db, allowed_paper_ids)
-    if _is_mistral(paper):
-        return _read_section_mistral(paper, name, text_only)
-    return _read_section_pymupdf(paper, name, text_only)
-
-
-PAGE_SEPARATOR = "\n\n"
+    return _read_section(_load_pages(db, paper), name, text_only)
 
 
 def _paged_response(
@@ -404,26 +312,11 @@ def _paged_response(
     return response
 
 
-def _read_pages_mistral(paper: Paper, start: int, end: int) -> Dict[str, Any]:
-    """Whole-page reads off the structured per-page markdown."""
-    selected: List[Tuple[int, str]] = []
-    for page_dict in _pages_from_paper(paper):
-        idx_raw = page_dict.get("index")
-        if idx_raw is None:
-            continue
-        try:
-            page_num = int(idx_raw) + 1
-        except (TypeError, ValueError):
-            # A page with an unparseable index can't be addressed by number;
-            # skipping it beats blowing up the whole read.
-            logger.warning("Skipping page with non-integer index %r", idx_raw)
-            continue
-        if start <= page_num <= end:
-            selected.append((page_num, page_dict.get("markdown") or ""))
-
+def _read_pages(pages: List[Page], start: int, end: int) -> Dict[str, Any]:
+    """Whole-page reads off the per-page markdown."""
+    selected = [(p.page_no, p.markdown) for p in pages if start <= p.page_no <= end]
     if not selected:
         return {"error": f"No pages found in range {start}-{end}"}
-    selected.sort(key=lambda item: item[0])
 
     first_page = selected[0][0]
     if len(selected[0][1]) > RESPONSE_CHAR_CAP:
@@ -462,82 +355,6 @@ def _read_pages_mistral(paper: Paper, start: int, end: int) -> Dict[str, Any]:
     )
 
 
-def _read_pages_pymupdf(paper: Paper, start: int, end: int) -> Dict[str, Any]:
-    """Whole-page reads off the flat raw_content via page_offset_map.
-
-    The included pages are returned as one continuous slice (not per-page
-    slices joined) so the text is byte-identical to the source, including
-    whatever sits between two pages' offsets.
-    """
-    page_offset_map = getattr(paper, "page_offset_map", None) or {}
-    raw = str(getattr(paper, "raw_content", "") or "")
-    if not page_offset_map:
-        return {"error": "No page offset map available for this paper"}
-
-    # Keys may be ints or stringified ints depending on jsonb shape, and the
-    # values come straight out of jsonb — validate rather than trust them.
-    def _bounds(p: int) -> Optional[Tuple[int, int]]:
-        entry = page_offset_map.get(p) or page_offset_map.get(str(p))
-        if not isinstance(entry, (list, tuple)) or len(entry) != 2:
-            return None
-        try:
-            return int(entry[0]), int(entry[1])
-        except (TypeError, ValueError):
-            logger.warning("Page %s has a malformed offset entry %r", p, entry)
-            return None
-
-    start_bounds = _bounds(start)
-    if not start_bounds:
-        return {"error": f"Page {start} not found"}
-
-    body_start = start_bounds[0]
-    if start_bounds[1] - body_start > RESPONSE_CHAR_CAP:
-        return _paged_response(
-            start=start,
-            end=end,
-            content=raw[body_start : body_start + RESPONSE_CHAR_CAP],
-            first_page=start,
-            last_page=start,
-            truncated=True,
-            page_truncated=True,
-        )
-
-    # Walk the map's own page numbers rather than range(start + 1, end + 1):
-    # `end` is model-supplied and may be far past the paper's last page.
-    later_pages: List[int] = []
-    for key in page_offset_map:
-        try:
-            page_num = int(key)
-        except (TypeError, ValueError):
-            continue
-        if start < page_num <= end:
-            later_pages.append(page_num)
-    later_pages.sort()
-
-    body_end = start_bounds[1]
-    last_page = start
-    truncated = False
-    for page_num in later_pages:
-        bounds = _bounds(page_num)
-        if not bounds:
-            continue
-        candidate_end = bounds[1]
-        if candidate_end - body_start > RESPONSE_CHAR_CAP:
-            truncated = True
-            break
-        body_end = candidate_end
-        last_page = page_num
-
-    return _paged_response(
-        start=start,
-        end=end,
-        content=raw[body_start:body_end],
-        first_page=start,
-        last_page=last_page,
-        truncated=truncated,
-    )
-
-
 def read_pages(
     paper_id: str,
     start: int,
@@ -563,9 +380,7 @@ def read_pages(
     if start < 1 or end < start:
         return {"error": "Invalid page range"}
 
-    if _is_mistral(paper):
-        return _read_pages_mistral(paper, start, end)
-    return _read_pages_pymupdf(paper, start, end)
+    return _read_pages(_load_pages(db, paper), start, end)
 
 
 # Total wall-clock budget for one `search_paper` call. A model-written regex
@@ -587,8 +402,8 @@ class _TimedPattern:
         return self._pattern.search(text, timeout=remaining)
 
 
-def _search_single_paper(
-    paper: Paper,
+def _search_pages(
+    pages: List[Page],
     pattern: _TimedPattern,
     context_lines: int,
     paper_id_for_tagging: Optional[str] = None,
@@ -597,63 +412,16 @@ def _search_single_paper(
     provided so callers searching across the parent + supplementaries can
     tell which paper each hit came from."""
     hits: List[Dict[str, Any]] = []
-    if _is_mistral(paper):
-        pages = _pages_from_paper(paper)
-        for page_dict in pages:
-            idx_raw = page_dict.get("index")
-            page_num = (int(idx_raw) + 1) if idx_raw is not None else None
-            md = page_dict.get("markdown") or ""
-            lines = md.splitlines()
-            for line_num, line in enumerate(lines):
-                if pattern.search(line):
-                    before = lines[max(0, line_num - context_lines) : line_num]
-                    after = lines[
-                        line_num + 1 : min(len(lines), line_num + 1 + context_lines)
-                    ]
-                    hit: Dict[str, Any] = {
-                        "page": page_num,
-                        "line": line_num + 1,
-                        "match": line,
-                        "before": before,
-                        "after": after,
-                    }
-                    if paper_id_for_tagging:
-                        hit["paper_id"] = paper_id_for_tagging
-                    hits.append(hit)
-    else:
-        raw = str(getattr(paper, "raw_content", "") or "")
-        page_offset_map = getattr(paper, "page_offset_map", None) or {}
-        ranges: List[Tuple[int, int, int]] = []
-        for k, v in page_offset_map.items():
-            try:
-                p = int(k)
-            except (TypeError, ValueError):
-                continue
-            if isinstance(v, (list, tuple)) and len(v) == 2:
-                ranges.append((p, int(v[0]), int(v[1])))
-        ranges.sort(key=lambda x: x[1])
-
-        def _page_for(off: int) -> Optional[int]:
-            for p, s, e in ranges:
-                if s <= off < e:
-                    return p
-            return None
-
-        lines = raw.splitlines()
-        line_starts: List[int] = [0]
-        running = 0
-        for line in lines:
-            running += len(line) + 1
-            line_starts.append(running)
-
+    for page in pages:
+        lines = page.markdown.splitlines()
         for line_num, line in enumerate(lines):
             if pattern.search(line):
                 before = lines[max(0, line_num - context_lines) : line_num]
                 after = lines[
                     line_num + 1 : min(len(lines), line_num + 1 + context_lines)
                 ]
-                hit = {
-                    "page": _page_for(line_starts[line_num]),
+                hit: Dict[str, Any] = {
+                    "page": page.page_no,
                     "line": line_num + 1,
                     "match": line,
                     "before": before,
@@ -719,8 +487,11 @@ def _search_paper(
             except ValueError:
                 continue
             all_hits.extend(
-                _search_single_paper(
-                    p, pattern, context_lines, paper_id_for_tagging=str(pid)
+                _search_pages(
+                    _load_pages(db, p),
+                    pattern,
+                    context_lines,
+                    paper_id_for_tagging=str(pid),
                 )
             )
         return _cap_hits(all_hits)
@@ -729,9 +500,7 @@ def _search_paper(
         paper_id, target_paper_id, allowed_paper_ids
     )
     paper = _get_paper_or_raise(effective_id, current_user, db, allowed_paper_ids)
-    hits = _search_single_paper(
-        paper, pattern, context_lines, paper_id_for_tagging=None
-    )
+    hits = _search_pages(_load_pages(db, paper), pattern, context_lines)
     return _cap_hits(hits)
 
 
@@ -751,6 +520,17 @@ def _cap_hits(hits: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {"hits": hits, "truncated": False, "total_hits": len(hits)}
 
 
+def find_figure(db: Session, paper: Paper, label: str) -> Dict[str, Any]:
+    """`{"figure": Figure}` for a label/id on this paper, or `{"error": ...}`
+    (no such figure, or not rendered yet). Shared by both figure tools."""
+    figure = content.resolve_figure(_load_figures(db, paper), label)
+    if figure is None:
+        return {"error": f"No figure matching '{label}'"}
+    if not figure.available:
+        return {"error": f"Figure '{figure.label or label}' is not yet rendered"}
+    return {"figure": figure}
+
+
 def get_figure(
     paper_id: str,
     label: str,
@@ -764,28 +544,19 @@ def get_figure(
         paper_id, target_paper_id, allowed_paper_ids
     )
     paper = _get_paper_or_raise(effective_id, current_user, db, allowed_paper_ids)
-    if not _is_mistral(paper):
-        return {
-            "error": "Figures are unavailable for this paper (parsed in fallback mode)"
-        }
-
-    from app.api.paper_figure_api import resolve_figure
-
-    figure = resolve_figure(getattr(paper, "ocr", None), label)
-    if not figure:
-        return {"error": f"No figure matching '{label}'"}
-
-    if not figure.get("s3_key"):
-        return {"error": f"Figure '{figure.get('label') or label}' is not yet rendered"}
+    found = find_figure(db, paper, label)
+    if "error" in found:
+        return found
+    figure: Figure = found["figure"]
 
     # The chat UI fetches the bitmap via the figure endpoint; the agent gets
     # back the metadata + endpoint path so it can answer with caption text
     # and reference the image inline.
     return {
-        "label": figure.get("label"),
-        "page": figure.get("page"),
-        "caption": figure.get("caption"),
-        "id": figure.get("id"),
+        "label": figure.label,
+        "page": figure.page_no,
+        "caption": figure.caption,
+        "id": figure.ocr_image_id,
         "paper_id": effective_id,
-        "url": f"/api/paper/{effective_id}/figure/{figure.get('label') or figure.get('id')}",
+        "url": f"/api/paper/{effective_id}/figure/{figure.label or figure.ocr_image_id}",
     }

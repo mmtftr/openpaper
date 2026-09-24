@@ -646,6 +646,7 @@ async def run_paper_chat(
                     family_index=chat_context.family_index,
                     parent_paper_id=paper_id,
                     repo_snapshot=chat_context.repo_snapshot,
+                    db=db,
                 )
                 if reconciled:
                     if assistant_row is not None:

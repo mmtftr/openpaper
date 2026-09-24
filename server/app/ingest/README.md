@@ -57,6 +57,14 @@ heartbeat every `HEARTBEAT_INTERVAL_SECONDS`; SIGTERM drains then requeues.
 `complete_stage`, `retry_stage`, `reprocess` (raises `IngestConflict`),
 `ingest_status`. `Stage.reset_outputs()` runs on reprocess only.
 
+**Read side** (`content.py`) — what chat, search and the API read instead
+of the legacy `papers.ocr/raw_content/page_offset_map/parser`: `pages()`
+(final `markdown` per page), `full_text()` (pages joined by a blank line +
+per-page offsets), `text_layer()`, `figures()` (document order),
+`resolve_figure()` (row id / Mistral image id / label). `papers.ts_vector`
+is kept by triggers from the title + pages' markdown (migration
+`ingest_v2_data_20260927`, which also copied the existing papers).
+
 **Features** (`features.py`) — `features({name: row_or_status})` →
 `{feature: FeatureState(enabled, waiting_on, cause, reason)}`; `cause` is the
 stage to show/retry (a failed upstream stage first).
