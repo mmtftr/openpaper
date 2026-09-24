@@ -1,7 +1,7 @@
 """reference_resolutions: cache for the reader's citation hover cards.
 
 Revision ID: reference_resolutions_20260930
-Revises: ingest_v2_data_20260927
+Revises: drop_legacy_ingest_20260929
 Create Date: 2026-09-30 10:00:00
 """
 
@@ -12,7 +12,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "reference_resolutions_20260930"
-down_revision: Union[str, None] = "ingest_v2_data_20260927"
+down_revision: Union[str, None] = "drop_legacy_ingest_20260929"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
