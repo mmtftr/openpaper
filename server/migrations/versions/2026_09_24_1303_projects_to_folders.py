@@ -6,7 +6,7 @@ non-paper conversations, and the second (paper-less) user account.
 Renames project.admin_id to owner_id.
 
 Revision ID: 5cec2d370cbe
-Revises: e0f1a2b3c4d5
+Revises: 71bec2bff5a0
 Create Date: 2026-09-24 13:03:00.000000+00:00
 """
 
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "5cec2d370cbe"
-down_revision: Union[str, None] = "e0f1a2b3c4d5"
+down_revision: Union[str, None] = "71bec2bff5a0"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

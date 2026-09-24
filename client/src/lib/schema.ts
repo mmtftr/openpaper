@@ -169,19 +169,6 @@ export interface SearchResults {
     total_annotations: number;
 }
 
-export interface PaperImage {
-    paper_id: string;
-    s3_object_key: string;
-    image_url: string;
-    format: string;
-    size_bytes: number;
-    width: number;
-    height: number;
-    page_number: number;
-    image_index: number;
-    caption: string | null;
-}
-
 export interface JobStatusResponse {
     job_id: string;
     status: JobStatusType;
@@ -221,26 +208,6 @@ export interface PaperItem {
     journal?: string
     doi?: string
     publisher?: string
-}
-
-export interface AudioOverview {
-    id: string;
-    conversable_id: string;
-    conversable_type: string;
-    audio_url: string;
-    transcript: string;
-    title: string;
-    citations: ReferenceCitation[];
-    created_at: string;
-    updated_at: string;
-    job_id: string;
-}
-
-export interface AudioOverviewJob extends JobStatusResponse {
-    id: string;
-    conversable_id: string;
-    conversable_type: string;
-    status_message: string | null;
 }
 
 export interface Project {

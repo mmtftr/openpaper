@@ -210,7 +210,6 @@ class Message(Base):
 
 class ConversableType(str, Enum):
     PAPER = "paper"
-    PROJECT = "project"
 
 
 def generic_relationship(type_col_name, id_col_name):

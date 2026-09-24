@@ -11,7 +11,6 @@ Containers and roles:
 - `client` (Next.js) → `server` (FastAPI/gunicorn) → `postgres`
 - `jobs-api` + `jobs-worker` (Celery) talk to `rabbitmq` (broker) + `redis`
   (result backend); the worker writes papers/figures to `minio` (local S3)
-- `flower` is opt-in via `--profile observability`
 
 Postgres / RabbitMQ / Redis are not host-published — only reachable from the
 docker network. Migrations run on every `server` start (its command chains

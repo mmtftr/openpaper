@@ -6,7 +6,7 @@ function (nothing searched it), and papers.summary / summary_citations /
 starter_questions (no longer generated or displayed).
 
 Revision ID: a3b99627a39f
-Revises: e0f1a2b3c4d5
+Revises: 5cec2d370cbe
 Create Date: 2026-09-24 13:04:00.000000+00:00
 """
 
@@ -15,7 +15,7 @@ from typing import Sequence, Union
 from alembic import op
 
 revision: str = "a3b99627a39f"
-down_revision: Union[str, None] = "e0f1a2b3c4d5"
+down_revision: Union[str, None] = "5cec2d370cbe"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
