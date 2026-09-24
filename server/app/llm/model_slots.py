@@ -15,13 +15,21 @@ the provider env vars (`DEFAULT_LLM_PROVIDER`, `OPENAI_FAST_MODEL`,
   falling back to a configured one);
 - an explicit provider that isn't configured falls back to the default
   provider, as the old per-call-site clients did.
+
+Overrides live in the `model_slots` table (Settings -> Models, served by
+`app.api.settings_api`). They are read through a short TTL cache: gunicorn
+runs several worker processes, so a PUT invalidates only its own worker's
+cache and the others pick the change up within `OVERRIDE_TTL_SECONDS`. An
+override that no longer resolves (provider unconfigured, model removed from
+the env lists) is logged and ignored, never fatal.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal, Mapping, Optional
 
 from app.llm.model_registry import (
     LLMProvider,
@@ -77,25 +85,108 @@ SLOT_DEFAULTS: dict[str, SlotDefault] = {
 }
 
 
+ReasoningEffort = Literal["low", "medium", "high", "xhigh"]
+
+
 @dataclass(frozen=True)
-class ResolvedSlot:
-    slot: str
-    spec: ModelSpec
-    reasoning_effort: str | None
+class SlotOverride:
+    """A stored override. Any field may be None (= the default's value)."""
+
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    reasoning_effort: Optional[str] = None
+
+    @property
+    def picks_model(self) -> bool:
+        return bool(self.provider or self.model)
 
 
-def resolve_slot(slot: str, registry: Any | None = None) -> ResolvedSlot:
-    """The model a slot uses right now.
+# -- override cache ----------------------------------------------------------
 
-    `registry` defaults to the process-wide `ModelRegistry`; callers that
-    already hold one (chat) pass it so both resolve against the same
-    instance. Raises KeyError for an unknown slot and ValueError when no
-    provider is configured at all.
+OVERRIDE_TTL_SECONDS = 15.0
+
+_cache: Optional[tuple[float, dict[str, SlotOverride]]] = None
+
+
+def load_overrides() -> dict[str, SlotOverride]:
+    """Read every stored override from the database (uncached)."""
+    from app.database.crud.model_slot_crud import list_model_slots
+    from app.database.database import SessionLocal
+
+    with SessionLocal() as db:
+        return {
+            str(row.slot): SlotOverride(
+                provider=row.provider,  # type: ignore[arg-type]
+                model=row.model,  # type: ignore[arg-type]
+                reasoning_effort=row.reasoning_effort,  # type: ignore[arg-type]
+            )
+            for row in list_model_slots(db)
+        }
+
+
+def get_overrides() -> dict[str, SlotOverride]:
+    """Stored overrides, cached for `OVERRIDE_TTL_SECONDS` per process.
+
+    A failed read keeps the last good value (or none) for another TTL rather
+    than failing the model call.
     """
-    default = SLOT_DEFAULTS[slot]
-    reg: ModelRegistry = registry if registry is not None else get_registry()
+    global _cache
+    now = time.monotonic()
+    cached = _cache
+    if cached is not None and now - cached[0] < OVERRIDE_TTL_SECONDS:
+        return cached[1]
     try:
-        spec = reg.resolve(default.provider, None, role=default.role)
+        overrides = load_overrides()
+    except Exception:
+        logger.warning("Could not read model slot overrides", exc_info=True)
+        overrides = cached[1] if cached is not None else {}
+    _cache = (now, overrides)
+    return overrides
+
+
+def invalidate_overrides() -> None:
+    """Drop this process's cached overrides (after a PUT)."""
+    global _cache
+    _cache = None
+
+
+# -- resolution --------------------------------------------------------------
+
+
+def lookup_choice(
+    registry: Any,
+    provider: Optional[str],
+    model: Optional[str],
+    role: ModelRole = ModelRole.DEFAULT,
+) -> ModelSpec:
+    """Resolve an explicit (provider, model) choice. Raises ValueError.
+
+    - provider + model: a listed model of that provider, or the provider's
+      own default/fast model (those need not be in the picker list);
+    - provider only: that provider's model for `role`;
+    - model only: the first provider listing that id.
+    """
+    provider_enum: Optional[LLMProvider] = None
+    if provider:
+        try:
+            provider_enum = LLMProvider(provider)
+        except ValueError:
+            raise ValueError(f"Unknown provider '{provider}'") from None
+    if provider_enum is not None and model:
+        try:
+            return registry.resolve(provider_enum, model)
+        except ValueError:
+            for other_role in ModelRole:
+                role_spec = registry.resolve(provider_enum, None, role=other_role)
+                if role_spec.id == model:
+                    return role_spec
+            raise
+    return registry.resolve(provider_enum, model or None, role=role)
+
+
+def _resolve_default(slot: str, default: SlotDefault, reg: Any) -> ModelSpec:
+    try:
+        return reg.resolve(default.provider, None, role=default.role)
     except ValueError:
         if default.provider is None:
             raise
@@ -104,5 +195,49 @@ def resolve_slot(slot: str, registry: Any | None = None) -> ResolvedSlot:
             slot,
             default.provider.value,
         )
-        spec = reg.resolve(None, None, role=default.role)
-    return ResolvedSlot(slot=slot, spec=spec, reasoning_effort=default.reasoning_effort)
+        return reg.resolve(None, None, role=default.role)
+
+
+@dataclass(frozen=True)
+class ResolvedSlot:
+    slot: str
+    spec: ModelSpec
+    reasoning_effort: str | None
+
+
+def resolve_slot(
+    slot: str,
+    registry: Any | None = None,
+    overrides: Mapping[str, SlotOverride] | None = None,
+) -> ResolvedSlot:
+    """The model a slot uses right now.
+
+    `registry` defaults to the process-wide `ModelRegistry`; callers that
+    already hold one (chat) pass it so both resolve against the same
+    instance. `overrides` defaults to the cached stored overrides (pass `{}`
+    for the built-in default). Raises KeyError for an unknown slot and
+    ValueError when no provider is configured at all.
+    """
+    default = SLOT_DEFAULTS[slot]
+    reg: ModelRegistry = registry if registry is not None else get_registry()
+    override = (get_overrides() if overrides is None else overrides).get(slot)
+
+    spec: Optional[ModelSpec] = None
+    if override is not None and override.picks_model:
+        try:
+            spec = lookup_choice(reg, override.provider, override.model, default.role)
+        except ValueError as exc:
+            logger.warning(
+                "Slot %s: ignoring override %s/%s (%s); using the default",
+                slot,
+                override.provider,
+                override.model,
+                exc,
+            )
+    if spec is None:
+        spec = _resolve_default(slot, default, reg)
+
+    effort = default.reasoning_effort
+    if override is not None and override.reasoning_effort:
+        effort = override.reasoning_effort
+    return ResolvedSlot(slot=slot, spec=spec, reasoning_effort=effort)

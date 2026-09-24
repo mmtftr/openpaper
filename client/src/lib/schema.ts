@@ -230,3 +230,58 @@ export interface MinimalJob {
     fileName: string;
 }
 
+// Settings -> Models (GET/PUT /api/settings/models)
+export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
+
+export interface SlotChoice {
+    provider: string;
+    model: string;
+    model_name: string;
+    reasoning_effort: string | null;
+}
+
+export interface SlotOverride {
+    provider: string | null;
+    model: string | null;
+    reasoning_effort: string | null;
+    updated_at: string | null;
+}
+
+export interface ModelSlot {
+    slot: string;
+    description: string;
+    role: "default" | "fast";
+    default: SlotChoice;
+    override: SlotOverride | null;
+    // Set when the stored override no longer resolves; the default is used.
+    override_error: string | null;
+    effective: SlotChoice;
+}
+
+export interface ModelProvider {
+    id: string;
+    default_model: string;
+    fast_model: string;
+    is_default: boolean;
+}
+
+export interface SelectableModel {
+    id: string;
+    name: string;
+    provider: string;
+    supports_reasoning_effort: boolean;
+    supports_vision: boolean;
+}
+
+export interface ModelSettings {
+    slots: ModelSlot[];
+    providers: ModelProvider[];
+    models: SelectableModel[];
+}
+
+export interface ModelSlotUpdate {
+    provider: string | null;
+    model: string | null;
+    reasoning_effort: ReasoningEffort | null;
+}
+

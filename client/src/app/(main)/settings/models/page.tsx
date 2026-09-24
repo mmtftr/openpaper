@@ -1,0 +1,291 @@
+"use client"
+
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { AlertTriangle, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+
+import {
+	Select,
+	SelectContent,
+	SelectGroup,
+	SelectItem,
+	SelectLabel,
+	SelectSeparator,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
+import { useModelSettings } from "@/hooks/useModelSettings";
+import { useAuth } from "@/lib/auth";
+import {
+	ModelProvider,
+	ModelSettings,
+	ModelSlot,
+	ModelSlotUpdate,
+	ReasoningEffort,
+	SelectableModel,
+} from "@/lib/schema";
+
+const DEFAULT_VALUE = "__default__";
+
+const REASONING_EFFORT_OPTIONS: { id: ReasoningEffort; label: string }[] = [
+	{ id: "low", label: "Low" },
+	{ id: "medium", label: "Medium" },
+	{ id: "high", label: "High" },
+	{ id: "xhigh", label: "xhigh" },
+];
+
+// Same labelling as the chat model picker.
+const providerLabel = (provider: string) =>
+	provider.charAt(0).toUpperCase() + provider.slice(1);
+
+// `provider::model`; an empty model means "the provider's own model for
+// the slot's role" (follows the provider's env config).
+const choiceKey = (provider: string, model: string | null) =>
+	`${provider}::${model ?? ""}`;
+
+function parseChoiceKey(key: string): { provider: string | null; model: string | null } {
+	if (key === DEFAULT_VALUE) return { provider: null, model: null };
+	const [provider, model] = key.split("::");
+	return { provider: provider || null, model: model || null };
+}
+
+function currentChoiceKey(slot: ModelSlot): string {
+	const o = slot.override;
+	if (!o || (!o.provider && !o.model)) return DEFAULT_VALUE;
+	return choiceKey(o.provider ?? "", o.model);
+}
+
+function describe(choice: ModelSlot["default"]) {
+	return `${choice.model_name} (${providerLabel(choice.provider)})`;
+}
+
+function SlotRow({
+	slot,
+	providers,
+	modelsByProvider,
+	models,
+	onSave,
+}: {
+	slot: ModelSlot;
+	providers: ModelProvider[];
+	modelsByProvider: [string, SelectableModel[]][];
+	models: SelectableModel[];
+	onSave: (slot: string, update: ModelSlotUpdate) => Promise<void>;
+}) {
+	const [saving, setSaving] = useState(false);
+	const selected = currentChoiceKey(slot);
+	const effort = (slot.override?.reasoning_effort as ReasoningEffort | null) ?? null;
+
+	const findModel = (provider: string, id: string) =>
+		models.find((m) => m.provider === provider && m.id === id);
+
+	const effective = findModel(slot.effective.provider, slot.effective.model);
+	const supportsEffort = effective?.supports_reasoning_effort ?? false;
+
+	// A stored choice the server no longer lists still needs an item to show.
+	const knownKeys = new Set<string>([
+		DEFAULT_VALUE,
+		...providers.map((p) => choiceKey(p.id, null)),
+		...models.map((m) => choiceKey(m.provider, m.id)),
+	]);
+
+	const save = async (update: ModelSlotUpdate) => {
+		setSaving(true);
+		try {
+			await onSave(slot.slot, update);
+		} finally {
+			setSaving(false);
+		}
+	};
+
+	const onModelChange = (key: string) => {
+		const { provider, model } = parseChoiceKey(key);
+		// Keep the effort only if the newly picked model can take it; the
+		// server rejects an effort on a model without one.
+		let target: SelectableModel | undefined;
+		if (provider && model) {
+			target = findModel(provider, model);
+		} else if (provider) {
+			const p = providers.find((x) => x.id === provider);
+			const roleModel = slot.role === "fast" ? p?.fast_model : p?.default_model;
+			target = roleModel ? findModel(provider, roleModel) : undefined;
+		} else {
+			target = findModel(slot.default.provider, slot.default.model);
+		}
+		const keepEffort = effort && target?.supports_reasoning_effort ? effort : null;
+		void save({ provider, model, reasoning_effort: keepEffort });
+	};
+
+	const onEffortChange = (value: string) => {
+		const { provider, model } = parseChoiceKey(selected);
+		void save({
+			provider,
+			model,
+			reasoning_effort: value === DEFAULT_VALUE ? null : (value as ReasoningEffort),
+		});
+	};
+
+	return (
+		<div className="space-y-3 rounded-lg border p-4">
+			<div className="space-y-1">
+				<div className="flex items-center gap-2">
+					<h3 className="font-medium">{slot.description || slot.slot}</h3>
+					{saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+				</div>
+				<p className="font-mono text-xs text-muted-foreground">{slot.slot}</p>
+			</div>
+
+			<div className="flex flex-wrap gap-2">
+				<Select value={selected} onValueChange={onModelChange} disabled={saving}>
+					<SelectTrigger className="w-80">
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value={DEFAULT_VALUE}>
+							Default: {describe(slot.default)}
+						</SelectItem>
+						{!knownKeys.has(selected) && (
+							<SelectItem value={selected}>
+								{slot.override?.model ?? slot.override?.provider} (unavailable)
+							</SelectItem>
+						)}
+						{modelsByProvider.map(([provider, items]) => {
+							const p = providers.find((x) => x.id === provider);
+							const roleModel =
+								slot.role === "fast" ? p?.fast_model : p?.default_model;
+							return (
+								<SelectGroup key={provider}>
+									<SelectSeparator />
+									<SelectLabel>{providerLabel(provider)}</SelectLabel>
+									{p && (
+										<SelectItem value={choiceKey(provider, null)}>
+											Its {slot.role} model ({roleModel})
+										</SelectItem>
+									)}
+									{items.map((m) => (
+										<SelectItem
+											key={choiceKey(m.provider, m.id)}
+											value={choiceKey(m.provider, m.id)}
+										>
+											{m.name}
+										</SelectItem>
+									))}
+								</SelectGroup>
+							);
+						})}
+					</SelectContent>
+				</Select>
+
+				{supportsEffort && (
+					<Select
+						value={effort ?? DEFAULT_VALUE}
+						onValueChange={onEffortChange}
+						disabled={saving}
+					>
+						<SelectTrigger className="w-44">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value={DEFAULT_VALUE}>
+								Effort: {slot.default.reasoning_effort ?? "model default"}
+							</SelectItem>
+							{REASONING_EFFORT_OPTIONS.map((o) => (
+								<SelectItem key={o.id} value={o.id}>
+									Effort: {o.label}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				)}
+			</div>
+
+			<p className="text-xs text-muted-foreground">
+				Using {describe(slot.effective)}
+				{slot.effective.reasoning_effort
+					? `, effort ${slot.effective.reasoning_effort}`
+					: ""}
+			</p>
+			{slot.override_error && (
+				<p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-500">
+					<AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+					Saved choice is unavailable ({slot.override_error}); using the default.
+				</p>
+			)}
+		</div>
+	);
+}
+
+function groupByProvider(settings: ModelSettings): [string, SelectableModel[]][] {
+	const groups = new Map<string, SelectableModel[]>();
+	for (const m of settings.models) {
+		const list = groups.get(m.provider) ?? [];
+		list.push(m);
+		groups.set(m.provider, list);
+	}
+	return Array.from(groups.entries());
+}
+
+export default function ModelSettingsPage() {
+	const { user, loading } = useAuth();
+	const router = useRouter();
+	const { settings, error, isLoading, updateSlot } = useModelSettings();
+
+	useEffect(() => {
+		if (!loading && !user) {
+			router.push("/login?returnTo=/settings/models");
+		}
+	}, [user, loading, router]);
+
+	const modelsByProvider = useMemo(
+		() => (settings ? groupByProvider(settings) : []),
+		[settings]
+	);
+
+	const onSave = async (slot: string, update: ModelSlotUpdate) => {
+		try {
+			await updateSlot(slot, update);
+			toast.success("Model setting saved.");
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : "Failed to save model setting.");
+		}
+	};
+
+	if (loading || !user || isLoading) {
+		return (
+			<div className="flex items-center justify-center p-12">
+				<Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+			</div>
+		);
+	}
+
+	return (
+		<div className="max-w-3xl p-6 space-y-6">
+			<div className="space-y-1">
+				<h2 className="text-lg font-medium">Models</h2>
+				<p className="text-sm text-muted-foreground">
+					Which model each feature uses. &quot;Default&quot; follows the server
+					configuration.
+				</p>
+			</div>
+			{error || !settings ? (
+				<p className="text-sm text-destructive">
+					{error instanceof Error ? error.message : "Failed to load model settings."}
+				</p>
+			) : (
+				<div className="space-y-4">
+					{settings.slots.map((slot) => (
+						<SlotRow
+							key={slot.slot}
+							slot={slot}
+							providers={settings.providers}
+							modelsByProvider={modelsByProvider}
+							models={settings.models}
+							onSave={onSave}
+						/>
+					))}
+				</div>
+			)}
+		</div>
+	);
+}

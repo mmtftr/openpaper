@@ -623,3 +623,21 @@ class DiscoverSearch(Base):
     results = Column(JSONB, nullable=True)
 
     user = relationship("User")
+
+
+class ModelSlot(Base):
+    """A per-call-site model override (Settings -> Models).
+
+    Global, not per-user: this is a single-user deployment. A missing row, or
+    a NULL column, means the slot's built-in default (`app.llm.model_slots`).
+    """
+
+    __tablename__ = "model_slots"
+
+    slot = Column(Text, primary_key=True)
+    provider = Column(Text, nullable=True)
+    model = Column(Text, nullable=True)
+    reasoning_effort = Column(Text, nullable=True)
+
+    def __repr__(self):
+        return f"<ModelSlot slot={self.slot}>"

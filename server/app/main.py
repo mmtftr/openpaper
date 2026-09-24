@@ -21,6 +21,7 @@ from app.api.projects.project_papers_api import project_papers_router
 from app.api.projects.projects_api import projects_router
 from app.api.repo_api import repo_router
 from app.api.search_api import search_router
+from app.api.settings_api import settings_router
 from app.api.webhook_api import webhook_router
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -121,6 +122,7 @@ app.include_router(paper_tag_router, prefix="/api/paper/tag")
 app.include_router(webhook_router, prefix="/api/webhooks")  # Webhook routes
 app.include_router(discover_router, prefix="/api/discover")
 app.include_router(document_router, prefix="/api/document")
+app.include_router(settings_router, prefix="/api/settings")
 
 
 if __name__ == "__main__":
