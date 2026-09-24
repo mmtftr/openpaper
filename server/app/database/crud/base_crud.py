@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar, Union
 
 from app.database.crud.sanitization import sanitize_for_postgres
-from app.database.database import Base
+from app.database.models import Base
 from app.schemas.user import CurrentUser
 from pydantic import BaseModel
 from sqlalchemy.orm import Session

@@ -217,10 +217,10 @@ export default function PaperCard({ paper, handleDelete, setPaper, minimalist = 
 								</div>
 							) : !minimalist && (
 								<div className="md:w-1/5 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 p-4 flex flex-col justify-between border-r border-gray-200 dark:border-gray-700 rounded-t-2xl rounded-b-none">
-									{/* Abstract/Summary text overlay */}
+									{/* Abstract text overlay */}
 									<div className="mt-2">
 										<p className="text-xs text-gray-600 dark:text-gray-300 line-clamp-9">
-											{paper.abstract || paper.summary || "This paper explores innovative approaches and methodologies in research..."}
+											{paper.abstract || "This paper explores innovative approaches and methodologies in research..."}
 										</p>
 									</div>
 								</div>

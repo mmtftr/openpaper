@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import random
 import secrets
 import uuid
 from datetime import datetime
@@ -18,7 +17,6 @@ from app.auth.utils import (
 from app.database.crud.annotation_crud import annotation_crud
 from app.database.crud.highlight_crud import highlight_crud
 from app.database.crud.message_crud import message_crud
-from app.database.crud.paper_crud import paper_crud
 from app.database.crud.projects.project_role_invitation_crud import (
     project_role_invitation_crud,
 )
@@ -118,26 +116,6 @@ async def update_profile(
         success=True,
         message="Profile updated successfully",
         user=updated_current_user,
-    )
-
-
-@auth_router.get("/topics")
-async def get_topics(
-    current_user: CurrentUser = Depends(get_required_user),
-    db: Session = Depends(get_db),
-):
-    """
-    Get the list of topics for the current user.
-    This can be used to fetch user-specific topics or general topics.
-    """
-    topics = paper_crud.get_topics(db, user=current_user)
-    # randomly shuffle the topics
-    random.shuffle(topics)
-
-    return Response(
-        content=json.dumps(topics),
-        status_code=200,
-        media_type="application/json",
     )
 
 

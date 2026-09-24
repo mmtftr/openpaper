@@ -63,31 +63,6 @@ class InstitutionsKeywords(BaseModel):
     keywords: List[str] = Field(default=[], description="List of keywords")
 
 
-class SummaryAndCitations(BaseModel):
-    """Schema for summary extraction. (Citations were removed with the chat
-    refactor; the class name is kept to avoid churn at call sites.)"""
-    summary: str = Field(
-        description="""
-            Generate a concise summary of the research paper (< 200 words) that captures the essential contribution for readers with basic domain knowledge. Break each of the sections up for clarity. Separate sections with blank lines to ensure proper paragraph breaks in markdown. Do not use literal `\n` characters for line breaks. Do not use separate headings for each section.
-
-            ## Structure:
-            Write 1-2 sentences on each section covering:
-            1. **Background**: What gap or question does this address?
-            2. **Methodology**: What methods, datasets, or techniques were used?
-            3. **Findings**: What were the main results? What are the implications? Include specific metrics when available.
-
-            ## Quality Standards:
-            - Do NOT include inline citation markers like [^1] — write plain prose.
-            - Write in clear, accessible language while maintaining technical accuracy
-            - Focus on the paper's primary contribution—omit secondary findings
-            - Present findings objectively, including limitations when relevant
-            - If constrained for length, prioritize key results and implications
-
-            The goal is a focused, readable paragraph that gives someone a quick understanding of what the paper accomplishes.
-                    """,
-    )
-
-
 class Highlights(BaseModel):
     """Schema for highlights extraction."""
     highlights: List[AIHighlight] = Field(
@@ -141,26 +116,6 @@ class PaperMetadataExtraction(BaseModel):
         default=[], description="List of institutions involved in the publication."
     )
     keywords: List[str] = Field(default=[], description="List of keywords")
-    summary: str = Field(
-        default="",
-        description="""
-A concise, well-structured summary of the paper in markdown format. Include:
-1. Key findings and contributions
-2. Research methodology
-3. Results and implications
-4. Potential applications or impact
-
-Format guidelines:
-- Optional opening title (under 10 words)
-- First paragraph: 2-4 sentence overview of the paper
-- Use clear headings, bullet points, and tables for organization
-- Include relevant data points and metrics when available
-- Use plain language while preserving technical accuracy
-- Do NOT include inline citation markers like [^1] — write plain prose.
-
-The summary should be accessible to readers with basic domain knowledge while maintaining scientific integrity.
-                         """,
-    )
     publish_date: Optional[str] = Field(
         default=None, description="Publishing date of the paper in YYYY-MM-DD format"
     )

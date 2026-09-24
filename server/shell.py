@@ -14,7 +14,7 @@ try:
     from app.database.database import SessionLocal
 
     # You can also import specific models if you prefer direct access:
-    # from app.database.models import User, Paper, Session as UserSession, Message, Conversation, PaperNote, Highlight, Annotation
+    # from app.database.models import User, Paper, Session as UserSession, Message, Conversation, Highlight, Annotation
     # If you frequently use CRUD objects, you can import them too:
     # from app.database.crud import paper_crud, user_crud # etc.
 
@@ -53,7 +53,6 @@ def start_shell():
             # "UserSession": models.Session, # Renamed to avoid conflict with SQLAlchemy Session
             # "Message": models.Message,
             # "Conversation": models.Conversation,
-            # "PaperNote": models.PaperNote,
             # "Highlight": models.Highlight,
             # "Annotation": models.Annotation,
             # Add CRUD objects if imported:

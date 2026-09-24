@@ -15,7 +15,6 @@ from app.api.onboarding_api import onboarding_router
 from app.api.paper_api import paper_router
 from app.api.paper_audio_api import paper_audio_router
 from app.api.paper_figure_api import paper_figure_router
-from app.api.paper_image_api import paper_image_router
 from app.api.paper_search_api import paper_search_router
 from app.api.paper_tag_api import paper_tag_router
 from app.api.paper_upload_api import paper_upload_router
@@ -101,7 +100,6 @@ app.include_router(projects_invitation_router, prefix="/api/projects/invitations
 app.include_router(paper_search_router, prefix="/api/search/global")
 app.include_router(search_router, prefix="/api/search/local")
 app.include_router(paper_audio_router, prefix="/api/paper/audio")
-app.include_router(paper_image_router, prefix="/api/paper/image")
 app.include_router(paper_figure_router, prefix="/api/paper")
 app.include_router(repo_router, prefix="/api/paper")
 app.include_router(projects_data_table_router, prefix="/api/projects/tables")
