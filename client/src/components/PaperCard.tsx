@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { getStatusIcon, PaperStatusEnum } from "@/components/utils/PdfStatus";
 import Link from "next/link";
-import { formatFileSize } from "@/hooks/useSubscription";
+import { formatFileSize } from "@/lib/utils";
 import { handleStatusChange } from "./utils/paperUtils";
 import { fetchFromApi } from "@/lib/api";
 import { ProjectPaperPreview } from "./ProjectPaperPreview";

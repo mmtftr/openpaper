@@ -11,7 +11,6 @@ from app.api.discover_api import discover_router
 from app.api.document_api import document_router
 from app.api.highlight_api import highlight_router
 from app.api.message_api import message_router
-from app.api.onboarding_api import onboarding_router
 from app.api.paper_api import paper_router
 from app.api.paper_audio_api import paper_audio_router
 from app.api.paper_figure_api import paper_figure_router
@@ -27,7 +26,6 @@ from app.api.projects.projects_invitation_api import (
 )
 from app.api.repo_api import repo_router
 from app.api.search_api import search_router
-from app.api.subscription import subscription_router
 from app.api.webhook_api import webhook_router
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -107,11 +105,7 @@ app.include_router(repo_router, prefix="/api/paper")
 app.include_router(projects_data_table_router, prefix="/api/projects/tables")
 app.include_router(paper_upload_router, prefix="/api/paper/upload")
 app.include_router(paper_tag_router, prefix="/api/paper/tag")
-app.include_router(
-    subscription_router, prefix="/api/subscription"
-)  # Subscription routes
 app.include_router(webhook_router, prefix="/api/webhooks")  # Webhook routes
-app.include_router(onboarding_router, prefix="/api/onboarding")
 app.include_router(discover_router, prefix="/api/discover")
 app.include_router(document_router, prefix="/api/document")
 

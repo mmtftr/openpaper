@@ -28,11 +28,6 @@ Use Docker Compose for local development instead of tmux or separately managed s
 
 The compose stack includes Postgres, RabbitMQ, Redis, and MinIO. It runs database migrations before the server starts and uses MinIO as local S3-compatible object storage.
 
-Optional Flower monitoring:
-```bash
-docker compose --profile observability up flower
-```
-
 The compose HTTP ports stay in the `900x` range: MinIO on `9000`, MinIO console on `9001`, client on `9002`, server API on `9003`, and jobs API on `9004`.
 
 ## Reaching the stack from another machine
@@ -49,7 +44,7 @@ If you front the stack with nginx on a single hostname (so the browser hits `/ap
 
 ## Local admin account
 
-Set `ADMIN_EMAILS` (in `server/.env` or as a compose-level env var) to a comma-separated list of emails. On signup, those users automatically receive `is_admin=true` plus an unlimited subscription, so the frontend never enforces or warns about subscription limits for them. Compose defaults to `admin@local.openpaper` — override with `ADMIN_EMAILS=you@example.com docker compose up`.
+Set `ADMIN_EMAILS` (in `server/.env` or as a compose-level env var) to a comma-separated list of emails. On signup, those users automatically receive `is_admin=true`. Compose defaults to `admin@local.openpaper` — override with `ADMIN_EMAILS=you@example.com docker compose up`.
 
 Sign in normally via the email-link flow; the verification code is logged by the server (no real email sending needed for local dev).
 

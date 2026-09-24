@@ -7,11 +7,10 @@ import { Separator } from "@/components/ui/separator";
 import { AuthProvider } from "@/lib/auth";
 
 import { Toaster } from "@/components/ui/sonner";
-import { AnalyticsProvider, ThemeProvider } from "@/lib/providers";
+import { ThemeProvider } from "@/lib/providers";
 import { SidebarController } from "@/components/utils/SidebarAutoCollapse";
 import Image from "next/image";
 import Link from "next/link";
-import Script from "next/script";
 
 const geistSans = Geist({
 	variable: "--font-geist-sans",
@@ -73,48 +72,33 @@ export default function RootLayout({
     `,
 					}}
 				/>
-				<script defer data-domain="openpaper.ai" src="https://plausible.io/js/script.js"></script>
-				<Script
-					async
-					src="https://www.googletagmanager.com/gtag/js?id=AW-17815378235"
-				/>
-				<Script id="google-analytics">
-					{`
-						window.dataLayer = window.dataLayer || [];
-						function gtag(){dataLayer.push(arguments);}
-						gtag('js', new Date());
-						gtag('config', 'AW-17815378235');
-					`}
-				</Script>
 			</head>
 			<body
 				className={`${geistSans.variable} ${geistMono.variable} antialiased`}
 			>
 				<ThemeProvider>
 					<AuthProvider>
-						<AnalyticsProvider>
-							<SidebarProvider>
-								<AppSidebar />
-								<SidebarInset>
-									<header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-										<SidebarTrigger className="-ml-1" />
-										<Separator orientation="vertical" className="mr-2 h-4" />
-										<Link href="/" className="flex flex-1 items-center gap-2 hover:opacity-80 transition-opacity">
-											<Image
-												src="/openpaper.svg"
-												width={24}
-												height={24}
-												alt="Open Paper Logo"
-											/>
-											<span className="text-sm font-semibold">Open Paper</span>
-										</Link>
-									</header>
-									<SidebarController>
-										{children}
-									</SidebarController>
-								</SidebarInset>
-							</SidebarProvider>
-						</AnalyticsProvider>
+						<SidebarProvider>
+							<AppSidebar />
+							<SidebarInset>
+								<header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+									<SidebarTrigger className="-ml-1" />
+									<Separator orientation="vertical" className="mr-2 h-4" />
+									<Link href="/" className="flex flex-1 items-center gap-2 hover:opacity-80 transition-opacity">
+										<Image
+											src="/openpaper.svg"
+											width={24}
+											height={24}
+											alt="Open Paper Logo"
+										/>
+										<span className="text-sm font-semibold">Open Paper</span>
+									</Link>
+								</header>
+								<SidebarController>
+									{children}
+								</SidebarController>
+							</SidebarInset>
+						</SidebarProvider>
 					</AuthProvider>
 				</ThemeProvider>
 				<Toaster

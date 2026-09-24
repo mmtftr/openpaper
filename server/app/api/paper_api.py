@@ -20,7 +20,6 @@ from app.database.telemetry import track_event
 from app.helpers.paper_search import get_doi, get_enriched_data
 from app.helpers.parser import parse_publication_date
 from app.helpers.s3 import s3_service
-from app.helpers.subscription_limits import can_user_upload_paper
 from app.llm.paper_outline import OutlineEntry, cached_outline
 from app.schemas.responses import ResponseCitation
 from app.schemas.user import CurrentUser
@@ -898,14 +897,6 @@ async def fork_shared_paper(
     The paper must be publicly shared (via share_id).
     """
     try:
-        # Check subscription limits before forking
-        can_upload, error_message = can_user_upload_paper(db, current_user)
-        if not can_upload:
-            return JSONResponse(
-                status_code=403,
-                content={"message": error_message},
-            )
-
         # Find the shared paper by share_id
         shared_paper = paper_crud.get_public_paper(db, share_id=request.share_id)
 

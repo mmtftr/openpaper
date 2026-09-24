@@ -187,12 +187,7 @@ uv run start
 
 If you are using Azure OpenAI or another OpenAI-compatible endpoint, copy `jobs/.env.example` to `jobs/.env`, set `OPENAI_API_KEY`, and (for Azure) set `AZURE_OPENAI=true` plus `AZURE_OPENAI_ENDPOINT`.
 
-Optionally, start Flower to monitor Celery jobs:
-```bash
-docker compose --profile observability up flower
-```
 Access the jobs API at `http://localhost:9004` when it is started through Docker Compose.
-Access the Flower dashboard at `http://localhost:5555`.
 
 ## Future Development
 

@@ -13,7 +13,6 @@ export interface BasicUser {
 export interface User extends BasicUser {
 	id: string;
 	email: string;
-	is_active: boolean;
 	is_blocked: boolean;
 }
 

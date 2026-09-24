@@ -8,7 +8,6 @@ from app.database.crud.discover_crud import discover_search_crud
 from app.database.database import get_db
 from app.database.telemetry import track_event
 from app.helpers.discover import run_discover_pipeline
-from app.helpers.subscription_limits import can_user_run_discover_search
 from app.schemas.discover import DISCOVER_SOURCES, DiscoverSearchRequest
 from app.schemas.user import CurrentUser
 from fastapi import APIRouter, Depends, HTTPException
@@ -29,17 +28,6 @@ async def discover_search(
     current_user: CurrentUser = Depends(get_required_user),
 ) -> StreamingResponse:
     """Search for research papers by decomposing a question into subqueries."""
-
-    # Check quota
-    can_search, error_msg = can_user_run_discover_search(db, current_user)
-    if not can_search:
-        track_event(
-            "discover_search_quota_exceeded",
-            properties={"error": error_msg},
-            user_id=str(current_user.id),
-            db=db,
-        )
-        raise HTTPException(status_code=429, detail=error_msg)
 
     async def response_generator():
         collected_subqueries: list[str] = []

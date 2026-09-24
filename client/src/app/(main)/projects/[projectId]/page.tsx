@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, ArrowLeft, ArrowRight, BookOpen, Info, Library, Loader2, Pencil, PlusCircle, Search, Sparkles, UploadCloud } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, Info, Library, Loader2, Pencil, PlusCircle, Search, Sparkles, UploadCloud } from "lucide-react";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { fetchFromApi } from "@/lib/api";
@@ -41,9 +41,7 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import Link from "next/link";
 import { Label } from "@/components/ui/label";
 import {
 	Select,
@@ -60,7 +58,6 @@ import {
 	BreadcrumbPage,
 	BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { useSubscription, isPaperUploadAtLimit } from "@/hooks/useSubscription";
 import { useProject, useProjectPapers } from "@/hooks/useProjects";
 import { toast } from "sonner";
 import Artifacts from "@/components/Artifacts";
@@ -95,7 +92,6 @@ export default function ProjectPage() {
 	const [showAllOtherPapers, setShowAllOtherPapers] = useState(false);
 	const [paperSearchQuery, setPaperSearchQuery] = useState("");
 	const [paperSortBy, setPaperSortBy] = useState<"date_added" | "publish_date" | "title">("date_added");
-	const { subscription } = useSubscription();
 
 	// Paper limit checks
 	const currentPaperCount = papers?.length || 0;
@@ -129,10 +125,6 @@ export default function ProjectPage() {
 	const handleFileSelect = async (files: File[]) => {
 		if (isAtPaperHardLimit) {
 			toast.error(`This project has reached the maximum of ${PROJECT_PAPER_HARD_LIMIT} papers. Remove some papers before adding more.`);
-			return;
-		}
-		if (isPaperUploadAtLimit(subscription)) {
-			setUploadError("You have reached your paper upload limit. Please upgrade your plan to upload more papers.");
 			return;
 		}
 		if (files.length > remainingPaperSlots) {
@@ -170,11 +162,6 @@ export default function ProjectPage() {
 	const handlePdfUrl = async (url: string) => {
 		if (isAtPaperHardLimit) {
 			toast.error(`This project has reached the maximum of ${PROJECT_PAPER_HARD_LIMIT} papers. Remove some papers before adding more.`);
-			setIsUrlDialogOpen(false);
-			return;
-		}
-		if (isPaperUploadAtLimit(subscription)) {
-			setUploadError("You have reached your paper upload limit. Please upgrade your plan to upload more papers.");
 			setIsUrlDialogOpen(false);
 			return;
 		}
@@ -342,20 +329,7 @@ export default function ProjectPage() {
 							<DialogTitle>Upload New Papers</DialogTitle>
 							<DialogDescription>You can upload any additional papers to your library here. They will automatically be added to the project.</DialogDescription>
 						</DialogHeader>
-						<PdfDropzone onFileSelect={handleFileSelect} onUrlClick={handleLinkClick} disabled={isPaperUploadAtLimit(subscription) || isAtPaperHardLimit} />
-						{isPaperUploadAtLimit(subscription) && (
-							<Alert variant="destructive" className="mt-4">
-								<AlertCircle className="h-4 w-4" />
-								<AlertTitle>Upload Limit Reached</AlertTitle>
-								<AlertDescription>
-									You have reached your paper upload limit. Please{" "}
-									<Link href="/pricing" className="font-bold underline">
-										upgrade your plan
-									</Link>{" "}
-									to upload more papers.
-								</AlertDescription>
-							</Alert>
-						)}
+						<PdfDropzone onFileSelect={handleFileSelect} onUrlClick={handleLinkClick} disabled={isAtPaperHardLimit} />
 						{uploadError && <p className="text-red-500 mt-4">{uploadError}</p>}
 					</DialogContent>
 				</Dialog>
@@ -602,20 +576,7 @@ export default function ProjectPage() {
 													</Button>
 													<h3 className="text-lg font-semibold mb-2">Upload New Papers</h3>
 													<p className="text-sm text-gray-500 mb-4">Upload papers to your library. They will be automatically added to this project.</p>
-													<PdfDropzone onFileSelect={handleFileSelect} onUrlClick={handleLinkClick} disabled={isPaperUploadAtLimit(subscription) || isAtPaperHardLimit} />
-													{isPaperUploadAtLimit(subscription) && (
-														<Alert variant="destructive" className="mt-4">
-															<AlertCircle className="h-4 w-4" />
-															<AlertTitle>Upload Limit Reached</AlertTitle>
-															<AlertDescription>
-																You have reached your paper upload limit. Please{" "}
-																<Link href="/pricing" className="font-bold underline">
-																	upgrade your plan
-																</Link>{" "}
-																to upload more papers.
-															</AlertDescription>
-														</Alert>
-													)}
+													<PdfDropzone onFileSelect={handleFileSelect} onUrlClick={handleLinkClick} disabled={isAtPaperHardLimit} />
 													{uploadError && <p className="text-red-500 mt-4">{uploadError}</p>}
 												</div>
 											)}
@@ -743,20 +704,7 @@ export default function ProjectPage() {
 										<DialogTitle>Upload New Papers</DialogTitle>
 										<DialogDescription>You can upload any additional papers to your library here. They will automatically be added to the project.</DialogDescription>
 									</DialogHeader>
-									<PdfDropzone onFileSelect={handleFileSelect} onUrlClick={handleLinkClick} disabled={isPaperUploadAtLimit(subscription) || isAtPaperHardLimit} />
-									{isPaperUploadAtLimit(subscription) && (
-										<Alert variant="destructive" className="mt-4">
-											<AlertCircle className="h-4 w-4" />
-											<AlertTitle>Upload Limit Reached</AlertTitle>
-											<AlertDescription>
-												You have reached your paper upload limit. Please{" "}
-												<Link href="/pricing" className="font-bold underline">
-													upgrade your plan
-												</Link>{" "}
-												to upload more papers.
-											</AlertDescription>
-										</Alert>
-									)}
+									<PdfDropzone onFileSelect={handleFileSelect} onUrlClick={handleLinkClick} disabled={isAtPaperHardLimit} />
 									{uploadError && <p className="text-red-500 mt-4">{uploadError}</p>}
 								</DialogContent>
 							</Dialog>

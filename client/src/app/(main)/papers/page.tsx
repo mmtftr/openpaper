@@ -5,22 +5,8 @@ import { useEffect, useState } from "react";
 import { PaperItem } from "@/lib/schema";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Progress } from "@/components/ui/progress";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { useAuth } from "@/lib/auth";
-import { useSubscription, getStorageUsagePercentage, isStorageNearLimit, isStorageAtLimit, formatFileSize, getPaperUploadPercentage, isPaperUploadNearLimit, isPaperUploadAtLimit, isProjectAtLimit } from "@/hooks/useSubscription";
-import { Upload, Info, Highlighter, Quote, FolderKanban } from "lucide-react";
-import Link from "next/link";
+import { Upload, Highlighter, Quote, FolderKanban } from "lucide-react";
 import { toast } from "sonner";
 import { LibraryTable } from "@/components/LibraryTable";
 import { CreateProjectDialog } from "@/components/CreateProjectDialog";
@@ -91,29 +77,13 @@ const PageSkeleton = () => (
 function PapersPageContent() {
     const { papers, isLoading, mutate } = usePapers();
     const [filteredPapers, setFilteredPapers] = useState<PaperItem[]>([]);
-    const { subscription, loading: subscriptionLoading } = useSubscription();
     const router = useRouter();
     const [isCreateProjectDialogOpen, setCreateProjectDialogOpen] = useState(false);
-    const [isProjectLimitDialogOpen, setProjectLimitDialogOpen] = useState(false);
     const [papersForNewProject, setPapersForNewProject] = useState<PaperItem[]>([]);
     const [isUploadModalOpen, setUploadModalOpen] = useState(false);
-    const [isUploadLimitDialogOpen, setUploadLimitDialogOpen] = useState(false);
-    const [uploadLimitMessage, setUploadLimitMessage] = useState("");
-
-    // Check if upload is blocked due to subscription limits
-    const isUploadBlocked = !subscriptionLoading && (isPaperUploadAtLimit(subscription) || isStorageAtLimit(subscription));
 
     const handleUploadClick = () => {
-        if (isUploadBlocked) {
-            if (isPaperUploadAtLimit(subscription)) {
-                setUploadLimitMessage("You've reached your paper upload limit. Please upgrade your plan to upload more papers.");
-            } else if (isStorageAtLimit(subscription)) {
-                setUploadLimitMessage("You've reached your storage limit. Please upgrade your plan or delete some papers to continue.");
-            }
-            setUploadLimitDialogOpen(true);
-        } else {
-            setUploadModalOpen(true);
-        }
+        setUploadModalOpen(true);
     };
 
     useEffect(() => {
@@ -144,11 +114,6 @@ function PapersPageContent() {
 
     const handleTableAction = (papers: PaperItem[], action: string) => {
         if (action !== "Make Project") return;
-
-        if (isProjectAtLimit(subscription)) {
-            setProjectLimitDialogOpen(true);
-            return;
-        }
 
         if (papers.length === 0) {
             toast.info("Please select at least one paper to create a project.");
@@ -186,82 +151,6 @@ function PapersPageContent() {
         }
     };
 
-    const UsageDisplay = () => {
-        const [showAlert, setShowAlert] = useState(true);
-
-        if (subscriptionLoading) {
-            return <Skeleton className="h-20 w-full mb-6" />;
-        }
-
-        if (!subscription) {
-            return null;
-        }
-
-        const storageUsagePercentage = getStorageUsagePercentage(subscription);
-        const paperUploadUsagePercentage = getPaperUploadPercentage(subscription);
-
-        const atStorageLimit = isStorageAtLimit(subscription);
-        const nearStorageLimit = isStorageNearLimit(subscription);
-        const atPaperUploadLimit = isPaperUploadAtLimit(subscription);
-        const nearPaperUploadLimit = isPaperUploadNearLimit(subscription);
-
-        const shouldShowAlert = atStorageLimit || nearStorageLimit || atPaperUploadLimit || nearPaperUploadLimit;
-
-        if (!shouldShowAlert || !showAlert) {
-            return null;
-        }
-
-        const atLimit = atStorageLimit || atPaperUploadLimit;
-        const title = "Usage summary";
-        const description = atLimit
-            ? "You've used your available quota. Upgrade for more space, or free up room by removing papers."
-            : "You're getting close to your plan limits.";
-
-        return (
-            <Alert variant={'default'} className="mb-4 border-muted">
-                <div className="flex justify-between items-start">
-                    <div className="flex items-start">
-                        <Info className="h-4 w-4 mt-1 text-muted-foreground" />
-                        <div className="ml-2">
-                            <AlertTitle className="text-foreground">{title}</AlertTitle>
-                            <AlertDescription className="text-muted-foreground">
-                                {description}
-                            </AlertDescription>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-x-2">
-                        <Button asChild size="sm" variant="outline">
-                            <Link href="/pricing">View plans</Link>
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => setShowAlert(false)} className="self-start">
-                            Dismiss
-                        </Button>
-                    </div>
-                </div>
-                <div className="mt-4 space-y-4">
-                    {(nearStorageLimit || atStorageLimit) && (
-                        <div>
-                            <div className="flex justify-between text-sm text-muted-foreground">
-                                <span>Storage: {formatFileSize(subscription.usage.knowledge_base_size)} used</span>
-                                <span>{formatFileSize(subscription.limits.knowledge_base_size)} total</span>
-                            </div>
-                            <Progress value={storageUsagePercentage} className="h-2 mt-1" />
-                        </div>
-                    )}
-                    {(nearPaperUploadLimit || atPaperUploadLimit) && (
-                        <div>
-                            <div className="flex justify-between text-sm text-muted-foreground">
-                                <span>Papers: {subscription.usage.paper_uploads} used</span>
-                                <span>{subscription.limits.paper_uploads} total</span>
-                            </div>
-                            <Progress value={paperUploadUsagePercentage} className="h-2 mt-1" />
-                        </div>
-                    )}
-                </div>
-            </Alert>
-        );
-    };
-
     const EmptyState = () => {
         const [isDragging, setIsDragging] = useState(false);
 
@@ -297,7 +186,6 @@ function PapersPageContent() {
             );
 
             if (files.length > 0) {
-                // Check if upload is blocked before opening modal
                 handleUploadClick();
             }
 
@@ -357,51 +245,18 @@ function PapersPageContent() {
         return null;
     }
 
-    if (isLoading || subscriptionLoading) {
+    if (isLoading) {
         return <PageSkeleton />;
     }
 
     return (
         <div className="w-full mx-auto p-4 flex flex-col flex-1 min-w-0" style={{ height: 'calc(100vh - 5rem)' }}>
-            <AlertDialog open={isProjectLimitDialogOpen} onOpenChange={setProjectLimitDialogOpen}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>You&apos;re on a roll!</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            You&apos;ve created a lot of great projects. To create more, please upgrade your plan.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <Link href="/pricing">
-                            <AlertDialogAction>Upgrade</AlertDialogAction>
-                        </Link>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
             <CreateProjectDialog
                 open={isCreateProjectDialogOpen}
                 onOpenChange={setCreateProjectDialogOpen}
                 onSubmit={handleCreateProjectSubmit}
             />
             <UploadModal open={isUploadModalOpen} onOpenChange={setUploadModalOpen} onUploadComplete={() => { mutate(); }} />
-            <AlertDialog open={isUploadLimitDialogOpen} onOpenChange={setUploadLimitDialogOpen}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Upload Limit Reached</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            {uploadLimitMessage}
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <Link href="/pricing">
-                            <AlertDialogAction>Upgrade</AlertDialogAction>
-                        </Link>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
-            <UsageDisplay />
             <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4 flex-shrink-0">
                 <h1 className="text-3xl font-bold tracking-tight">Library</h1>
                 <div className="flex items-center gap-x-4 mt-2 md:mt-0">

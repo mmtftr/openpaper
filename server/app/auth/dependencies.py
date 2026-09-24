@@ -2,7 +2,6 @@ import logging
 import uuid
 from typing import Annotated, Optional
 
-from app.database.crud.subscription_crud import subscription_crud
 from app.database.crud.user_crud import user as user_crud
 from app.database.database import get_db
 from app.schemas.user import CurrentUser
@@ -58,8 +57,6 @@ def get_current_user(
 
     id_as_uuid = uuid.UUID(str(db_user.id))
 
-    is_user_active = subscription_crud.is_user_active(db, db_user)
-
     # Return CurrentUser model
     return CurrentUser(
         id=id_as_uuid,
@@ -68,7 +65,6 @@ def get_current_user(
         is_admin=bool(db_user.is_admin),
         picture=db_user.picture,  # type: ignore
         is_email_verified=bool(db_user.is_email_verified),
-        is_active=is_user_active,
         is_blocked=bool(db_user.is_blocked),
     )
 

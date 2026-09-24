@@ -22,16 +22,12 @@ from app.database.crud.paper_crud import paper_crud
 from app.database.crud.projects.project_role_invitation_crud import (
     project_role_invitation_crud,
 )
-from app.database.crud.subscription_crud import subscription_crud
 from app.database.crud.user_crud import user as user_crud
 from app.database.database import get_db
 from app.database.models import PaperStatus, Project, User
 from app.database.telemetry import track_event
-from app.helpers.abuse_detection import check_signup_abuse, send_abuse_alert
 from app.helpers.email import (
     CLIENT_DOMAIN,
-    add_to_default_audience,
-    send_onboarding_email,
     send_project_invite_email,
 )
 from app.schemas.user import CurrentUser, UserCreateWithProvider, UserUpdate
@@ -102,7 +98,6 @@ async def update_profile(
     user_crud.update(db=db, db_obj=db_user, obj_in=UserUpdate(name=name))
     db.refresh(db_user)
 
-    is_user_active = subscription_crud.is_user_active(db, db_user)
     updated_current_user = CurrentUser(
         id=uuid.UUID(str(db_user.id)),
         email=str(db_user.email),
@@ -110,7 +105,6 @@ async def update_profile(
         is_admin=bool(db_user.is_admin),
         picture=str(db_user.picture) if db_user.picture else None,
         is_email_verified=bool(db_user.is_email_verified),
-        is_active=is_user_active,
         is_blocked=bool(db_user.is_blocked),
     )
 
@@ -226,26 +220,12 @@ async def google_callback(
 
         # Track user signup event
         if newly_created:
-            add_to_default_audience(
-                email=str(db_user.email), name=str(db_user.name) or None
-            )
-            send_onboarding_email(
-                email=str(db_user.email), name=str(db_user.name) or None
-            )
             track_event(
                 "user_signup",
                 properties={"auth_provider": "google"},
                 user_id=str(db_user.id),
                 db=db,
             )
-
-            # Check for suspected signup abuse
-            try:
-                abuse_matches = check_signup_abuse(db, db_user)
-                if abuse_matches:
-                    send_abuse_alert(db_user, abuse_matches)
-            except Exception as e:
-                logger.error(f"Error during abuse check: {e}", exc_info=True)
 
         # Create a new session
         user_agent = request.headers.get("user-agent")
@@ -266,9 +246,6 @@ async def google_callback(
 
         # Create redirect response
         redirect_url = f"{client_domain}/auth/callback?success=true"
-
-        if newly_created:
-            redirect_url += "&welcome=true"
 
         redirect_response = RedirectResponse(
             url=redirect_url, status_code=status.HTTP_302_FOUND
@@ -353,14 +330,6 @@ async def email_signin(
             db_user = user_crud.create_email_user(db, email=email)
             logger.info(f"Created new email user: {email}")
             newly_created = True
-
-            # Check for suspected signup abuse
-            try:
-                abuse_matches = check_signup_abuse(db, db_user)
-                if abuse_matches:
-                    send_abuse_alert(db_user, abuse_matches)
-            except Exception as e:
-                logger.error(f"Error during abuse check: {e}", exc_info=True)
 
         # Generate verification code
         code, expires_at = email_auth_client.generate_verification_data()
@@ -489,12 +458,6 @@ async def email_verify(
         redirect_url = f"{client_domain}/auth/callback?success=true"
 
         if new_user:
-            redirect_url += "&welcome=true"
-            add_to_default_audience(email=email, name=None)
-            send_onboarding_email(
-                email=str(db_user.email), name=str(db_user.name) or None
-            )
-
             # Check if newly created user has any pending project invitations. If so, send out the invitations.
             pending_invitations = (
                 project_role_invitation_crud.get_pending_invitations_for_email(

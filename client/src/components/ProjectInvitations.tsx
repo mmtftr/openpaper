@@ -16,7 +16,6 @@ import { Badge } from "@/components/ui/badge";
 import { ProjectInvitation } from "@/lib/schema";
 import { fetchFromApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { useSubscription, isProjectAtLimit } from "@/hooks/useSubscription";
 
 interface ProjectInvitationsProps {
 	onInvitationAccepted?: () => void;
@@ -29,10 +28,7 @@ export function ProjectInvitations({ onInvitationAccepted, defaultOpen = false }
 	const [isLoading, setIsLoading] = useState(false);
 	const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
 	const [acceptedIds, setAcceptedIds] = useState<Set<string>>(new Set());
-	const { subscription } = useSubscription();
 	const { user } = useAuth();
-
-	const atProjectLimit = subscription ? isProjectAtLimit(subscription) : false;
 
 	const pendingCount = invitations.filter(inv => !inv.accepted_at).length;
 
@@ -57,11 +53,6 @@ export function ProjectInvitations({ onInvitationAccepted, defaultOpen = false }
 	}, []);
 
 	const handleAccept = async (invitationId: string) => {
-		if (atProjectLimit) {
-			toast.error("You&apos;ve reached your project limit. Upgrade your plan to accept more project invitations.");
-			return;
-		}
-
 		setProcessingIds(prev => new Set(prev).add(invitationId));
 
 		try {
@@ -132,7 +123,6 @@ export function ProjectInvitations({ onInvitationAccepted, defaultOpen = false }
 				variant="outline"
 				className="relative"
 				onClick={() => setOpen(true)}
-				title={atProjectLimit ? "You have reached your project limit. Upgrade your plan to accept more project invitations." : undefined}
 			>
 				<Mail className="mr-2 h-4 w-4" />
 				{pendingCount > 0 && (
@@ -149,11 +139,9 @@ export function ProjectInvitations({ onInvitationAccepted, defaultOpen = false }
 					<DialogHeader>
 						<DialogTitle>Project Invitations</DialogTitle>
 						<DialogDescription>
-							{atProjectLimit
-								? <>You&apos;ve reached your project limit. <Link href="/pricing" className="text-blue-600 hover:text-blue-700 underline">Upgrade your plan</Link> to accept more project invitations.</>
-								: pendingCount > 0
-									? `You have ${pendingCount} pending invitation${pendingCount === 1 ? '' : 's'}`
-									: "You have no pending invitations"}
+							{pendingCount > 0
+								? `You have ${pendingCount} pending invitation${pendingCount === 1 ? '' : 's'}`
+								: "You have no pending invitations"}
 						</DialogDescription>
 					</DialogHeader>
 
@@ -227,7 +215,7 @@ export function ProjectInvitations({ onInvitationAccepted, defaultOpen = false }
 														size="icon"
 														className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
 														onClick={() => handleAccept(invitation.id)}
-														disabled={isProcessing || atProjectLimit}
+														disabled={isProcessing}
 													>
 														{isProcessing ? (
 															<Loader2 className="h-4 w-4 animate-spin" />

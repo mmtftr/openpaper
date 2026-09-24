@@ -6,14 +6,10 @@ import { ProjectCard } from "@/components/ProjectCard";
 import { Button } from "@/components/ui/button";
 import { Project } from "@/lib/schema";
 import { fetchFromApi } from "@/lib/api";
-import { PlusCircle, Target, BookOpen, FileText, Info, Search, Headphones, MessageCircle, Table, Users, X, Plus } from "lucide-react";
+import { PlusCircle, Target, BookOpen, FileText, Search, Headphones, MessageCircle, Table, Users, X, Plus } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { useSubscription, isProjectNearLimit, isProjectAtLimit, getProjectUsagePercentage } from "@/hooks/useSubscription";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
-import { Progress } from "@/components/ui/progress";
 import LoadingIndicator from "@/components/utils/Loading";
 import { ProjectInvitations } from "@/components/ProjectInvitations";
 
@@ -31,16 +27,12 @@ function ProjectsPage() {
 	const [isLoading, setIsLoading] = useState(true);
 	const { user, loading: userLoading } = useAuth();
 	const [error, setError] = useState<string | null>(null);
-	const { subscription } = useSubscription();
 	const router = useRouter();
 	const searchParams = useSearchParams();
 
-	const [showUsageAlert, setShowUsageAlert] = useState(true);
 	const [searchQuery, setSearchQuery] = useState("");
 	const [activeFilters, setActiveFilters] = useState<Set<ProjectFilter>>(new Set());
 
-	const atProjectLimit = subscription ? isProjectAtLimit(subscription) : false;
-	const nearProjectLimit = subscription ? isProjectNearLimit(subscription) : false;
 	const openInvites = searchParams.get("openInvites") !== null;
 
 	const toggleFilter = (filter: ProjectFilter) => {
@@ -103,43 +95,6 @@ function ProjectsPage() {
 		getProjects();
 	}, [userLoading, user, router]);
 
-	useEffect(() => {
-		const PROJECT_LIMIT_TOAST_KEY = "project_limit_toast_shown";
-
-		if (subscription) {
-			// Only show toast once per session
-			if (sessionStorage.getItem(PROJECT_LIMIT_TOAST_KEY)) {
-				return;
-			}
-
-			let toastShown = false;
-
-			if (atProjectLimit) {
-				toast.error("Project limit reached", {
-					description: "You've used your available project slots. Upgrade for more, or archive existing projects.",
-					action: {
-						label: "Upgrade",
-						onClick: () => router.push("/pricing"),
-					},
-				});
-				toastShown = true;
-			} else if (nearProjectLimit) {
-				toast.warning("Approaching project limit", {
-					description: "You're getting close to your project limit.",
-					action: {
-						label: "Upgrade",
-						onClick: () => router.push("/pricing"),
-					},
-				});
-				toastShown = true;
-			}
-
-			if (toastShown) {
-				sessionStorage.setItem(PROJECT_LIMIT_TOAST_KEY, "true");
-			}
-		}
-	}, [atProjectLimit, nearProjectLimit, subscription, router]);
-
 	// Empty state component
 	const EmptyState = () => (
 		<div className="flex flex-col items-center justify-center py-16 px-4 text-center max-w-2xl mx-auto min-h-[60vh]">
@@ -152,30 +107,14 @@ function ProjectsPage() {
 
 			{/* CTA buttons */}
 			<div className="flex flex-col sm:flex-row gap-3 mb-12">
-				{atProjectLimit ? (
-					<Button
-						size="lg"
-						className="bg-primary hover:bg-primary/90"
-						disabled
-					>
+				<Button
+					asChild
+					size="lg"
+					className="bg-primary hover:bg-primary/90"
+				>
+					<Link href="/projects/create">
 						<PlusCircle className="mr-2 h-4 w-4" />
 						Create your first project
-					</Button>
-				) : (
-					<Button
-						asChild
-						size="lg"
-						className="bg-primary hover:bg-primary/90"
-					>
-						<Link href="/projects/create">
-							<PlusCircle className="mr-2 h-4 w-4" />
-							Create your first project
-						</Link>
-					</Button>
-				)}
-				<Button variant="outline" size="lg" asChild>
-					<Link href="/blog/projects">
-						Learn more
 					</Link>
 				</Button>
 			</div>
@@ -203,59 +142,17 @@ function ProjectsPage() {
 
 	return (
 		<div className="container mx-auto p-4">
-			{(nearProjectLimit || atProjectLimit) && subscription && showUsageAlert && (
-				<Alert variant={'default'} className="mb-4 border-muted">
-					<div className="flex justify-between items-start">
-						<div className="flex items-start">
-							<Info className="h-4 w-4 mt-1 text-muted-foreground" />
-							<div className="ml-2">
-								<AlertTitle className="text-foreground">Usage summary</AlertTitle>
-								<AlertDescription className="text-muted-foreground">
-									{atProjectLimit
-										? `You've used your available project slots. Upgrade for more, or archive existing projects.`
-										: `You're getting close to your project limit.`}
-								</AlertDescription>
-							</div>
-						</div>
-						<div className="flex items-center gap-x-2">
-							<Button asChild size="sm" variant="outline">
-								<Link href="/pricing">View plans</Link>
-							</Button>
-							<Button variant="ghost" size="sm" onClick={() => setShowUsageAlert(false)} className="self-start">
-								Dismiss
-							</Button>
-						</div>
-					</div>
-					<div className="mt-4 space-y-4">
-						<div>
-							<div className="flex justify-between text-sm text-muted-foreground">
-								<span>Projects: {subscription.usage.projects} used</span>
-								<span>{subscription.limits.projects} total</span>
-							</div>
-							<Progress value={getProjectUsagePercentage(subscription)} className="h-2 mt-1" />
-						</div>
-					</div>
-				</Alert>
-			)}
-
 			<div className="flex justify-between items-center mb-4">
 				<h1 className="text-2xl font-bold">Projects</h1>
 				<div className="flex gap-2">
 					<ProjectInvitations onInvitationAccepted={getProjects} defaultOpen={openInvites} />
 					{projects.length > 0 && (
-						atProjectLimit ? (
-							<Button className="bg-blue-500 dark:text-card-foreground hover:bg-blue-600 dark:hover:bg-blue-400" disabled>
+						<Button asChild className="bg-blue-500 dark:text-card-foreground hover:bg-blue-600 dark:hover:bg-blue-400">
+							<Link href="/projects/create">
 								<PlusCircle className="mr-2" />
 								New Project
-							</Button>
-						) : (
-							<Button asChild className="bg-blue-500 dark:text-card-foreground hover:bg-blue-600 dark:hover:bg-blue-400">
-								<Link href="/projects/create">
-									<PlusCircle className="mr-2" />
-									New Project
-								</Link>
-							</Button>
-						)
+							</Link>
+						</Button>
 					)}
 				</div>
 			</div>
@@ -348,25 +245,15 @@ function ProjectsPage() {
 				<div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
 					{/* New Project Card */}
 					{!hasActiveFilters && (
-						atProjectLimit ? (
-							<Card className="h-64 border-2 border-dashed border-border/50 bg-secondary/30 flex flex-col items-center justify-center text-muted-foreground cursor-not-allowed">
-								<div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
-									<Plus className="w-6 h-6" />
+						<Link href="/projects/create">
+							<Card className="h-64 border-2 border-dashed border-border/50 hover:border-primary/50 bg-secondary/30 hover:bg-secondary/50 flex flex-col items-center justify-center text-muted-foreground hover:text-foreground transition-all duration-300 cursor-pointer group">
+								<div className="w-12 h-12 rounded-full bg-muted group-hover:bg-primary/10 flex items-center justify-center mb-3 transition-colors">
+									<Plus className="w-6 h-6 group-hover:text-primary transition-colors" />
 								</div>
 								<span className="font-medium">New Project</span>
-								<span className="text-xs mt-1">Upgrade to create more</span>
+								<span className="text-xs mt-1 text-muted-foreground">Create a new research project</span>
 							</Card>
-						) : (
-							<Link href="/projects/create">
-								<Card className="h-64 border-2 border-dashed border-border/50 hover:border-primary/50 bg-secondary/30 hover:bg-secondary/50 flex flex-col items-center justify-center text-muted-foreground hover:text-foreground transition-all duration-300 cursor-pointer group">
-									<div className="w-12 h-12 rounded-full bg-muted group-hover:bg-primary/10 flex items-center justify-center mb-3 transition-colors">
-										<Plus className="w-6 h-6 group-hover:text-primary transition-colors" />
-									</div>
-									<span className="font-medium">New Project</span>
-									<span className="text-xs mt-1 text-muted-foreground">Create a new research project</span>
-								</Card>
-							</Link>
-						)
+						</Link>
 					)}
 					{filteredProjects.map((project) => (
 						<ProjectCard key={project.id} project={project} onProjectUpdate={getProjects} />

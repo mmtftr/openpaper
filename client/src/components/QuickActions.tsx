@@ -56,21 +56,15 @@ interface QuickActionsProps {
     onProjectCreated?: () => void;
     onUploadStart?: (files: File[]) => void;
     onUrlImportStart?: (url: string) => void;
-    isUploadBlocked?: boolean;
-    onUploadBlocked?: () => void;
 }
 
-export function QuickActions({ onUploadComplete, onProjectCreated, onUploadStart, onUrlImportStart, isUploadBlocked, onUploadBlocked }: QuickActionsProps) {
+export function QuickActions({ onUploadComplete, onProjectCreated, onUploadStart, onUrlImportStart }: QuickActionsProps) {
     const router = useRouter();
     const [isUploadModalOpen, setUploadModalOpen] = useState(false);
     const [isCreateProjectOpen, setCreateProjectOpen] = useState(false);
 
     const handleUploadClick = () => {
-        if (isUploadBlocked && onUploadBlocked) {
-            onUploadBlocked();
-        } else {
-            setUploadModalOpen(true);
-        }
+        setUploadModalOpen(true);
     };
 
     const handleUploadComplete = (paperId: string) => {

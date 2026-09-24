@@ -101,9 +101,6 @@ class CurrentUser(BaseModel):
     is_admin: bool = False
     picture: Optional[str] = None
     is_email_verified: bool = False
-
-    # is_active describes if the user account is on the RESEARCHER or BASIC plan
-    is_active: bool = False
     is_blocked: bool = False
 
     class ConfigDict:

@@ -26,10 +26,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { useSubscription, isAudioOverviewAtLimit, isAudioOverviewNearLimit, isDataTableAtLimit, isDataTableNearLimit } from "@/hooks/useSubscription";
 import { toast } from "sonner";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import DataTableSchemaModal, { FieldDefinition } from "./DataTableSchemaModal";
 import { useAudioPlayback } from "./hooks/useAudioPlayback";
 
@@ -46,10 +43,6 @@ const audioLengthOptions = [
 ];
 
 export default function Artifacts({ projectId, papers, currentUserRole }: ArtifactsProps) {
-    const router = useRouter();
-    const { subscription, refetch: refetchSubscription } = useSubscription();
-    const atAudioLimit = subscription ? isAudioOverviewAtLimit(subscription) : false;
-    const atDataTableLimit = subscription ? isDataTableAtLimit(subscription) : false;
     const [audioInstructions, setAudioInstructions] = useState("");
     const [selectedAudioLength, setSelectedAudioLength] = useState("medium");
     const [isCreatingAudio, setIsCreatingAudio] = useState(false);
@@ -172,11 +165,6 @@ export default function Artifacts({ projectId, papers, currentUserRole }: Artifa
     }, [getProjectAudioJobs, getProjectAudioOverviews]);
 
     const handleCreateAudioOverview = async () => {
-        if (atAudioLimit) {
-            toast.error("You have reached your audio overview limit. Please upgrade to create more.");
-            setCreateAudioDialogOpen(false);
-            return;
-        }
         setCreateAudioDialogOpen(false);
         setIsCreatingAudio(true);
         try {
@@ -195,38 +183,6 @@ export default function Artifacts({ projectId, papers, currentUserRole }: Artifa
             });
 
             setAudioInstructions("");
-
-            refetchSubscription();
-            if (subscription) {
-                const newUsage = {
-                    ...subscription.usage,
-                    audio_overviews_used: subscription.usage.audio_overviews_used + 1,
-                    audio_overviews_remaining: subscription.usage.audio_overviews_remaining - 1,
-                };
-                const tempUpdatedSubscription = {
-                    ...subscription,
-                    usage: newUsage,
-                };
-
-                const newAtLimit = isAudioOverviewAtLimit(tempUpdatedSubscription);
-                const newNearLimit = isAudioOverviewNearLimit(tempUpdatedSubscription);
-
-                if (newAtLimit) {
-                    toast.warning("You've used all of your audio overviews for the week.", {
-                        action: {
-                            label: "Upgrade",
-                            onClick: () => router.push('/pricing'),
-                        }
-                    });
-                } else if (newNearLimit) {
-                    toast.info(`You have ${newUsage.audio_overviews_remaining} audio overviews remaining this week.`, {
-                        action: {
-                            label: "Upgrade",
-                            onClick: () => router.push('/pricing'),
-                        }
-                    });
-                }
-            }
 
             // Immediately poll for jobs and overviews, then start interval polling
             const hasPendingJobs = await pollAudioData();
@@ -270,38 +226,6 @@ export default function Artifacts({ projectId, papers, currentUserRole }: Artifa
             setIsCreatingDataTable(false);
             toast.success("Data table generation started!");
 
-            // Refetch subscription and warn if near limit
-            refetchSubscription();
-            if (subscription) {
-                const newUsage = {
-                    ...subscription.usage,
-                    data_tables_used: subscription.usage.data_tables_used + 1,
-                    data_tables_remaining: subscription.usage.data_tables_remaining - 1,
-                };
-                const tempUpdatedSubscription = {
-                    ...subscription,
-                    usage: newUsage,
-                };
-
-                const newAtLimit = isDataTableAtLimit(tempUpdatedSubscription);
-                const newNearLimit = isDataTableNearLimit(tempUpdatedSubscription);
-
-                if (newAtLimit) {
-                    toast.warning("You've used all of your data tables for the week.", {
-                        action: {
-                            label: "Upgrade",
-                            onClick: () => router.push('/pricing'),
-                        }
-                    });
-                } else if (newNearLimit) {
-                    toast.info(`You have ${newUsage.data_tables_remaining} data tables remaining this week.`, {
-                        action: {
-                            label: "Upgrade",
-                            onClick: () => router.push('/pricing'),
-                        }
-                    });
-                }
-            }
         } catch (err) {
             console.error("Failed to create data table:", err);
             toast.error("Failed to create data table. Please try again.");
@@ -334,59 +258,48 @@ export default function Artifacts({ projectId, papers, currentUserRole }: Artifa
                                         Generate an audio overview of your project papers. Add custom instructions to guide the content.
                                     </DialogDescription>
                                 </DialogHeader>
-                                {atAudioLimit ? (
-                                    <div className="mt-4 text-center p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800/30 rounded-md">
-                                        <p className="text-sm text-yellow-800 dark:text-yellow-200">You&apos;ve used all your audio overviews for this week.</p>
-                                        <Link href="/pricing" passHref>
-                                            <Button variant="link" className="p-0 h-auto text-sm">Upgrade your plan to create more.</Button>
-                                        </Link>
+                                <div className="space-y-4 mt-4">
+                                    <div>
+                                        <Label htmlFor="audio-length" className="text-sm font-medium">
+                                            Audio Length
+                                        </Label>
+                                        <Select value={selectedAudioLength} onValueChange={setSelectedAudioLength}>
+                                            <SelectTrigger className="mt-2">
+                                                <SelectValue placeholder="Select audio length" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {audioLengthOptions.map((option) => (
+                                                    <SelectItem key={option.value} value={option.value}>
+                                                        {option.label}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
                                     </div>
-                                ) : (
-                                    <div className="space-y-4 mt-4">
-                                        <div>
-                                            <Label htmlFor="audio-length" className="text-sm font-medium">
-                                                Audio Length
-                                            </Label>
-                                            <Select value={selectedAudioLength} onValueChange={setSelectedAudioLength}>
-                                                <SelectTrigger className="mt-2">
-                                                    <SelectValue placeholder="Select audio length" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {audioLengthOptions.map((option) => (
-                                                        <SelectItem key={option.value} value={option.value}>
-                                                            {option.label}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <div>
-                                            <Label htmlFor="audio-instructions" className="text-sm font-medium">
-                                                Custom Instructions (Optional)
-                                            </Label>
-                                            <Textarea
-                                                id="audio-instructions"
-                                                placeholder="Add any specific topics, focus areas, or instructions for the audio overview..."
-                                                value={audioInstructions}
-                                                onChange={(e) => setAudioInstructions(e.target.value)}
-                                                className="mt-2 min-h-[100px] resize-none"
-                                            />
-                                        </div>
+                                    <div>
+                                        <Label htmlFor="audio-instructions" className="text-sm font-medium">
+                                            Custom Instructions (Optional)
+                                        </Label>
+                                        <Textarea
+                                            id="audio-instructions"
+                                            placeholder="Add any specific topics, focus areas, or instructions for the audio overview..."
+                                            value={audioInstructions}
+                                            onChange={(e) => setAudioInstructions(e.target.value)}
+                                            className="mt-2 min-h-[100px] resize-none"
+                                        />
                                     </div>
-                                )}
-                                {!atAudioLimit && (
-                                    <div className="flex justify-end gap-2 mt-6">
-                                        <DialogClose asChild>
-                                            <Button variant="secondary">
-                                                Cancel
-                                            </Button>
-                                        </DialogClose>
-                                        <Button onClick={handleCreateAudioOverview} disabled={isCreatingAudio || atAudioLimit}>
-                                            {isCreatingAudio ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Volume2 className="mr-2 h-4 w-4" />}
-                                            Create
+                                </div>
+                                <div className="flex justify-end gap-2 mt-6">
+                                    <DialogClose asChild>
+                                        <Button variant="secondary">
+                                            Cancel
                                         </Button>
-                                    </div>
-                                )}
+                                    </DialogClose>
+                                    <Button onClick={handleCreateAudioOverview} disabled={isCreatingAudio}>
+                                        {isCreatingAudio ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Volume2 className="mr-2 h-4 w-4" />}
+                                        Create
+                                    </Button>
+                                </div>
                             </DialogContent>
                         </Dialog>
 
@@ -410,7 +323,6 @@ export default function Artifacts({ projectId, papers, currentUserRole }: Artifa
                 onOpenChange={setDataTableSchemaModalOpen}
                 onSubmit={handleCreateDataTable}
                 isCreating={isCreatingDataTable}
-                atLimit={atDataTableLimit}
             />
 
             {/* Data Table Generation Jobs */}

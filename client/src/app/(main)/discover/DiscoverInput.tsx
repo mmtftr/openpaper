@@ -55,7 +55,6 @@ interface DiscoverInputProps {
     onOpenAccessChange: (value: boolean) => void
     yearFilter: YearFilter
     onYearFilterChange: (filter: YearFilter) => void
-    atSearchLimit?: boolean
 }
 
 export default function DiscoverInput({
@@ -74,7 +73,6 @@ export default function DiscoverInput({
     onOpenAccessChange,
     yearFilter,
     onYearFilterChange,
-    atSearchLimit = false,
 }: DiscoverInputProps) {
     const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -288,34 +286,17 @@ export default function DiscoverInput({
                         </Popover>
                     </div>
 
-                    {/* Search button or Upgrade button when at limit */}
-                    {atSearchLimit ? (
-                        <Button
-                            asChild
-                            size="sm"
-                            className="gap-2"
-                        >
-                            <a href="/pricing">Upgrade</a>
-                        </Button>
-                    ) : (
-                        <Button
-                            onClick={onSubmit}
-                            disabled={!value.trim() || loading}
-                            size="sm"
-                            className="gap-2"
-                        >
-                            <Search className="h-4 w-4" />
-                            Search
-                        </Button>
-                    )}
+                    <Button
+                        onClick={onSubmit}
+                        disabled={!value.trim() || loading}
+                        size="sm"
+                        className="gap-2"
+                    >
+                        <Search className="h-4 w-4" />
+                        Search
+                    </Button>
                 </div>
             </div>
-
-            {atSearchLimit && (
-                <p className="text-sm text-muted-foreground text-center">
-                    You&apos;ve reached your weekly search limit. Limits reset every Monday.
-                </p>
-            )}
         </div>
     )
 }

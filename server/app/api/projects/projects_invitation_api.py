@@ -10,7 +10,6 @@ from app.database.crud.projects.project_role_invitation_crud import (
 from app.database.database import get_db
 from app.database.models import ProjectRoles
 from app.database.telemetry import track_event
-from app.helpers.subscription_limits import can_user_create_project
 from app.schemas.user import CurrentUser
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
@@ -196,13 +195,6 @@ async def accept_invitation(
         )
 
     try:
-        # Check subscription limits before allowing the user to join another project
-        can_create_project, error_message = can_user_create_project(db, current_user)
-
-        if not can_create_project:
-            # Reuse the same semantics as creation limits for joining projects
-            return JSONResponse(status_code=403, content={"message": error_message})
-
         project_role = project_role_invitation_crud.accept_invitation(
             db, invitation_id=invitation_id, user=current_user
         )

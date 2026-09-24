@@ -1,7 +1,6 @@
 "use client"
 
 import {
-    AlertTriangle,
     ChevronsUpDown,
     FileText,
     FolderKanban,
@@ -10,12 +9,10 @@ import {
     LogOut,
     MessageCircleQuestion,
     Moon,
-    Route,
     Settings,
     Sun,
     TelescopeIcon,
     User as UserIcon,
-    X
 } from "lucide-react";
 
 import {
@@ -35,7 +32,6 @@ import { useAuth, User } from "@/lib/auth";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import {
     Popover,
     PopoverContent,
@@ -46,11 +42,9 @@ import {
     SheetContent,
     SheetTrigger,
 } from "@/components/ui/sheet";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useIsDarkMode } from "@/hooks/useDarkMode";
-import { useSubscription, isStorageAtLimit, isPaperUploadAtLimit, isStorageNearLimit, isPaperUploadNearLimit, isChatCreditAtLimit, isChatCreditNearLimit, formatFileSize, getStorageUsagePercentage, getPaperUploadPercentage, getChatCreditUsagePercentage, getAudioOverviewUsagePercentage, getProjectUsagePercentage, getDataTableUsagePercentage, getDiscoverSearchUsagePercentage } from "@/hooks/useSubscription";
 import Link from "next/link";
-import { Conversation, PaperItem, Project, SubscriptionData } from "@/lib/schema";
+import { Conversation, PaperItem, Project } from "@/lib/schema";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { CollapsibleSidebarMenu } from "./CollapsibleSidebarMenu";
 
@@ -118,15 +112,6 @@ const UserMenuContent = ({
                 Feedback
             </Button>
         </Link>
-        <Link href="/pricing" className="w-full">
-            <Button
-                variant="ghost"
-                className="w-full justify-start"
-            >
-                <Route size={16} className="mr-2" />
-                Plans
-            </Button>
-        </Link>
         {/* Dark Mode Toggle */}
         <Button onClick={toggleDarkMode} variant="ghost" className="w-full justify-start">
             {darkMode ? <Sun size={16} className="mr-2" /> : <Moon size={16} className="mr-2" />}
@@ -143,142 +128,12 @@ const UserMenuContent = ({
     </div>
 )
 
-const UsageLimitCard = ({
-    subscription,
-    loading
-}: {
-    subscription: SubscriptionData | null,
-    loading: boolean
-}) => {
-    if (loading || !subscription) {
-        return (
-            <div className="p-4 space-y-3">
-                <div className="text-sm font-medium">Loading usage data...</div>
-            </div>
-        );
-    }
-
-    const formatUsage = (used: number, total: number, unit: string = "") => {
-        return `${used}${unit} / ${total}${unit}`;
-    };
-
-    const UsageItem = ({
-        label,
-        used,
-        total,
-        unit = "",
-        percentage,
-        formatValue
-    }: {
-        label: string,
-        used: number,
-        total: number,
-        unit?: string,
-        percentage: number,
-        formatValue?: (value: number) => string
-    }) => (
-        <div className="space-y-2">
-            <div className="flex justify-between items-center">
-                <span className="text-sm font-medium">{label}</span>
-                <span className="text-sm text-muted-foreground">
-                    {formatValue ?
-                        `${formatValue(used)} / ${formatValue(total)}` :
-                        formatUsage(used, total, unit)
-                    }
-                </span>
-            </div>
-            <div className="relative">
-                <Progress value={Math.min(percentage, 100)} className="h-2" />
-            </div>
-            <div className="text-xs text-muted-foreground">
-                {percentage.toFixed(1)}% used
-            </div>
-        </div>
-    );
-
-    return (
-        <div className="p-4 space-y-4">
-            <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold">Usage Limits</h3>
-                <Badge variant={subscription.plan === 'researcher' ? "default" : "secondary"}>
-                    {subscription.plan === 'researcher' ? 'Researcher' : 'Basic'}
-                </Badge>
-            </div>
-
-            <div className="space-y-4">
-                <UsageItem
-                    label="Paper Uploads"
-                    used={subscription.usage.paper_uploads}
-                    total={subscription.limits.paper_uploads}
-                    percentage={getPaperUploadPercentage(subscription)}
-                />
-
-                <UsageItem
-                    label="Storage"
-                    used={subscription.usage.knowledge_base_size}
-                    total={subscription.limits.knowledge_base_size}
-                    percentage={getStorageUsagePercentage(subscription)}
-                    formatValue={formatFileSize}
-                />
-
-                <UsageItem
-                    label="Weekly Chat Credits"
-                    used={subscription.usage.chat_credits_used}
-                    total={subscription.limits.chat_credits_weekly}
-                    percentage={getChatCreditUsagePercentage(subscription)}
-                />
-
-                <UsageItem
-                    label="Weekly Audio Overviews"
-                    used={subscription.usage.audio_overviews_used}
-                    total={subscription.limits.audio_overviews_weekly}
-                    percentage={getAudioOverviewUsagePercentage(subscription)}
-                />
-
-                <UsageItem
-                    label="Weekly Data Tables"
-                    used={subscription.usage.data_tables_used}
-                    total={subscription.limits.data_tables_weekly}
-                    percentage={getDataTableUsagePercentage(subscription)}
-                />
-
-                <UsageItem
-                    label="Weekly Discover Searches"
-                    used={subscription.usage.discover_searches_used}
-                    total={subscription.limits.discover_searches_weekly}
-                    percentage={getDiscoverSearchUsagePercentage(subscription)}
-                />
-
-                <UsageItem
-                    label="Projects"
-                    used={subscription.usage.projects}
-                    total={subscription.limits.projects}
-                    percentage={getProjectUsagePercentage(subscription)}
-                />
-            </div>
-
-            <div className="pt-2 border-t">
-                <Link href="/pricing" className="w-full">
-                    <Button size="sm" className="w-full">
-                        {subscription.plan === 'researcher' ? 'Manage' : 'Upgrade'}
-                    </Button>
-                </Link>
-            </div>
-        </div>
-    );
-}
-
-
-
-
 export function AppSidebar() {
     const router = useRouter();
     const { user, logout } = useAuth();
     const [allPapers, setAllPapers] = useState<PaperItem[]>([]);
     const [projects, setProjects] = useState<Project[]>([]);
     const { darkMode, toggleDarkMode } = useIsDarkMode();
-    const { subscription, loading: subscriptionLoading } = useSubscription();
-    const [dismissedWarning, setDismissedWarning] = useState<string | null>(null);
     const isMobile = useIsMobile();
 
     useEffect(() => {
@@ -318,79 +173,6 @@ export function AppSidebar() {
         await logout();
         router.push('/login');
     }
-
-    // Determine current subscription warning state
-    const getSubscriptionWarning = () => {
-        if (!subscription || !user || subscriptionLoading) return null;
-
-        // Check for critical states first (red warnings)
-        if (isStorageAtLimit(subscription)) {
-            return {
-                type: 'error' as const,
-                key: 'storage-limit',
-                title: 'Storage limit reached',
-                description: 'Upgrade your plan or delete papers to continue.',
-            };
-        }
-
-        if (isPaperUploadAtLimit(subscription)) {
-            return {
-                type: 'error' as const,
-                key: 'upload-limit',
-                title: 'Upload limit reached',
-                description: 'Upgrade your plan to upload more.',
-            };
-        }
-
-        // Check for warning states (yellow warnings)
-        if (isStorageNearLimit(subscription)) {
-            return {
-                type: 'warning' as const,
-                key: 'storage-near-limit',
-                title: 'Storage nearly full',
-                description: 'Consider upgrading your plan.',
-            };
-        }
-
-        if (isPaperUploadNearLimit(subscription)) {
-            return {
-                type: 'warning' as const,
-                key: 'upload-near-limit',
-                title: 'Upload limit approaching',
-                description: 'Consider upgrading your plan.',
-            };
-        }
-
-        if (isChatCreditAtLimit(subscription)) {
-            return {
-                type: 'error' as const,
-                key: 'chat-credit-limit',
-                title: 'Chat credits exhausted',
-                description: 'Upgrade your plan to continue using chat features.',
-            }
-        }
-
-        if (isChatCreditNearLimit(subscription)) {
-            return {
-                type: 'warning' as const,
-                key: 'chat-credit-near-limit',
-                title: 'Chat credits nearly exhausted',
-                description: 'Consider upgrading your plan to avoid interruptions.',
-            };
-        }
-
-        return null;
-    };
-
-    const currentWarning = getSubscriptionWarning();
-    const shouldShowWarning = currentWarning && dismissedWarning !== currentWarning.key;
-
-    // Reset dismissed warning when warning changes
-    useEffect(() => {
-        if (currentWarning && dismissedWarning && dismissedWarning !== currentWarning.key) {
-            setDismissedWarning(null);
-        }
-    }, [currentWarning?.key, dismissedWarning]);
 
     return (
         <Sidebar variant="floating">
@@ -452,59 +234,6 @@ export function AppSidebar() {
                 </SidebarGroup>
             </SidebarContent>
             <SidebarFooter>
-                {/* Subscription Warning */}
-                {shouldShowWarning && (
-                    <div className="mb-2">
-                        <Alert variant={currentWarning.type === 'error' ? 'destructive' : 'warning'} className="p-3">
-                            <div className="flex items-start justify-between gap-2">
-                                <div className="flex items-start gap-2 flex-1 min-w-0">
-                                    <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                                    <div className="flex-1 min-w-0">
-                                        <div className="text-xs font-medium mb-1">
-                                            {currentWarning.title}
-                                        </div>
-                                        <AlertDescription className="text-xs">
-                                            {currentWarning.description}
-                                        </AlertDescription>
-                                        <Link href="/pricing" className="inline-block mt-2">
-                                            <Button size="sm" variant="outline" className="h-6 text-xs px-2">
-                                                Upgrade Plan
-                                            </Button>
-                                        </Link>
-                                    </div>
-                                </div>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-4 w-4 p-0 hover:bg-transparent"
-                                    onClick={() => setDismissedWarning(currentWarning.key)}
-                                >
-                                    <X className="h-3 w-3" />
-                                </Button>
-                            </div>
-                        </Alert>
-                    </div>
-                )}
-
-                {/* User Status Badge */}
-                {user && (
-                    <div className="px-2 py-1">
-                        <Popover>
-                            <PopoverTrigger asChild>
-                                <Badge
-                                    variant={user.is_active ? "default" : "secondary"}
-                                    className={`w-fit justify-center cursor-pointer hover:opacity-80 transition-opacity ${user.is_active ? "bg-blue-100 text-blue-800 dark:bg-blue-800 dark:text-blue-200" : "bg-gray-100 text-gray-800"}`}
-                                >
-                                    {user.is_active ? "Researcher" : "Basic"}
-                                </Badge>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-80 p-0" align="start">
-                                <UsageLimitCard subscription={subscription} loading={subscriptionLoading} />
-                            </PopoverContent>
-                        </Popover>
-                    </div>
-                )}
-
                 {/* User Profile (if logged in) */}
                 {user && (
                     <SidebarMenuItem className="mb-2">

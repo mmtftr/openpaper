@@ -13,19 +13,8 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from "sonner";
 import { fetchFromApi, getProjectsForPaper } from '@/lib/api';
-import { useSubscription, isProjectAtLimit } from '@/hooks/useSubscription';
 import { Button } from './ui/button';
 import { CreateProjectDialog } from '@/components/CreateProjectDialog';
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Input } from './ui/input';
 import { ProjectCard } from './ProjectCard';
 
@@ -40,9 +29,7 @@ export function PaperProjects({ id, view = 'full' }: PaperProjectsProps) {
     const [isLoadingProjects, setIsLoadingProjects] = useState(false);
     const [addingToProjectId, setAddingToProjectId] = useState<string | null>(null);
     const [isCreateProjectDialogOpen, setCreateProjectDialogOpen] = useState(false);
-    const [isProjectLimitDialogOpen, setProjectLimitDialogOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
-    const { subscription } = useSubscription();
     const router = useRouter();
 
     useEffect(() => {
@@ -136,29 +123,11 @@ export function PaperProjects({ id, view = 'full' }: PaperProjectsProps) {
     return (
         <div className="space-y-4">
             {view === 'full' && (
-                <>
-                    <AlertDialog open={isProjectLimitDialogOpen} onOpenChange={setProjectLimitDialogOpen}>
-                        <AlertDialogContent>
-                            <AlertDialogHeader>
-                                <AlertDialogTitle>You&apos;re on a roll!</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                    You&apos;ve created a lot of great projects. To create more, please upgrade your plan.
-                                </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <Link href="/pricing">
-                                    <AlertDialogAction>Upgrade</AlertDialogAction>
-                                </Link>
-                            </AlertDialogFooter>
-                        </AlertDialogContent>
-                    </AlertDialog>
-                    <CreateProjectDialog
-                        open={isCreateProjectDialogOpen}
-                        onOpenChange={setCreateProjectDialogOpen}
-                        onSubmit={handleCreateProjectSubmit}
-                    />
-                </>
+                <CreateProjectDialog
+                    open={isCreateProjectDialogOpen}
+                    onOpenChange={setCreateProjectDialogOpen}
+                    onSubmit={handleCreateProjectSubmit}
+                />
             )}
             {isLoadingProjects ? (
                 <div className="flex items-center justify-center py-4">
@@ -187,13 +156,7 @@ export function PaperProjects({ id, view = 'full' }: PaperProjectsProps) {
                             </p>
                             <Link href="/projects" className="block underline">View all projects{" "} <ArrowRight className='inline w-4 h-4' /></Link>
                             <Button
-                                onClick={() => {
-                                    if (isProjectAtLimit(subscription)) {
-                                        setProjectLimitDialogOpen(true);
-                                    } else {
-                                        setCreateProjectDialogOpen(true);
-                                    }
-                                }}
+                                onClick={() => setCreateProjectDialogOpen(true)}
                                 className="mt-4 w-full"
                             >
                                 Create a Project with this Paper
