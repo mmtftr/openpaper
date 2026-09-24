@@ -1,0 +1,385 @@
+{
+  "recordedAt": "2026-09-24T13:51:13.962Z",
+  "baselineRevision": "8187e1cae736c745d775d4cd5519690932f8b474",
+  "baseline": {
+    "extraction": {
+      "papers": 48,
+      "referenceLinks": 9430,
+      "supportedLinks": 8785,
+      "papersWithPreview": 38,
+      "labelledDestinations": 2993,
+      "correctDestinations": 463,
+      "extractionAccuracy": 0.1546942866688941,
+      "labelledLinks": 7981,
+      "correctLinks": 777,
+      "meanPrecision": 0.22740734407052565,
+      "meanRecall": 0.22160070989178215
+    },
+    "resolution": {
+      "labelled": 94,
+      "available": 48,
+      "matched": 26,
+      "correct": 7,
+      "wrong": 19,
+      "precision": 0.2692307692307692,
+      "recall": 0.14583333333333334,
+      "unrecordedQueries": 6,
+      "recordedRequests": 487,
+      "liveRequestP50": 228.1687080000047,
+      "liveRequestP95": 2716.1635830000014
+    },
+    "browser": {
+      "trials": 6,
+      "coldP50": 782.677208999994,
+      "coldP95": 804.7772919999989,
+      "warmP50": 773.3113750000048,
+      "warmP95": 792.7425830000002,
+      "appears": 6,
+      "staysOnEnter": 6,
+      "dismissesOnCardLeave": 0,
+      "dismissesOnScroll": 6,
+      "clickKeepsReadingPosition": 0,
+      "clickShowsPreview": 0
+    },
+    "transitions": {
+      "adjacentKeepsContent": false,
+      "escapeDismisses": false,
+      "quickPassDoesNotFlash": false
+    }
+  },
+  "final": {
+    "extraction": {
+      "papers": 48,
+      "referenceLinks": 9430,
+      "supportedLinks": 9430,
+      "papersWithPreview": 44,
+      "labelledDestinations": 2993,
+      "correctDestinations": 2930,
+      "extractionAccuracy": 0.978950885399265,
+      "labelledLinks": 7981,
+      "correctLinks": 7831,
+      "meanPrecision": 0.9899838450673014,
+      "meanRecall": 0.983702652263308
+    },
+    "resolution": {
+      "labelled": 94,
+      "available": 48,
+      "matched": 41,
+      "correct": 41,
+      "wrong": 0,
+      "precision": 1,
+      "recall": 0.8541666666666666,
+      "unrecordedQueries": 151,
+      "recordedRequests": 487,
+      "liveRequestP50": 228.1687080000047,
+      "liveRequestP95": 2716.1635830000014
+    },
+    "browser": {
+      "trials": 6,
+      "coldP50": 234.2637079999986,
+      "coldP95": 241.87116599999717,
+      "warmP50": 212.04849999999715,
+      "warmP95": 225.28687499999796,
+      "appears": 6,
+      "staysOnEnter": 6,
+      "dismissesOnCardLeave": 6,
+      "dismissesOnScroll": 6,
+      "clickKeepsReadingPosition": 6,
+      "clickShowsPreview": 6
+    },
+    "transitions": {
+      "adjacentKeepsContent": true,
+      "escapeDismisses": true,
+      "quickPassDoesNotFlash": true
+    },
+    "publishers": [
+      {
+        "paperId": "00b681f6-4f28-44e4-b2eb-d2b4d9ad206c",
+        "destination": "bm_CR1",
+        "appears": true,
+        "entryMatches": true,
+        "jumpDismisses": true,
+        "jumpPage": "11"
+      },
+      {
+        "paperId": "0b0d8428-4463-4518-b99c-6b61af918944",
+        "destination": "bib1",
+        "appears": true,
+        "entryMatches": true,
+        "jumpDismisses": true,
+        "jumpPage": "16"
+      },
+      {
+        "paperId": "43b3df6b-8171-4ce1-bd45-668b2c46c5c7",
+        "destination": "springernature_natgenet_2441.indd:﻿1.﻿﻿\t﻿﻿﻿﻿﻿ENCODE Project Consortium An integrated encyclopedia of DNA elements in the human genome. ﻿Nature﻿ ﻿489﻿, 57–74 (2012).﻿\r:81",
+        "appears": true,
+        "entryMatches": true,
+        "jumpDismisses": true,
+        "jumpPage": "14"
+      },
+      {
+        "paperId": "4e7f5c6d-363b-4e58-bc72-614d990d4b1b",
+        "destination": "Rpone.0243360.ref001",
+        "appears": true,
+        "entryMatches": true,
+        "jumpDismisses": true,
+        "jumpPage": "22"
+      },
+      {
+        "paperId": "a1102614-93fa-4010-9507-a33195d477a3",
+        "destination": "pnas.2516511123.indd:B1:119",
+        "appears": true,
+        "entryMatches": true,
+        "jumpDismisses": true,
+        "jumpPage": "11"
+      },
+      {
+        "paperId": "c9c50dd8-25b4-4f94-a77f-b83dd6027f8d",
+        "destination": "bib1",
+        "appears": true,
+        "entryMatches": true,
+        "jumpDismisses": true,
+        "jumpPage": "4"
+      }
+    ],
+    "live": {
+      "scope": "Live authenticated library lookup; warm repeats use reader cache; no OpenAlex requests after quota failure.",
+      "requests": [
+        {
+          "status": 200,
+          "ms": 188.46616600000016
+        }
+      ],
+      "results": [
+        {
+          "temperature": "cold",
+          "contentMs": 179.89712499999996,
+          "paperMs": 369.7853329999998
+        },
+        {
+          "temperature": "warm",
+          "contentMs": 154.10108300000002,
+          "paperMs": 159.14962500000001
+        },
+        {
+          "temperature": "warm",
+          "contentMs": 150.7762499999999,
+          "paperMs": 154.03641700000026
+        },
+        {
+          "temperature": "warm",
+          "contentMs": 153.3598750000001,
+          "paperMs": 162.3505839999998
+        },
+        {
+          "temperature": "warm",
+          "contentMs": 153.27562500000022,
+          "paperMs": 156.21679200000017
+        },
+        {
+          "temperature": "warm",
+          "contentMs": 157.86670799999956,
+          "paperMs": 166.21399999999994
+        },
+        {
+          "temperature": "warm",
+          "contentMs": 150.21920800000044,
+          "paperMs": 153.23762500000066
+        },
+        {
+          "temperature": "warm",
+          "contentMs": 153.61225000000013,
+          "paperMs": 161.9112500000001
+        }
+      ]
+    },
+    "reviewContracts": [
+      {
+        "name": "hyperref suffix is not a publisher number: cite.ref12",
+        "passed": true,
+        "expected": "[1] Smith. Correct paper under a different label.",
+        "actual": "[1] Smith. Correct paper under a different label."
+      },
+      {
+        "name": "hyperref suffix is not a publisher number: cite.unsrt.ref12",
+        "passed": true,
+        "expected": "[1] Smith. Correct paper under a different label.",
+        "actual": "[1] Smith. Correct paper under a different label."
+      },
+      {
+        "name": "hyperref suffix is not a publisher number: cite.alpha.ref12",
+        "passed": true,
+        "expected": "[1] Smith. Correct paper under a different label.",
+        "actual": "[1] Smith. Correct paper under a different label."
+      },
+      {
+        "name": "PLOS explicit number: Lpone.0243360.ref2",
+        "passed": true,
+        "expected": "2. Smith. The intended PLOS publication.",
+        "actual": "2. Smith. The intended PLOS publication."
+      },
+      {
+        "name": "PLOS explicit number: Rpone.0243360.ref2",
+        "passed": true,
+        "expected": "2. Smith. The intended PLOS publication.",
+        "actual": "2. Smith. The intended PLOS publication."
+      },
+      {
+        "name": "PLOS explicit number: pone.0243360.ref2",
+        "passed": true,
+        "expected": "2. Smith. The intended PLOS publication.",
+        "actual": "2. Smith. The intended PLOS publication."
+      },
+      {
+        "name": "numbered section before References",
+        "passed": true,
+        "expected": "5. Smith. The fifth bibliography entry.",
+        "actual": "5. Smith. The fifth bibliography entry."
+      },
+      {
+        "name": "numbered statement in the other column",
+        "passed": true,
+        "expected": "(2) Smith. Right column bibliography entry.",
+        "actual": "(2) Smith. Right column bibliography entry."
+      },
+      {
+        "name": "footer does not force continuation onto the next page",
+        "passed": true,
+        "expected": "2. Smith. Last reference on a partial page.",
+        "actual": "2. Smith. Last reference on a partial page."
+      },
+      {
+        "name": "genuine page-edge continuation is preserved",
+        "passed": true,
+        "expected": "2. Smith. A reference spanning the page boundary with its remaining title.",
+        "actual": "2. Smith. A reference spanning the page boundary with its remaining title."
+      },
+      {
+        "name": "capital initial is not a heading: A Survey of Language Model Interpretability.",
+        "passed": true,
+        "expected": "Smith, J. (2024). A Survey of Language Model Interpretability.",
+        "actual": "Smith, J. (2024). A Survey of Language Model Interpretability."
+      },
+      {
+        "name": "capital initial is not a heading: Y LeCun, L Bottou. Learning useful representations.",
+        "passed": true,
+        "expected": "Smith, J. (2024). Y LeCun, L Bottou. Learning useful representations.",
+        "actual": "Smith, J. (2024). Y LeCun, L Bottou. Learning useful representations."
+      },
+      {
+        "name": "real appendix heading stops extraction",
+        "passed": true,
+        "expected": "Smith, J. (2024). A complete paper reference.",
+        "actual": "Smith, J. (2024). A complete paper reference."
+      },
+      {
+        "name": "a superscript before author initials is not a heading",
+        "passed": true,
+        "expected": "𝑛 Z. M. Kim. A scientific reference containing superscripts.",
+        "actual": "𝑛 Z. M. Kim. A scientific reference containing superscripts."
+      },
+      {
+        "name": "FitH anchors separate closely spaced author-year entries",
+        "passed": true,
+        "expected": "Smith, J. (2024). The intended scientific article.",
+        "actual": "Smith, J. (2024). The intended scientific article."
+      },
+      {
+        "name": "FitBH anchors separate closely spaced author-year entries",
+        "passed": true,
+        "expected": "Smith, J. (2024). The intended scientific article.",
+        "actual": "Smith, J. (2024). The intended scientific article."
+      },
+      {
+        "name": "missing x can identify the right column by y",
+        "passed": true,
+        "expected": "Smith, J. (2024). The right-column reference.",
+        "actual": "Smith, J. (2024). The right-column reference."
+      },
+      {
+        "name": "ambiguous missing x declines to guess a column",
+        "passed": true,
+        "expected": null,
+        "actual": null
+      }
+    ],
+    "reviewBrowser": [
+      {
+        "name": "missing extraction shows unavailable without lookup",
+        "state": "unavailable",
+        "text": "Reference text unavailable — could not read this citation’s bibliography entry.",
+        "lookups": 0,
+        "passed": true
+      },
+      {
+        "name": "empty extraction shows unavailable without lookup",
+        "state": "unavailable",
+        "text": "Reference text unavailable — could not read this citation’s bibliography entry.\n\nJump to page 10",
+        "lookups": 0,
+        "passed": true
+      },
+      {
+        "name": "throw extraction shows unavailable without lookup",
+        "state": "unavailable",
+        "text": "Reference text unavailable — could not read this citation’s bibliography entry.",
+        "lookups": 0,
+        "passed": true
+      },
+      {
+        "name": "detached Add icon does not dismiss the card",
+        "targetDetached": true,
+        "uploads": 1,
+        "staysDuringImport": true,
+        "staysAfterImport": true,
+        "passed": true
+      },
+      {
+        "name": "outside click still dismisses",
+        "passed": true
+      }
+    ]
+  },
+  "liveRequestLatency": {
+    "local": {
+      "n": 231,
+      "p50": 134.37195899999642,
+      "p95": 1869.0152499999967
+    },
+    "global": {
+      "n": 93,
+      "p50": 1493.3682499999995,
+      "p95": 3062.6800420000072
+    }
+  },
+  "serviceFailures": 163,
+  "noLinks": [
+    {
+      "id": "2cb00985-e47a-4b58-ac74-91fb036c1f37",
+      "title": "CRISPR-CLEAR: Nucleotide-Resolution Mapping of Regulatory Elements via Allelic Readout of Tiled Base Editing",
+      "ocrCitationTargets": 19
+    },
+    {
+      "id": "7cf2b64e-02c0-4fb9-9c8c-e0e7080ce09e",
+      "title": "Reconstruction of human metabolic models with large language models",
+      "ocrCitationTargets": 33
+    },
+    {
+      "id": "c942dee2-68ea-40bd-a5b4-d0a82932a59b",
+      "title": "Generation and analysis of context-specific genome-scale metabolic models derived from single-cell RNA-Seq data",
+      "ocrCitationTargets": 79
+    },
+    {
+      "id": "d4cb7e17-200d-45c7-ab9b-9a9b50c517c3",
+      "title": "Generation and Analysis of Context-Specific Genome-Scale Metabolic Models Derived from Single-Cell RNA-Seq Data",
+      "ocrCitationTargets": 25
+    }
+  ],
+  "unlabelledDestinations": 449,
+  "caveats": [
+    "OCR citation targets are an estimate and a different unit from annotation boxes. Range citations and author/year split links prevent a simple combined coverage percentage.",
+    "No-annotation papers remain unsupported.",
+    "Resolution replay shares successful responses across case/whitespace/punctuation equivalent queries. Unrecorded queries remain unavailable. Recall is a lower bound, not full OpenAlex retrieval recall.",
+    "Browser latency comparison uses six real readers, one cold and four warm hovers each, with controlled 150ms empty backend responses. Live library hover and live request latencies are reported separately.",
+    "Baseline browser traces were captured before edits; source extraction and resolution replay are recomputed from the preserved original sources."
+  ]
+}

@@ -72,9 +72,7 @@ function normalizeTitle(value: string): string {
 	return value
 		.normalize("NFKD")
 		.toLowerCase()
-		.replace(/[^a-z0-9 ]+/g, " ")
-		.replace(/\s+/g, " ")
-		.trim();
+		.replace(/[^a-z0-9]+/g, "");
 }
 
 /**
@@ -86,6 +84,11 @@ function titleMatches(candidateTitle: string, referenceText: string): boolean {
 	const title = normalizeTitle(candidateTitle);
 	if (title.length < 20) return false;
 	return normalizeTitle(referenceText).includes(title);
+}
+
+function authorsMatch(authors: string[], referenceText: string): boolean {
+	const surnames = authors.map(name => normalizeTitle(name.split(/\s+/).at(-1) ?? "")).filter(name => name.length >= 3);
+	return surnames.length === 0 || surnames.some(name => normalizeTitle(referenceText).includes(name));
 }
 
 /** Leading "Bostrom, N." / "Vaswani, A., Shazeer, N., et al." author block. */
@@ -111,13 +114,16 @@ export function buildQueries(referenceText: string): string[] {
 
 	// Drop the author block; what follows a reference's authors is the title.
 	const withoutAuthors = cleaned.replace(AUTHOR_PREFIX_RE, "").trim();
+	// Quoted titles are common in author-year bibliographies. Keep their commas.
+	const quoted = cleaned.match(/[“"]([^”"]{20,200})[”"]/);
+	if (quoted) queries.push(quoted[1]);
 
 	// Sentence split. `.` immediately followed by a capital with no space is an
 	// extraction artefact ("Strategies.AI)"), so treat it as a boundary too —
 	// but not when the preceding token is an initial ("N. Superintelligence").
-	const source = withoutAuthors || cleaned;
+	const source = (withoutAuthors || cleaned).replace(/^.*?\((?:19|20)\d{2}[a-z]?\)\.?\s+(?=[A-Z])/, "");
 	const segments = source
-		.split(/(?<=[a-z0-9)\]])\.(?=\s|[A-Z])|(?<=\w)\?\s+/)
+		.split(/\.(?=\s|[A-Z])|(?<=\w)\?\s+(?=[A-Z])/)
 		.map((s) => s.trim())
 		.filter(Boolean);
 
@@ -133,7 +139,12 @@ export function buildQueries(referenceText: string): string[] {
 		if (words.length < 4 || words.length > 30) continue;
 		if (stopRe.test(seg)) continue;
 		if (!/[a-z]{3}/i.test(seg)) continue;
-		queries.push(seg.replace(/["“”]/g, "").trim());
+		// Author lists can be longer than titles and used to occupy both search
+		// slots. Initials or several comma-separated capitalized names identify
+		// those lists without splitting titles at their commas.
+		if ((seg.match(/\b[A-Z]\.\s/g) ?? []).length >= 2) continue;
+		if ((seg.match(/,/g) ?? []).length >= 2 && words.filter(w => /^[A-Z]/.test(w)).length / words.length > .6) continue;
+		queries.push(seg.replace(/["“”]/g, "").replace(/,?\s+(?:(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+)?(?:19|20)\d{2}[a-z]?\.?$/, "").trim());
 	}
 
 	// Whole entry, trimmed. OpenAlex tolerates a messy query, and the title
@@ -142,7 +153,9 @@ export function buildQueries(referenceText: string): string[] {
 	if (whole.length > 20) queries.push(whole.slice(0, 200));
 
 	const arxivId = extractArxivId(referenceText);
-	if (arxivId) queries.unshift(`arXiv:${arxivId}`);
+	// Identifier search is a fallback: general search does not reliably index
+	// arXiv IDs, and must never displace a usable title query.
+	if (arxivId) queries.push(`arXiv:${arxivId}`);
 
 	return [...new Set(queries)].slice(0, 4);
 }
@@ -159,6 +172,7 @@ async function searchLibrary(
 	for (const paper of results?.papers ?? []) {
 		if (!paper.title) continue;
 		if (!titleMatches(paper.title, referenceText)) continue;
+		if (!authorsMatch(paper.authors ?? [], referenceText)) continue;
 		return {
 			paperId: paper.id,
 			title: paper.title,
@@ -183,6 +197,7 @@ async function searchOpenAlex(
 	);
 	for (const work of response?.results ?? []) {
 		if (!work.title || !titleMatches(work.title, referenceText)) continue;
+		if (!authorsMatch((work.authorships ?? []).map(a => a.author?.display_name ?? ""), referenceText)) continue;
 		const doi = work.doi ?? null;
 		return {
 			doi,
@@ -218,6 +233,24 @@ export async function resolvePaper(
 	referenceText: string,
 	signal?: AbortSignal
 ): Promise<ResolveOutcome> {
+	// Software/data references sometimes quote the associated paper's entire
+	// title. Importing that paper would be a confidently wrong resolution.
+	if (/\b(?:code|data|dataset)\s+for\b.*\b(?:github|deposited|zenodo)\b/i.test(referenceText)) return null;
+	const controller = new AbortController();
+	const abort = () => controller.abort();
+	if (signal?.aborted) return null;
+	signal?.addEventListener("abort", abort, { once: true });
+	const timeout = setTimeout(abort, 8000);
+	try {
+		const result = await performLookup(referenceText, controller.signal);
+		return controller.signal.aborted && !signal?.aborted ? "unavailable" : result;
+	} finally {
+		clearTimeout(timeout);
+		signal?.removeEventListener("abort", abort);
+	}
+}
+
+async function performLookup(referenceText: string, signal: AbortSignal): Promise<ResolveOutcome> {
 	// Two queries per backend, not four. This runs on hover, and each attempt is
 	// a sequential round-trip: an unmatchable reference with four candidates
 	// would otherwise cost eight requests before the card could say "no match",

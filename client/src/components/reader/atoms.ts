@@ -53,9 +53,12 @@ export interface CitationPreviewRaw extends CitationPreviewBase {
 	state: "raw";
 	referenceText: string;
 	destinationPage: number | null;
+	resolving?: boolean;
+	lookupUnavailable?: boolean;
 }
 export interface CitationPreviewUnavailable extends CitationPreviewBase {
 	state: "unavailable";
+	destinationPage: number | null;
 }
 
 export type CitationPreviewState =

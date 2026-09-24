@@ -22,7 +22,7 @@ import { citationPreviewAtom } from "../atoms";
 const CARD_WIDTH = 540;
 const GAP = 12;
 const VIEWPORT_MARGIN = 8;
-const ESTIMATED_HEIGHT = 220;
+const ESTIMATED_HEIGHT = 300;
 
 /**
  * Prefer a 540px card below the anchor with a 12px gap; clamp horizontally
@@ -31,7 +31,7 @@ const ESTIMATED_HEIGHT = 220;
 function computePosition(
 	anchorRect: DOMRect,
 	scroller: HTMLElement
-): { left: number; top: number; width: number } {
+): { left: number; top: number; width: number; above: boolean; maxHeight: number } {
 	const scrollRect = scroller.getBoundingClientRect();
 	const width = Math.min(CARD_WIDTH, scrollRect.width - VIEWPORT_MARGIN * 2);
 	let left = anchorRect.left + anchorRect.width / 2 - width / 2;
@@ -46,9 +46,10 @@ function computePosition(
 		anchorRect.top - scrollRect.top > ESTIMATED_HEIGHT + GAP;
 	// Coordinates are relative to the scroller's content box (the portal target).
 	const top = flip
-		? anchorRect.top - scrollRect.top - GAP - ESTIMATED_HEIGHT + scroller.scrollTop
+		? anchorRect.top - scrollRect.top - GAP + scroller.scrollTop
 		: anchorRect.bottom - scrollRect.top + GAP + scroller.scrollTop;
-	return { left: left - scrollRect.left, top, width };
+	return { left: left - scrollRect.left, top, width, above: flip,
+		maxHeight: Math.max(80, (flip ? anchorRect.top - scrollRect.top : spaceBelow) - GAP - VIEWPORT_MARGIN) };
 }
 
 function formatYear(date: string | null): string | null {
@@ -93,10 +94,8 @@ function Thumbnail({
  * Hover/click preview for a citation.
  *
  * Four states, matching what resolution can actually tell apart: still loading,
- * matched to a paper, found the bibliography text but matched nothing, and
- * couldn't reach the lookup at all. The last two are deliberately distinct —
- * "no match" and "offline" mean different things to someone deciding whether
- * the reference is worth chasing.
+ * matched to a paper, extracted reference text (with lookup status), and
+ * unavailable reference text. Extraction failure never starts a paper lookup.
  */
 export default function CitationPreviewCard({
 	scrollerRef,
@@ -111,6 +110,8 @@ export default function CitationPreviewCard({
 		left: number;
 		top: number;
 		width: number;
+		above: boolean;
+		maxHeight: number;
 	} | null>(null);
 	const [importing, setImporting] = useState(false);
 	const [imported, setImported] = useState(false);
@@ -147,13 +148,14 @@ export default function CitationPreviewCard({
 		top: pos.top,
 		width: pos.width,
 		opacity: visible ? 1 : 0,
-		transform: visible ? "translateY(0)" : "translateY(6px)",
-		transition:
-			"opacity 180ms ease-out, transform 180ms cubic-bezier(0.2, 0.9, 0.3, 1)",
+		transform: pos.above ? "translateY(-100%)" : undefined,
+		maxHeight: pos.maxHeight,
+		overflowY: "auto",
+		transition: "opacity 100ms ease-out",
 	};
 
 	const destinationPage =
-		preview.state === "raw" || preview.state === "paper"
+		preview.state !== "skeleton"
 			? preview.destinationPage
 			: null;
 
@@ -261,9 +263,11 @@ export default function CitationPreviewCard({
 					<p className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
 						<BookOpen className="size-3" /> Reference
 					</p>
-					<p className="line-clamp-4 text-xs leading-relaxed text-foreground">
+					<p className="text-xs leading-relaxed text-foreground break-words">
 						{preview.referenceText}
 					</p>
+					{preview.resolving && <p className="mt-2 text-xs text-muted-foreground" role="status">Looking up paper…</p>}
+					{preview.lookupUnavailable && <p className="mt-2 text-xs text-muted-foreground" role="status">Paper lookup unavailable. The reference is still available above.</p>}
 				</div>
 			);
 			break;
@@ -272,7 +276,7 @@ export default function CitationPreviewCard({
 				<div className="flex items-center gap-3 p-4">
 					<ExternalLink className="size-4 shrink-0 text-muted-foreground" />
 					<p className="text-xs text-muted-foreground">
-						Preview unavailable — could not reach the lookup service.
+						Reference text unavailable — could not read this citation’s bibliography entry.
 					</p>
 				</div>
 			);
@@ -290,6 +294,9 @@ export default function CitationPreviewCard({
 	return createPortal(
 		<div
 			data-citation-preview
+			data-citation-state={preview.state}
+			role="region"
+			aria-label="Citation preview"
 			style={style}
 			className="z-20 overflow-hidden rounded-xl border border-border bg-popover shadow-lg"
 		>

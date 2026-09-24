@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import { modules } from './modules.mjs';
+const api=await modules();
+assert.equal(api.extractArxivId('arXiv preprint arXiv:2412.14093, 2024.'),'2412.14093');
+assert.equal(api.parseCiteHref('#figure.2'),null);
+assert.ok(api.parseCiteHref('#springernature.indd%3A%uFEFF1.%20Author%20and%20an%20entire%20bibliography%20entry'));
+const missing={getDestination:async()=>null,getDestinations:async()=>({'cite.someOtherPaper':[0,{name:'XYZ'},1,2]})};
+assert.equal(await api.resolveDestination(missing,'#cite.missing'),null);
+assert.deepEqual(await api.resolveDestination({getDestination:async()=>[2,{name:'XYZ'},10,20]},'#cite.integer'),{page:3,x:10,y:20});
+assert.deepEqual(await api.resolveDestination({getDestination:async name=>name==='cite.hÃ¤nni'?[0,{name:'XYZ'},10,20]:null},'#cite.h%C3%A4nni'),{page:1,x:10,y:20});
+const title='A distinctive scientific title about learning';
+globalThis.fetch=async url=>new Response(JSON.stringify(String(url).includes('/local')?{papers:[]}:{results:[{title,authorships:[{author:{display_name:'Mary Jones'}}]}]}));
+assert.equal(await api.resolvePaper(`Alex Smith. ${title}. 2024.`),null,'A matching title with contradictory authors must not resolve');
+assert.equal(await api.resolvePaper(`H. Wang. Code for Human-GEM from “${title}” Github. Deposited 2025.`),null,'A software reference must not become its associated publication');
+const aborted=new AbortController();aborted.abort();
+assert.equal(await api.resolvePaper(title,aborted.signal),null);
+console.log('8 citation identity/destination regression checks passed.');

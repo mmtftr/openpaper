@@ -1,5 +1,15 @@
 import type { PDFDocumentProxy } from "../pdfjs";
 
+function decodeLegacyHash(href: string): string {
+  // PDFLinkService uses escape(), including %uXXXX and Latin-1 %XX, rather
+  // than encodeURIComponent(). Publisher names often contain BOMs/accents.
+  return href.replace(/%u([0-9a-f]{4})|%([0-9a-f]{2})/gi, (_match, unicode: string | undefined, byte: string | undefined) => String.fromCharCode(parseInt(unicode ?? byte!, 16)));
+}
+
+export function decodeCitationHref(href: string): string {
+  try { return decodeURIComponent(href); } catch { return decodeLegacyHash(href); }
+}
+
 /**
  * Whitespace-tolerant arXiv ID extraction (notes §4 / bundle regex Ka).
  * Matches "arXiv:2010.12345", "arXiv preprint arXiv:2010.12345",
@@ -7,7 +17,7 @@ import type { PDFDocumentProxy } from "../pdfjs";
  * whitespace between characters since PDF text extraction inserts breaks.
  */
 const ARXIV_ID_RE =
-  /(?:arXiv(\s+preprint)?\s*:?\||arxiv\.org\/abs\/|CoRR,\s*abs\/)\s*((?:\d\s*){4}\.\s*(?:\d\s*){4,6})/gi;
+  /(?:arXiv(\s+preprint)?\s*:?\s*|arxiv\.org\/abs\/|CoRR,\s*abs\/)\s*((?:\d\s*){4}\.\s*(?:\d\s*){4,6})/gi;
 
 export function extractArxivId(text: string): string | null {
   ARXIV_ID_RE.lastIndex = 0;
@@ -47,15 +57,9 @@ export function extractArxivIdFromUrl(url: string): string | null {
 export function parseCiteHref(
   href: string,
 ): { name: string; author: string | null; year: number | null } | null {
-  let decoded = href;
-  try {
-    decoded = decodeURIComponent(href);
-  } catch {
-    // keep raw href
-  }
-  const m = decoded.match(/^#cite\.(.+)$/i);
-  if (!m) return null;
-  const name = m[1];
+  const decoded = decodeCitationHref(href);
+  if (!decoded.startsWith("#") || !isCitationDestination(decoded.slice(1))) return null;
+  const name = decoded.slice(1).replace(/^cite\./i, "");
   // Author + year suffix; the year may be 2-digit ("sutskever14") or 4-digit.
   const am = name.match(/^([a-z]+)[-_]?(\d{2,4})$/i);
   if (!am) return { name, author: null, year: null };
@@ -64,17 +68,19 @@ export function parseCiteHref(
   return { name, author: am[1], year };
 }
 
+/** Explicit bibliography link formats observed in publisher PDFs. */
+export function isCitationDestination(name: string): boolean {
+  return /^(?:cite\.|bib\d+(?:$|[._])|bm_CR\d+$|link_sbref\d+$|[LR]?pone\.[\d.]+\.ref\d+$)/i.test(name) ||
+    /\.indd:B\d+:\d+$/i.test(name) ||
+    /\.indd:\s*\d+\.\s*\S.{20}/u.test(name.replace(/\uFEFF/g, ""));
+}
+
 // Destination kinds we never preview (notes §1, regex list `so`).
 const NON_CITATION_DEST_RE =
   /^(?:fig|figure|tab|table|sec|section|caption|eq|equation|app|appendix|theorem|lemma|definition|algorithm|listing|footnote)[._]/i;
 
 export function isNonCitationDest(href: string): boolean {
-  let decoded = href;
-  try {
-    decoded = decodeURIComponent(href);
-  } catch {
-    // keep raw href
-  }
+  const decoded = decodeCitationHref(href);
   return NON_CITATION_DEST_RE.test(decoded.replace(/^#/, ""));
 }
 
@@ -84,14 +90,17 @@ export interface DestinationPoint {
   y: number | null;
 }
 
-function refToPoint(
-  pdfDoc: PDFDocumentProxy,
+export function destinationToPoint(
+  pdfDoc: Pick<PDFDocumentProxy, "getPageIndex">,
   dest: unknown[],
 ): Promise<DestinationPoint | null> {
   const ref = dest[0];
-  if (ref == null || typeof ref !== "object") return Promise.resolve(null);
-  const x = typeof dest[2] === "number" ? dest[2] : null;
-  const y = typeof dest[3] === "number" ? dest[3] : null;
+  if (ref == null || (typeof ref !== "object" && typeof ref !== "number")) return Promise.resolve(null);
+  const kind = (dest[1] as { name?: string } | null)?.name;
+  const horizontal = kind === "FitH" || kind === "FitBH";
+  const x = !horizontal && typeof dest[2] === "number" ? dest[2] : null;
+  const y = horizontal ? (typeof dest[2] === "number" ? dest[2] : null) : (typeof dest[3] === "number" ? dest[3] : null);
+  if (typeof ref === "number") return Promise.resolve({ page: ref + 1, x, y });
   return pdfDoc
     .getPageIndex(ref as never)
     .then((index) => ({ page: index + 1, x, y }))
@@ -109,12 +118,7 @@ export async function resolveDestination(
   pdfDoc: PDFDocumentProxy,
   href: string,
 ): Promise<DestinationPoint | null> {
-  let decoded = href;
-  try {
-    decoded = decodeURIComponent(href);
-  } catch {
-    // keep raw href
-  }
+  const decoded = decodeCitationHref(href);
 
   const pageForm = decoded.match(/^#page=(\d+)(?:&(?:zoom|xyz)=.*)?$/);
   if (pageForm) {
@@ -124,16 +128,16 @@ export async function resolveDestination(
   if (!decoded.startsWith("#")) return null;
   const name = decoded.slice(1);
 
-  const direct = await getNamedDest(pdfDoc, name);
+  const direct = await getNamedDest(pdfDoc, name) ?? (decodeLegacyHash(href) !== decoded ? await getNamedDest(pdfDoc, decodeLegacyHash(href).slice(1)) : null);
   if (direct && direct.length > 1) {
-    const point = refToPoint(pdfDoc, direct);
+    const point = await destinationToPoint(pdfDoc, direct);
     if (point) return point;
   }
 
   // Fuzzy fallback over all named destinations.
   const fuzzy = await fuzzyDestination(pdfDoc, name);
   if (!fuzzy) return null;
-  return refToPoint(pdfDoc, fuzzy);
+  return destinationToPoint(pdfDoc, fuzzy);
 }
 
 async function getNamedDest(
@@ -171,22 +175,9 @@ async function fuzzyDestination(
   }
   if (!destinations) return null;
 
-  const lowerName = name.toLowerCase();
-  const authorMatch = lowerName.match(/^([a-z]+)[-_.]?(\d{4})/);
-
-  // Pass 1: key containing the same author token and 4-digit year.
-  if (authorMatch) {
-    for (const key of Object.keys(destinations)) {
-      const k = key.toLowerCase().replace(/^(cite|bib|ref)[._]/, "");
-      if (k.includes(authorMatch[1]) && k.includes(authorMatch[2])) {
-        return destinations[key];
-      }
-    }
-  }
-  // Pass 2: first-4-char prefix fallback.
-  const prefix = lowerName.slice(0, 4);
-  for (const key of Object.keys(destinations)) {
-    if (key.toLowerCase().startsWith(prefix)) return destinations[key];
-  }
-  return null;
+  // A shared "cite" prefix says nothing about identity. Never silently use
+  // the first bibliography entry when the requested destination is missing.
+  const normalized = name.normalize("NFC").toLowerCase();
+  const keys = Object.keys(destinations).filter(key => key.normalize("NFC").toLowerCase() === normalized);
+  return keys.length === 1 ? destinations[keys[0]] : null;
 }

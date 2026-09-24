@@ -1,0 +1,31 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import { out, clientRequire } from './modules.mjs';
+const { chromium } = clientRequire('playwright');
+const variant=process.argv[2]||'current';
+const modernChrome=path.join(os.homedir(),'Library/Caches/ms-playwright/chromium-1228/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing');
+const browser=await chromium.launch({executablePath:modernChrome});
+try {
+  const page=await browser.newPage({viewport:{width:1280,height:900}});
+  await page.route('**/api/search/**',async r=>{await new Promise(done=>setTimeout(done,200));await r.fulfill({json:{papers:[],results:[]}});});
+  await page.goto('http://localhost:3107/citation-benchmark?paper=0031984c-e539-4668-a3bd-5a158203f244');
+  const links=page.locator('.annotationLayer a[href^="#cite."]');
+  await links.first().waitFor({timeout:60000});
+  await links.first().scrollIntoViewIfNeeded(); await page.waitForTimeout(300);
+  const card=page.locator('[data-citation-preview]');
+  const results={};
+  await links.first().hover(); await page.waitForTimeout(1200);
+  await links.nth(1).hover(); await page.waitForTimeout(155);
+  results.adjacentKeepsContent=await card.isVisible() && (await card.innerText()).trim().length>0;
+  await page.waitForTimeout(1000);
+  await page.keyboard.press('Escape'); await page.waitForTimeout(60);
+  results.escapeDismisses=!(await card.isVisible());
+  await page.locator('.pdfViewer').evaluate(el=>el.parentElement.dispatchEvent(new Event('scroll')));
+  await page.mouse.move(5,5); await page.waitForTimeout(300);
+  await links.first().hover(); await page.waitForTimeout(25); await page.mouse.move(5,5);
+  await page.waitForTimeout(110);
+  results.quickPassDoesNotFlash=!(await card.isVisible());
+  await fs.writeFile(path.join(out,variant+'-transitions.json'),JSON.stringify(results,null,2));
+  console.log(results);
+} finally {await browser.close();}
