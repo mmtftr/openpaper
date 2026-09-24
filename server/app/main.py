@@ -27,6 +27,7 @@ from app.api.repo_api import repo_router
 from app.api.search_api import search_router
 from app.api.settings_api import settings_router
 from app.api.webhook_api import webhook_router
+from app.ingest.api import ingest_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -100,6 +101,7 @@ app.include_router(paper_search_router, prefix="/api/search/global")
 app.include_router(search_router, prefix="/api/search/local")
 app.include_router(paper_figure_router, prefix="/api/paper")
 app.include_router(repo_router, prefix="/api/paper")
+app.include_router(ingest_router, prefix="/api/paper")
 app.include_router(paper_upload_router, prefix="/api/paper/upload")
 app.include_router(paper_tag_router, prefix="/api/paper/tag")
 app.include_router(webhook_router, prefix="/api/webhooks")  # Webhook routes

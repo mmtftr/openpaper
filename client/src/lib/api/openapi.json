@@ -2222,6 +2222,16 @@
         "title": "EmailVerifyResponse",
         "type": "object"
       },
+      "ErrorKind": {
+        "enum": [
+          "temporary",
+          "rate_limited",
+          "permanent",
+          "config"
+        ],
+        "title": "ErrorKind",
+        "type": "string"
+      },
       "FileUIPart": {
         "additionalProperties": false,
         "description": "A file part of a message.",
@@ -2498,6 +2508,267 @@
         ],
         "title": "HighlightType",
         "type": "string"
+      },
+      "IngestFeatureState": {
+        "properties": {
+          "cause": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cause"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "waiting_on": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Waiting On",
+            "type": "array"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "IngestFeatureState",
+        "type": "object"
+      },
+      "IngestFeatures": {
+        "description": "One entry per feature in `app.ingest.features.FEATURES`.",
+        "properties": {
+          "ai_highlights": {
+            "$ref": "#/components/schemas/IngestFeatureState"
+          },
+          "chat": {
+            "$ref": "#/components/schemas/IngestFeatureState"
+          },
+          "citation_jump": {
+            "$ref": "#/components/schemas/IngestFeatureState"
+          },
+          "figures": {
+            "$ref": "#/components/schemas/IngestFeatureState"
+          },
+          "manual_highlights": {
+            "$ref": "#/components/schemas/IngestFeatureState"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/IngestFeatureState"
+          },
+          "notes": {
+            "$ref": "#/components/schemas/IngestFeatureState"
+          },
+          "outline": {
+            "$ref": "#/components/schemas/IngestFeatureState"
+          },
+          "reading": {
+            "$ref": "#/components/schemas/IngestFeatureState"
+          },
+          "thumbnail": {
+            "$ref": "#/components/schemas/IngestFeatureState"
+          }
+        },
+        "required": [
+          "reading",
+          "manual_highlights",
+          "notes",
+          "metadata",
+          "thumbnail",
+          "chat",
+          "figures",
+          "citation_jump",
+          "outline",
+          "ai_highlights"
+        ],
+        "title": "IngestFeatures",
+        "type": "object"
+      },
+      "IngestStageState": {
+        "properties": {
+          "attempt": {
+            "title": "Attempt",
+            "type": "integer"
+          },
+          "error_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ErrorKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "max_attempts": {
+            "title": "Max Attempts",
+            "type": "integer"
+          },
+          "model_used": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Used"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "next_attempt_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Attempt At"
+          },
+          "progress_done": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress Done"
+          },
+          "progress_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress Total"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "$ref": "#/components/schemas/StageStatus"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "status",
+          "attempt",
+          "max_attempts"
+        ],
+        "title": "IngestStageState",
+        "type": "object"
+      },
+      "IngestStatusResponse": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "features": {
+            "$ref": "#/components/schemas/IngestFeatures"
+          },
+          "legacy": {
+            "title": "Legacy",
+            "type": "boolean"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/IngestStageState"
+            },
+            "title": "Stages",
+            "type": "array"
+          },
+          "worker_last_seen": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Last Seen"
+          },
+          "worker_online": {
+            "title": "Worker Online",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "stages",
+          "features",
+          "active",
+          "worker_online",
+          "legacy"
+        ],
+        "title": "IngestStatusResponse",
+        "type": "object"
       },
       "Institution": {
         "properties": {
@@ -5807,6 +6078,19 @@
         ],
         "title": "SourceUrlUIPart",
         "type": "object"
+      },
+      "StageStatus": {
+        "enum": [
+          "pending",
+          "queued",
+          "running",
+          "succeeded",
+          "skipped",
+          "failed",
+          "blocked"
+        ],
+        "title": "StageStatus",
+        "type": "string"
       },
       "StepStartUIPart": {
         "additionalProperties": false,
@@ -10452,6 +10736,192 @@
           }
         ],
         "summary": "List Paper Figures"
+      }
+    },
+    "/api/paper/{paper_id}/ingest": {
+      "get": {
+        "description": "Stage progress, feature map and worker liveness for one paper.",
+        "operationId": "get_ingest_status_api_paper__paper_id__ingest_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "paper_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Paper Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Client error"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Server error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Ingest Status"
+      }
+    },
+    "/api/paper/{paper_id}/ingest/{stage}/reprocess": {
+      "post": {
+        "description": "Run a stage and everything downstream of it again from scratch.",
+        "operationId": "reprocess_ingest_stage_api_paper__paper_id__ingest__stage__reprocess_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "paper_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Paper Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stage",
+            "required": true,
+            "schema": {
+              "title": "Stage",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Client error"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Server error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Reprocess Ingest Stage"
+      }
+    },
+    "/api/paper/{paper_id}/ingest/{stage}/retry": {
+      "post": {
+        "description": "Retry a failed or blocked stage with a fresh attempt budget.",
+        "operationId": "retry_ingest_stage_api_paper__paper_id__ingest__stage__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "paper_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Paper Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stage",
+            "required": true,
+            "schema": {
+              "title": "Stage",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Client error"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Server error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Retry Ingest Stage"
       }
     },
     "/api/paper/{paper_id}/repo": {

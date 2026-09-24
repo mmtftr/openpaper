@@ -970,6 +970,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/paper/{paper_id}/ingest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Ingest Status
+         * @description Stage progress, feature map and worker liveness for one paper.
+         */
+        get: operations["get_ingest_status_api_paper__paper_id__ingest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/paper/{paper_id}/ingest/{stage}/reprocess": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reprocess Ingest Stage
+         * @description Run a stage and everything downstream of it again from scratch.
+         */
+        post: operations["reprocess_ingest_stage_api_paper__paper_id__ingest__stage__reprocess_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/paper/{paper_id}/ingest/{stage}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry Ingest Stage
+         * @description Retry a failed or blocked stage with a fresh attempt budget.
+         */
+        post: operations["retry_ingest_stage_api_paper__paper_id__ingest__stage__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/paper/{paper_id}/repo": {
         parameters: {
             query?: never;
@@ -2121,6 +2181,11 @@ export interface components {
             success: boolean;
         };
         /**
+         * ErrorKind
+         * @enum {string}
+         */
+        ErrorKind: "temporary" | "rate_limited" | "permanent" | "config";
+        /**
          * FileUIPart
          * @description A file part of a message.
          */
@@ -2218,6 +2283,77 @@ export interface components {
          * @enum {string}
          */
         HighlightType: "topic" | "motivation" | "method" | "evidence" | "result" | "impact" | "general";
+        /** IngestFeatureState */
+        IngestFeatureState: {
+            /** Cause */
+            cause?: string | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Reason */
+            reason?: string | null;
+            /**
+             * Waiting On
+             * @default []
+             */
+            waiting_on?: string[];
+        };
+        /**
+         * IngestFeatures
+         * @description One entry per feature in `app.ingest.features.FEATURES`.
+         */
+        IngestFeatures: {
+            ai_highlights: components["schemas"]["IngestFeatureState"];
+            chat: components["schemas"]["IngestFeatureState"];
+            citation_jump: components["schemas"]["IngestFeatureState"];
+            figures: components["schemas"]["IngestFeatureState"];
+            manual_highlights: components["schemas"]["IngestFeatureState"];
+            metadata: components["schemas"]["IngestFeatureState"];
+            notes: components["schemas"]["IngestFeatureState"];
+            outline: components["schemas"]["IngestFeatureState"];
+            reading: components["schemas"]["IngestFeatureState"];
+            thumbnail: components["schemas"]["IngestFeatureState"];
+        };
+        /** IngestStageState */
+        IngestStageState: {
+            /** Attempt */
+            attempt: number;
+            error_kind?: components["schemas"]["ErrorKind"] | null;
+            /** Error Message */
+            error_message?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Label */
+            label: string;
+            /** Max Attempts */
+            max_attempts: number;
+            /** Model Used */
+            model_used?: string | null;
+            /** Name */
+            name: string;
+            /** Next Attempt At */
+            next_attempt_at?: string | null;
+            /** Progress Done */
+            progress_done?: number | null;
+            /** Progress Total */
+            progress_total?: number | null;
+            /** Started At */
+            started_at?: string | null;
+            status: components["schemas"]["StageStatus"];
+        };
+        /** IngestStatusResponse */
+        IngestStatusResponse: {
+            /** Active */
+            active: boolean;
+            features: components["schemas"]["IngestFeatures"];
+            /** Legacy */
+            legacy: boolean;
+            /** Stages */
+            stages: components["schemas"]["IngestStageState"][];
+            /** Worker Last Seen */
+            worker_last_seen?: string | null;
+            /** Worker Online */
+            worker_online: boolean;
+        };
         /** Institution */
         Institution: {
             /** Country Code */
@@ -3205,6 +3341,11 @@ export interface components {
             /** Url */
             url: string;
         };
+        /**
+         * StageStatus
+         * @enum {string}
+         */
+        StageStatus: "pending" | "queued" | "running" | "succeeded" | "skipped" | "failed" | "blocked";
         /**
          * StepStartUIPart
          * @description A step boundary part of a message.
@@ -5942,6 +6083,128 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PaperFigureSummary"][];
+                };
+            };
+            /** @description Client error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Server error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_ingest_status_api_paper__paper_id__ingest_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                paper_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestStatusResponse"];
+                };
+            };
+            /** @description Client error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Server error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    reprocess_ingest_stage_api_paper__paper_id__ingest__stage__reprocess_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                paper_id: string;
+                stage: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestStatusResponse"];
+                };
+            };
+            /** @description Client error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Server error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    retry_ingest_stage_api_paper__paper_id__ingest__stage__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                paper_id: string;
+                stage: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestStatusResponse"];
                 };
             };
             /** @description Client error */

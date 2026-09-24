@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import { citationStyles, copyToClipboard, PaperBase } from '@/components/utils/paperUtils';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useFeatureGate, useStageRefreshKey } from '@/hooks/useIngest';
 import { api, unwrap } from '@/lib/api/client';
 import { Check, Copy, Loader, Quote } from 'lucide-react';
 import { usePathname } from 'next/navigation';
@@ -58,10 +59,17 @@ export function CitePaperButton({ paper, paperId: providedPaperId, minimalist = 
     // Determine the paper ID to use (only for single paper mode)
     const effectivePaperId = providedPaperId || derivedPaperId;
 
+    // A single paper looked up by id waits for ingest's metadata stages
+    // (title / authors / DOI), and is re-read when they finish.
+    const ingestPaperId = paper ? null : effectivePaperId;
+    const metadataGate = useFeatureGate(ingestPaperId, "metadata");
+    const metadataRefreshKey = useStageRefreshKey(ingestPaperId, ["metadata", "metadata_fallback"]);
+    const metadataBlocked = metadataGate.ready && !metadataGate.enabled ? metadataGate.message : null;
+
     // Without paper data from props, fetch the paper once the dialog opens.
     const fetchPaperId = !(paper && paper.length > 0) && isOpen ? effectivePaperId : null;
     const { data: fetchedPaper } = useSWR(
-        fetchPaperId ? ["/api/paper", fetchPaperId] : null,
+        fetchPaperId ? ["/api/paper", fetchPaperId, metadataRefreshKey] : null,
         ([, id]) => unwrap(api.GET("/api/paper", { params: { query: { id } } })),
         { keepPreviousData: true, onError: () => toast.error("Failed to fetch paper details.") },
     );
@@ -95,6 +103,23 @@ export function CitePaperButton({ paper, paperId: providedPaperId, minimalist = 
 
     if (!effectivePaperId && !paper) {
         return null;
+    }
+
+    if (metadataBlocked) {
+        return (
+            <span title={metadataBlocked} className="inline-flex">
+                <Button
+                    variant={iconOnly ? "ghost" : variant}
+                    size="sm"
+                    disabled
+                    aria-label={`Cite: ${metadataBlocked}`}
+                    className={iconOnly ? "h-7 w-7 p-0" : variant === "outline" ? "h-8 px-3 text-xs" : ""}
+                >
+                    <Quote className="h-3.5 w-3.5" />
+                    {!iconOnly && <span>Cite</span>}
+                </Button>
+            </span>
+        );
     }
 
     const triggerButton = iconOnly ? (

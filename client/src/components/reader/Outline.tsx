@@ -7,6 +7,8 @@ import type { PDFDocumentProxy } from "./pdfjs";
 import { pdfDocAtom } from "./atoms";
 import { viewerApiAtom } from "./useViewer";
 import { api as apiClient, unwrap, type Schemas } from "@/lib/api/client";
+import { FeatureGate } from "@/components/ingest/FeatureGate";
+import { useFeatureGate, useStageRefreshKey } from "@/hooks/useIngest";
 
 function generatedItems(entries: Schemas["OutlineEntry"][]): OutlineItem[] {
 	return entries.map((entry) => ({
@@ -133,6 +135,11 @@ export default function Outline({ displayedPaperId }: { displayedPaperId: string
 	const [generated, setGenerated] = useState(false);
 	const [error, setError] = useState(false);
 	const [attempt, setAttempt] = useState(0);
+	// The generated outline comes from ingest's `outline` stage: wait for it,
+	// and re-read it when that stage finishes (again) while the reader is open.
+	const outlineGate = useFeatureGate(displayedPaperId, "outline");
+	const outlineReady = outlineGate.ready && outlineGate.enabled;
+	const outlineRefreshKey = useStageRefreshKey(displayedPaperId, ["outline"]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -150,6 +157,7 @@ export default function Outline({ displayedPaperId }: { displayedPaperId: string
 					return;
 				}
 				setGenerated(true);
+				if (!outlineReady) return;
 				const entries = await unwrap(
 					apiClient.GET("/api/paper/outline", {
 						params: { query: { id: displayedPaperId } },
@@ -165,7 +173,7 @@ export default function Outline({ displayedPaperId }: { displayedPaperId: string
 			cancelled = true;
 			controller.abort();
 		};
-	}, [doc, displayedPaperId, attempt]);
+	}, [doc, displayedPaperId, attempt, outlineReady, outlineRefreshKey]);
 
 	if (error)
 		return (
@@ -176,6 +184,9 @@ export default function Outline({ displayedPaperId }: { displayedPaperId: string
 				</button>
 			</div>
 		);
+
+	if (!items && generated && outlineGate.ready && !outlineGate.enabled)
+		return <FeatureGate paperId={displayedPaperId} feature="outline" className="h-auto p-4 text-xs" />;
 
 	if (!items)
 		return (

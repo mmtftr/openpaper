@@ -26,6 +26,7 @@ import { useAuth } from '@/lib/auth';
 import PaperViewSkeleton from '@/components/PaperViewSkeleton';
 import ReportSkeleton from '@/components/ReportSkeleton';
 import { usePaperHeader } from '@/components/PaperHeaderContext';
+import { useFeatureGate, useStageRefreshKey } from '@/hooks/useIngest';
 
 import { SidePanelContent } from '@/components/SidePanelContent';
 import { PaperMarkdownReader } from '@/components/PaperMarkdownReader';
@@ -90,7 +91,9 @@ export default function PaperView() {
 
     // Highlights and annotations belong to the PDF being shown, not the parent:
     // a supplementary's highlights render on (and new ones attach to) the
-    // supplementary. Both hooks re-fetch when the displayed paper changes.
+    // supplementary. Both hooks re-fetch when the displayed paper changes,
+    // and highlights again when ingest's AI highlights stage finishes.
+    const highlightsRefreshKey = useStageRefreshKey(displayedPaperId, ['highlights']);
     const {
         highlights,
         activeHighlight,
@@ -99,7 +102,7 @@ export default function PaperView() {
         removeHighlight,
         recolorHighlight,
         fetchHighlights
-    } = useHighlighterHighlights(displayedPaperId);
+    } = useHighlighterHighlights(displayedPaperId, highlightsRefreshKey);
 
     const {
         annotations,
@@ -311,7 +314,13 @@ export default function PaperView() {
     // explicit search term lands on the right document — the reader holds the
     // search until that PDF has loaded. `page` is the page the agent quoted
     // from, handed to the reader as a search hint.
+    const citationJump = useFeatureGate(parentPaperId, 'citation_jump');
+    const citationJumpBlocked = citationJump.ready && !citationJump.enabled ? citationJump.message : null;
     const handleCitationClick = useCallback((key: string, messageIndex: number, paperId?: string, page?: number) => {
+        if (citationJumpBlocked) {
+            toast.info(citationJumpBlocked);
+            return;
+        }
         setHighlightJumpRequest(null);
         setActiveCitationKey(key);
         setActiveCitationMessageIndex(messageIndex);
@@ -350,7 +359,7 @@ export default function PaperView() {
 
         // Clear the highlight after a few seconds
         setTimeout(() => setActiveCitationKey(null), 3000);
-    }, [parentPaperId, displayedPaperId, jumpToText]);
+    }, [parentPaperId, displayedPaperId, jumpToText, citationJumpBlocked]);
 
     const handleSearchComplete = useCallback((term: string, matchCount: number) => {
         const pending = pendingCitationLookupRef.current;
@@ -501,6 +510,22 @@ export default function PaperView() {
         refreshAnnotations();
         fetchHighlights();
     }, [id, jobId]);
+
+    // Title / authors / DOI come from ingest's metadata stages: re-read the
+    // paper when one of them finishes while the page is open.
+    const metadataRefreshKey = useStageRefreshKey(parentPaperId, ['metadata', 'metadata_fallback']);
+    useEffect(() => {
+        if (!metadataRefreshKey || !parentPaperId) return;
+        let cancelled = false;
+        getPaper(parentPaperId)
+            .then((response) => {
+                if (!cancelled) setPaperData(response);
+            })
+            .catch((err) => console.error('Error refreshing paper metadata:', err));
+        return () => {
+            cancelled = true;
+        };
+    }, [metadataRefreshKey, parentPaperId]);
 
     useEffect(() => {
         if (userMessageReferences.length > 0) {
@@ -669,6 +694,7 @@ export default function PaperView() {
         handleHighlightClick,
         activeHighlight,
         id: parentPaperId,
+        displayedPaperId,
         matchesCurrentCitation,
         flashesCurrentCitation,
         jumpToText,
