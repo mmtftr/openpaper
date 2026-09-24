@@ -73,6 +73,7 @@ from app.llm.chat.history import (
     BUCKET_INTERRUPTED_KEY,
     BUCKET_VERSION,
     BUCKET_VERSION_KEY,
+    CLIENT_MESSAGE_ID_KEY,
     MODEL_PROMPT_KEY,
     load_model_history,
     strip_figure_bytes,
@@ -98,8 +99,6 @@ from app.schemas.chat_stream import (
 from app.schemas.user import CurrentUser
 
 logger = logging.getLogger(__name__)
-
-CLIENT_MESSAGE_ID_KEY = "client_message_id"
 
 # Transient UI chunk announcing a provider retry. Wire contract with the
 # client (camelCase payload keys):

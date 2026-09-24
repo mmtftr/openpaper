@@ -79,6 +79,9 @@ MODEL_PROMPT_KEY = "model_prompt"
 # is present only in the failure case: `{"message": "..."}`.
 BUCKET_INTERRUPTED_KEY = "interrupted"
 BUCKET_ERROR_KEY = "error"
+# On user rows: the AI SDK message id the client sent. History serves it as
+# the UIMessage id so reloaded turns dedupe against the live ones.
+CLIENT_MESSAGE_ID_KEY = "client_message_id"
 
 # High-water mark (chars) for the full-dump replay window: ~90k tokens at
 # 4 chars/token. The window is the newest run of turns that fits under it.
@@ -740,7 +743,18 @@ def serialize_ui_messages(rows: Sequence[Message]) -> List[Dict[str, Any]]:
             citations = _citations_part(message.references)
             if citations:
                 parts.append(citations)
-            ui = UIMessage(id=str(message.id), role="user", parts=parts)
+            # The client's own id, so "load earlier" dedupes against live
+            # messages; legacy rows without one fall back to the DB id.
+            bucket = getattr(message, "bucket", None)
+            client_id = (
+                bucket.get(CLIENT_MESSAGE_ID_KEY) if isinstance(bucket, dict) else None
+            )
+            ui_id = (
+                client_id
+                if isinstance(client_id, str) and client_id
+                else str(message.id)
+            )
+            ui = UIMessage(id=ui_id, role="user", parts=parts)
         elif role == "assistant":
             parts = []
             dump = _dump_from_bucket(message)

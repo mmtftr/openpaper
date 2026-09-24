@@ -1,5 +1,6 @@
 """Discovery pipeline: decompose research questions into subqueries and search."""
 
+import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import AsyncGenerator, List, Optional
@@ -96,7 +97,9 @@ async def run_discover_pipeline(
     for subquery in subqueries:
         try:
             if use_openalex:
-                results = search_openalex(
+                # The search clients are synchronous; keep them off the loop.
+                results = await asyncio.to_thread(
+                    search_openalex,
                     subquery,
                     num_results=10,
                     sort=sort,
@@ -104,7 +107,8 @@ async def run_discover_pipeline(
                     year_filter=year_filter,
                 )
             else:
-                results = search_exa(
+                results = await asyncio.to_thread(
+                    search_exa,
                     subquery,
                     num_results=10,
                     domains=exa_domains,

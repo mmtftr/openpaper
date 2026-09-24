@@ -10,7 +10,8 @@
     "start": "next start",
     "lint": "next lint",
     "go": "yarn install && yarn build && yarn start",
-    "gen:api": "cd ../server && uv run --frozen python -m app.scripts.export_openapi ../client/src/lib/api/openapi.json && cd ../client && openapi-typescript src/lib/api/openapi.json -o src/lib/api/schema.d.ts --default-non-nullable=false"
+    "gen:api": "cd ../server && uv run --frozen python -m app.scripts.export_openapi ../client/src/lib/api/openapi.json && cd ../client && openapi-typescript src/lib/api/openapi.json -o src/lib/api/schema.d.ts --default-non-nullable=false",
+    "check:api": "tmp=$(mktemp) && openapi-typescript src/lib/api/openapi.json -o \"$tmp\" --default-non-nullable=false >/dev/null && if cmp -s \"$tmp\" src/lib/api/schema.d.ts; then rm -f \"$tmp\"; else rm -f \"$tmp\"; echo 'src/lib/api/schema.d.ts is stale vs openapi.json: run yarn gen:api' >&2; exit 1; fi"
   },
   "dependencies": {
     "@ai-sdk/react": "3.0.273",

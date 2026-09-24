@@ -139,7 +139,9 @@ def upload_and_process_file(
         error = f"Processing crashed the worker {attempts - 1} times; giving up on this PDF"
         logger.error(f"Task {task_id}: {error}")
         _send_failure_webhook(task_id, webhook_url, error)
-        return {"task_id": task_id, "status": "failed", "result": None, "error": error}
+        # Raise so Celery records FAILURE (status polling reconciles from it);
+        # task_acks_on_failure_or_timeout acks it, so this isn't redelivered.
+        raise RuntimeError(error)
 
     try:
         logger.info(f"Starting PDF processing for task {task_id}")

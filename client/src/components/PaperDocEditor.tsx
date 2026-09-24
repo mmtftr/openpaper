@@ -108,6 +108,15 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
     const inFlightRef = useRef(false);
     const docRef = useRef<DocumentResponse | null>(null);
     docRef.current = doc;
+    // Set on a 409 against someone else's write; cleared only when the user
+    // resolves it (Reload) or leaves this doc. While set, no save path
+    // (autosave, doc-switch flush, unmount flush) may write the stale draft.
+    const conflictRef = useRef(false);
+    const [inConflict, setInConflict] = useState(false);
+    const setConflict = useCallback((value: boolean) => {
+        conflictRef.current = value;
+        setInConflict(value);
+    }, []);
 
     // Initial fetch: list docs, then load MAIN (auto-created server-side if
     // missing). Subsequent switches are handled by the activeDocId effect.
@@ -151,6 +160,9 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                 setOverwriteContent(response.content);
                 setOverwriteToken((t) => t + 1);
                 pendingContentRef.current = null;
+                // A different doc: the previous one's unsaved conflicting
+                // draft was dropped (never saved), so there's nothing to resolve.
+                setConflict(false);
                 setStatus({ kind: 'idle' });
             } catch (e) {
                 if (cancelled) return;
@@ -163,13 +175,14 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
         return () => {
             cancelled = true;
         };
-    }, [activeDocId]);
+    }, [activeDocId, setConflict]);
 
     const persist = useCallback(async () => {
         const current = docRef.current;
         const pending = pendingContentRef.current;
         if (!current || pending == null) return;
         if (inFlightRef.current) return;
+        if (conflictRef.current) return;
 
         const byteLen = new TextEncoder().encode(pending).length;
         if (byteLen > MAX_DOC_BYTES) {
@@ -194,12 +207,14 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
             e instanceof ApiRequestError && e.status === 409
                 ? (e.body as Schemas["RevisionConflictError"])
                 : null;
-        // Stop autosaving and show the conflict prompt; the user's text stays
-        // in the editor until they reload.
-        const enterConflict = (latest: Schemas["RevisionConflictError"]) => {
+        // Stop saving and show the conflict prompt; the user's text stays in
+        // the editor until they reload. The base revision is deliberately NOT
+        // advanced to the server's: any save against it would 409 again
+        // rather than overwrite the other writer's content.
+        const enterConflict = () => {
             stopRetrying = true;
             if (docRef.current?.id !== sentDocId) return;
-            setDoc({ ...current, revision: latest.current_revision, content: latest.current_content });
+            setConflict(true);
             setStatus({ kind: 'conflict' });
         };
         try {
@@ -218,7 +233,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                 } else if (latest.current_content !== current.content) {
                     // Someone else (the chat agent, another tab) wrote different
                     // content: don't overwrite it, let the user reload.
-                    enterConflict(latest);
+                    enterConflict();
                     return;
                 } else {
                     // Only the revision moved; the content is still our last
@@ -229,7 +244,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                         const again = conflictOf(retryError);
                         if (!again) throw retryError;
                         // Lost the race again; stop and let the user reload.
-                        enterConflict(again);
+                        enterConflict();
                         return;
                     }
                 }
@@ -269,7 +284,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                 debounceTimerRef.current = setTimeout(persist, AUTOSAVE_DEBOUNCE_MS);
             }
         }
-    }, []);
+    }, [setConflict]);
 
     const handleChange = useCallback(
         (markdown: string) => {
@@ -281,7 +296,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                 return;
             }
             pendingContentRef.current = markdown;
-            if (status.kind === 'too-large' || status.kind === 'conflict') {
+            if (status.kind === 'too-large' || conflictRef.current) {
                 // Block autosaves while the user resolves the situation.
                 return;
             }
@@ -299,10 +314,22 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
             clearTimeout(debounceTimerRef.current);
             debounceTimerRef.current = null;
         }
+        // In conflict, `persist` refuses to save: switching docs drops the
+        // stale draft rather than writing it over the other writer's content.
         if (pendingContentRef.current != null) {
             await persist();
         }
     }, [persist]);
+
+    // Leaving a doc mid-conflict drops the unsaved draft (it's never written
+    // over the other change), so ask first.
+    const confirmDropConflict = useCallback(
+        () =>
+            !conflictRef.current ||
+            typeof window === 'undefined' ||
+            window.confirm('This doc has unsaved edits that conflict with a newer version. Discard them?'),
+        []
+    );
 
     const handleReload = useCallback(async () => {
         if (!activeDocId) return;
@@ -313,6 +340,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
             setOverwriteContent(response.content);
             setOverwriteToken((t) => t + 1);
             pendingContentRef.current = null;
+            setConflict(false);
             setStatus({ kind: 'idle' });
         } catch (e) {
             setStatus({
@@ -320,21 +348,23 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                 message: e instanceof Error ? e.message : 'Reload failed',
             });
         }
-    }, [activeDocId]);
+    }, [activeDocId, setConflict]);
 
     const handleSwitch = useCallback(
         async (id: string) => {
             setSwitcherOpen(false);
             if (id === activeDocId) return;
+            if (!confirmDropConflict()) return;
             await flushPending();
             setActiveDocId(id);
         },
-        [activeDocId, flushPending]
+        [activeDocId, confirmDropConflict, flushPending]
     );
 
     const handleCreate = useCallback(async () => {
         try {
             setSwitcherOpen(false);
+            if (!confirmDropConflict()) return;
             await flushPending();
             const created = await unwrap(api.POST('/api/document', {
                 body: { paper_id: paperId, title: 'New doc' },
@@ -355,7 +385,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                 message: e instanceof Error ? e.message : 'Could not create doc',
             });
         }
-    }, [paperId, flushPending]);
+    }, [paperId, confirmDropConflict, flushPending]);
 
     const handleRenameSubmit = useCallback(
         async (id: string) => {
@@ -467,6 +497,8 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
             const pending = pendingContentRef.current;
             const current = docRef.current;
             if (!pending || !current) return;
+            // Never write a conflicting draft over someone else's content.
+            if (conflictRef.current) return;
             const byteLen = new TextEncoder().encode(pending).length;
             if (byteLen > MAX_DOC_BYTES) return;
             // sendBeacon won't carry our auth cookie credentials reliably across
@@ -607,7 +639,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
 
                 <div className="flex items-center gap-2">
                     <StatusRow status={status} />
-                    {status.kind === 'conflict' && (
+                    {inConflict && (
                         <button
                             type="button"
                             onClick={handleReload}

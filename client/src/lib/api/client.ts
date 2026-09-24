@@ -6,7 +6,8 @@
  *       unwrap(api.GET("/api/paper/outline", { params: { query: { id } } })));
  *
  * Regenerate the types after changing server routes: `yarn gen:api`
- * (a server test fails while `openapi.json` is stale).
+ * (a server test fails while `openapi.json` is stale; `yarn check:api`
+ * fails while `schema.d.ts` is stale against the committed `openapi.json`).
  */
 import createClient from "openapi-fetch";
 import type { components, paths } from "./schema";

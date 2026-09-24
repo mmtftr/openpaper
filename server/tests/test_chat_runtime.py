@@ -1526,22 +1526,33 @@ class TestSerializeUIMessages:
         )
         assert _parts_by_type(out[0]) == ["data-citations"]
 
-    def test_ids_match_db_rows_and_bucket_never_leaks(self):
-        uid, aid = str(uuid.uuid4()), str(uuid.uuid4())
+    def test_ids_match_live_messages_and_bucket_never_leaks(self):
+        """User turns carry the client's own message id (what the live
+        message has), so "load earlier" dedupes them; assistant turns carry
+        the DB id (the server's stream message id). Legacy user rows without
+        a stored client id fall back to the DB id."""
+        uid, aid, legacy_id = (str(uuid.uuid4()) for _ in range(3))
         rows = [
-            _row("user", "q", row_id=uid, bucket={"client_message_id": "secret"}),
+            _row(
+                "user",
+                "q",
+                row_id=uid,
+                bucket={"client_message_id": "client-1", "model_prompt": "secret"},
+            ),
             _row(
                 "assistant",
                 "a",
                 row_id=aid,
-                bucket=_bucketed(_tool_turn_dump("q", "a"), client_id="secret"),
+                bucket=_bucketed(_tool_turn_dump("q", "a"), client_id="client-1"),
             ),
+            _row("user", "q2", row_id=legacy_id),
         ]
         out = serialize_ui_messages(rows)
-        assert [m["id"] for m in out] == [uid, aid]
+        assert [m["id"] for m in out] == ["client-1", aid, legacy_id]
         blob = json.dumps(out)
         assert "bucket" not in blob
         assert "client_message_id" not in blob
+        assert "model_prompt" not in blob
         assert "secret" not in blob
 
     def test_unknown_role_skipped(self):
