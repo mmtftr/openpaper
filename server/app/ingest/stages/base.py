@@ -163,6 +163,28 @@ class StageContext:
 
         return await asyncio.to_thread(call)
 
+    async def write(self, fn: Callable[[Session], T]) -> T:
+        """Run `fn(session)` in its own short write transaction, committed
+        when `fn` returns (rolled back if it raises), off the event loop.
+
+        Only for progress that must survive a failed attempt (OCR batches);
+        a stage's normal output goes through `save()`.
+        """
+
+        def call() -> T:
+            session = self.session_factory()
+            try:
+                result = fn(session)
+                session.commit()
+                return result
+            except BaseException:
+                session.rollback()
+                raise
+            finally:
+                session.close()
+
+        return await asyncio.to_thread(call)
+
     async def cpu(self, fn: Callable[..., T], *args: Any) -> T:
         """Run CPU-heavy `fn(*args)` off the event loop (process pool)."""
         return await self.run_cpu(fn, *args)

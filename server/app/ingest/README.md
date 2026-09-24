@@ -28,7 +28,8 @@ succeeded/skipped, `blocked_by(failed, statuses)`, `is_done(status)`.
   `max_attempts` (5), `model_slot`, `applies_to_supplementary`,
   `runs_in_request` (only `source`: the upload request runs it inline).
 - `async run(ctx) -> Output` does the work, no DB writes (except OCR saving
-  finished batches so retries resume). Must be safe to re-run.
+  finished batches so retries resume, via `ctx.write`). Must be safe to
+  re-run.
 - `save(session, ctx, output)` writes the output inside the worker's
   transaction that also marks the stage succeeded and queues ready
   dependents. Never commit. `metadata.save` marks `metadata_fallback`
@@ -42,6 +43,7 @@ succeeded/skipped, `blocked_by(failed, statuses)`, `is_done(status)`.
   `deadline` (`Deadline`; take every call's timeout from
   `deadline.timeout(cap)`), `await progress(done, total)`,
   `await read(fn)` (read-only session in a thread), `read_session()`,
+  `await write(fn)` (own short committed transaction — OCR batches only),
   `await cpu(fn, *args)` (process pool in the worker), `get_s3()`, `log`.
 
 **Worker duties** (`worker.py`, to write): poll every

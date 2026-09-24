@@ -5,6 +5,10 @@ it with the chat path's own machinery (`ModelRegistry.build_model`, the
 `_pai_compat` transport policy, `RetryingModel`), runs a single
 `Agent.run`, and closes the per-request client.
 
+`prompt` is a string or a list of user content parts (text plus
+`BinaryContent` / `ImageUrl` images) for vision calls, e.g.
+`complete(slot, ["OCR this page", BinaryContent(png, media_type="image/png")])`.
+
 Structured output (`output_type` a pydantic model) uses pydantic-ai's
 default TOOL output (a `final_result` tool call) on purpose: the codex proxy
 ignores `response_format` json_schema, so native structured output would
@@ -18,11 +22,11 @@ import contextvars
 import logging
 import threading
 import time
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Sequence
 from dataclasses import replace
 from typing import Any, overload
 
-from pydantic_ai import Agent
+from pydantic_ai import Agent, UserContent
 
 from app.database.telemetry import track_event
 from app.llm._pai_compat import close_model_transport
@@ -32,17 +36,20 @@ from app.llm.retrying_model import RetryingModel
 
 logger = logging.getLogger(__name__)
 
+# A plain prompt, or text + image parts for vision models.
+Prompt = str | Sequence[UserContent]
+
 
 @overload
 async def complete(
-    slot: str, prompt: str, *, instructions: str | None = None
+    slot: str, prompt: Prompt, *, instructions: str | None = None
 ) -> str: ...
 
 
 @overload
 async def complete[T](
     slot: str,
-    prompt: str,
+    prompt: Prompt,
     *,
     output_type: type[T],
     instructions: str | None = None,
@@ -51,7 +58,7 @@ async def complete[T](
 
 async def complete(
     slot: str,
-    prompt: str,
+    prompt: Prompt,
     *,
     output_type: Any = str,
     instructions: str | None = None,
@@ -125,14 +132,14 @@ async def complete(
 
 @overload
 def complete_sync(
-    slot: str, prompt: str, *, instructions: str | None = None
+    slot: str, prompt: Prompt, *, instructions: str | None = None
 ) -> str: ...
 
 
 @overload
 def complete_sync[T](
     slot: str,
-    prompt: str,
+    prompt: Prompt,
     *,
     output_type: type[T],
     instructions: str | None = None,
@@ -141,7 +148,7 @@ def complete_sync[T](
 
 def complete_sync(
     slot: str,
-    prompt: str,
+    prompt: Prompt,
     *,
     output_type: Any = str,
     instructions: str | None = None,
