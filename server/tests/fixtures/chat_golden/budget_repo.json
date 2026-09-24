@@ -1,0 +1,1345 @@
+{
+ "events": [
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 1,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 10,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 11,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 12,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 13,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 14,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 15,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 16,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 17,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 18,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 19,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 2,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 20,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 21,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 22,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 23,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 24,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 25,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 26,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 27,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 28,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 29,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 3,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 30,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 31,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 32,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 33,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 34,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 35,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 36,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 37,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 38,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 39,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 4,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 40,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 41,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 42,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 43,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 44,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 45,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 46,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 47,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 48,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 49,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 5,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 50,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 6,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 7,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 8,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  },
+  {
+   "name": "paper_repo_run_python",
+   "properties": {
+    "call_index": 9,
+    "context_mode": "adaptive",
+    "files_touched": 1,
+    "runtime": "pydantic_ai",
+    "tool": "run_python"
+   }
+  }
+ ],
+ "returns": [
+  [
+   "b-0",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(0)"
+   }
+  ],
+  [
+   "b-1",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(1)"
+   }
+  ],
+  [
+   "b-2",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(2)"
+   }
+  ],
+  [
+   "b-3",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(3)"
+   }
+  ],
+  [
+   "b-4",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(4)"
+   }
+  ],
+  [
+   "b-5",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(5)"
+   }
+  ],
+  [
+   "b-6",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(6)"
+   }
+  ],
+  [
+   "b-7",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(7)"
+   }
+  ],
+  [
+   "b-8",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(8)"
+   }
+  ],
+  [
+   "b-9",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(9)"
+   }
+  ],
+  [
+   "b-10",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(10)"
+   }
+  ],
+  [
+   "b-11",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(11)"
+   }
+  ],
+  [
+   "b-12",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(12)"
+   }
+  ],
+  [
+   "b-13",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(13)"
+   }
+  ],
+  [
+   "b-14",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(14)"
+   }
+  ],
+  [
+   "b-15",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(15)"
+   }
+  ],
+  [
+   "b-16",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(16)"
+   }
+  ],
+  [
+   "b-17",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(17)"
+   }
+  ],
+  [
+   "b-18",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(18)"
+   }
+  ],
+  [
+   "b-19",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(19)"
+   }
+  ],
+  [
+   "b-20",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(20)"
+   }
+  ],
+  [
+   "b-21",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(21)"
+   }
+  ],
+  [
+   "b-22",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(22)"
+   }
+  ],
+  [
+   "b-23",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(23)"
+   }
+  ],
+  [
+   "b-24",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(24)"
+   }
+  ],
+  [
+   "b-25",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(25)"
+   }
+  ],
+  [
+   "b-26",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(26)"
+   }
+  ],
+  [
+   "b-27",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(27)"
+   }
+  ],
+  [
+   "b-28",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(28)"
+   }
+  ],
+  [
+   "b-29",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(29)"
+   }
+  ],
+  [
+   "b-30",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(30)"
+   }
+  ],
+  [
+   "b-31",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(31)"
+   }
+  ],
+  [
+   "b-32",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(32)"
+   }
+  ],
+  [
+   "b-33",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(33)"
+   }
+  ],
+  [
+   "b-34",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(34)"
+   }
+  ],
+  [
+   "b-35",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(35)"
+   }
+  ],
+  [
+   "b-36",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(36)"
+   }
+  ],
+  [
+   "b-37",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(37)"
+   }
+  ],
+  [
+   "b-38",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(38)"
+   }
+  ],
+  [
+   "b-39",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(39)"
+   }
+  ],
+  [
+   "b-40",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(40)"
+   }
+  ],
+  [
+   "b-41",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(41)"
+   }
+  ],
+  [
+   "b-42",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(42)"
+   }
+  ],
+  [
+   "b-43",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(43)"
+   }
+  ],
+  [
+   "b-44",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(44)"
+   }
+  ],
+  [
+   "b-45",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(45)"
+   }
+  ],
+  [
+   "b-46",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(46)"
+   }
+  ],
+  [
+   "b-47",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(47)"
+   }
+  ],
+  [
+   "b-48",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(48)"
+   }
+  ],
+  [
+   "b-49",
+   "run_python",
+   {
+    "files": [
+     "/repo/a.py"
+    ],
+    "output": "ran print(49)"
+   }
+  ],
+  [
+   "b-50",
+   "run_python",
+   {
+    "files": [],
+    "output": "[budget] run_python has been called the maximum number of times for this turn. Do not call it again \u2014 answer from what you have already read, citing the files and line ranges you saw."
+   }
+  ],
+  [
+   "b-51",
+   "run_python",
+   {
+    "files": [],
+    "output": "[budget] run_python has been called the maximum number of times for this turn. Do not call it again \u2014 answer from what you have already read, citing the files and line ranges you saw."
+   }
+  ],
+  [
+   "b-52",
+   "list_docs",
+   {
+    "args": {
+     "paper_id": "11111111-2222-3333-4444-555555555555"
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "list_docs"
+   }
+  ]
+ ],
+ "sandbox_runs": 50,
+ "tools": [
+  [
+   {
+    "capability_id": null,
+    "defer_loading": false,
+    "description": "Read a section by heading. On miss, returns available_sections. Use text_only=true when figures are not needed. Pass paper_id to target a supplementary paper; defaults to the main paper.",
+    "include_return_schema": null,
+    "kind": "function",
+    "metadata": null,
+    "name": "read_section",
+    "outer_typed_dict_key": null,
+    "parameters_json_schema": {
+     "additionalProperties": false,
+     "properties": {
+      "name": {
+       "type": "string"
+      },
+      "paper_id": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null
+      },
+      "text_only": {
+       "default": false,
+       "type": "boolean"
+      }
+     },
+     "required": [
+      "name"
+     ],
+     "type": "object"
+    },
+    "return_schema": null,
+    "sequential": false,
+    "strict": null,
+    "timeout": null,
+    "tool_kind": null,
+    "toolset_id": "<agent>",
+    "unless_native": null,
+    "with_native": null
+   },
+   {
+    "capability_id": null,
+    "defer_loading": false,
+    "description": "Read a contiguous 1-indexed inclusive page range. Output is capped at whole pages: pages_returned tells you which pages actually came back and next_page where to continue reading. Pass paper_id to target a supplementary paper; defaults to the main paper.",
+    "include_return_schema": null,
+    "kind": "function",
+    "metadata": null,
+    "name": "read_pages",
+    "outer_typed_dict_key": null,
+    "parameters_json_schema": {
+     "additionalProperties": false,
+     "properties": {
+      "end": {
+       "type": "integer"
+      },
+      "paper_id": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null
+      },
+      "start": {
+       "type": "integer"
+      }
+     },
+     "required": [
+      "start",
+      "end"
+     ],
+     "type": "object"
+    },
+    "return_schema": null,
+    "sequential": false,
+    "strict": null,
+    "timeout": null,
+    "tool_kind": null,
+    "toolset_id": "<agent>",
+    "unless_native": null,
+    "with_native": null
+   },
+   {
+    "capability_id": null,
+    "defer_loading": false,
+    "description": "Regex search the paper. Returns page, line, match, and surrounding context lines. Omit paper_id to search the main paper plus all supplementary papers together (each hit is tagged with its paper_id); pass paper_id to scope to one.",
+    "include_return_schema": null,
+    "kind": "function",
+    "metadata": null,
+    "name": "search_paper",
+    "outer_typed_dict_key": null,
+    "parameters_json_schema": {
+     "additionalProperties": false,
+     "properties": {
+      "context_lines": {
+       "default": 3,
+       "type": "integer"
+      },
+      "paper_id": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null
+      },
+      "query": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "query"
+     ],
+     "type": "object"
+    },
+    "return_schema": null,
+    "sequential": false,
+    "strict": null,
+    "timeout": null,
+    "tool_kind": null,
+    "toolset_id": "<agent>",
+    "unless_native": null,
+    "with_native": null
+   },
+   {
+    "capability_id": null,
+    "defer_loading": false,
+    "description": "Fetch a figure or table by label, such as Figure 2 or Table 4 (or, for an unlabeled figure, its id from the outline). Returns metadata (label, page, caption) plus the rendered image so you can read the figure directly. Pass paper_id to target a supplementary paper; defaults to the main paper.",
+    "include_return_schema": null,
+    "kind": "function",
+    "metadata": null,
+    "name": "get_figure",
+    "outer_typed_dict_key": null,
+    "parameters_json_schema": {
+     "additionalProperties": false,
+     "properties": {
+      "label": {
+       "type": "string"
+      },
+      "paper_id": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null
+      }
+     },
+     "required": [
+      "label"
+     ],
+     "type": "object"
+    },
+    "return_schema": null,
+    "sequential": false,
+    "strict": null,
+    "timeout": null,
+    "tool_kind": null,
+    "toolset_id": "<agent>",
+    "unless_native": null,
+    "with_native": null
+   },
+   {
+    "capability_id": null,
+    "defer_loading": false,
+    "description": "Run Python in a sandbox with this paper's companion GitHub repo (o/r) mounted read-only at /repo. Returns whatever the snippet printed. Helper functions tree(), read(), grep() are pre-defined \u2014 use them instead of hand-rolled directory walks. State persists between calls within this turn. It is a RESTRICTED interpreter (no os.walk, no Path.glob, no generators, no class inheritance, no str.format) \u2014 see the system prompt for the exact subset.",
+    "include_return_schema": null,
+    "kind": "function",
+    "metadata": null,
+    "name": "run_python",
+    "outer_typed_dict_key": null,
+    "parameters_json_schema": {
+     "additionalProperties": false,
+     "properties": {
+      "code": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "code"
+     ],
+     "type": "object"
+    },
+    "return_schema": null,
+    "sequential": false,
+    "strict": null,
+    "timeout": null,
+    "tool_kind": null,
+    "toolset_id": "<agent>",
+    "unless_native": null,
+    "with_native": null
+   },
+   {
+    "capability_id": null,
+    "defer_loading": false,
+    "description": "List every writing doc on this paper. Returns name, kind, revision, updated_at for each. The MAIN doc is always present as name='main'.",
+    "include_return_schema": null,
+    "kind": "function",
+    "metadata": null,
+    "name": "list_docs",
+    "outer_typed_dict_key": null,
+    "parameters_json_schema": {
+     "additionalProperties": false,
+     "properties": {},
+     "type": "object"
+    },
+    "return_schema": null,
+    "sequential": false,
+    "strict": null,
+    "timeout": null,
+    "tool_kind": null,
+    "toolset_id": "<agent>",
+    "unless_native": null,
+    "with_native": null
+   },
+   {
+    "capability_id": null,
+    "defer_loading": false,
+    "description": "Read a doc by name (use 'main' for the user's primary writeup). Returns {name, content, revision} or {error: 'not_found', name}. Pair with write_doc \u2014 the revision is required for the optimistic lock when updating.",
+    "include_return_schema": null,
+    "kind": "function",
+    "metadata": null,
+    "name": "read_doc",
+    "outer_typed_dict_key": null,
+    "parameters_json_schema": {
+     "additionalProperties": false,
+     "properties": {
+      "name": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "name"
+     ],
+     "type": "object"
+    },
+    "return_schema": null,
+    "sequential": false,
+    "strict": null,
+    "timeout": null,
+    "tool_kind": null,
+    "toolset_id": "<agent>",
+    "unless_native": null,
+    "with_native": null
+   },
+   {
+    "capability_id": null,
+    "defer_loading": false,
+    "description": "Write content to a doc by name. Creates the doc if it doesn't exist (NOTE kind, except name='main' which targets the MAIN doc). When updating an existing doc, expected_revision must come from the most recent read_doc.",
+    "include_return_schema": null,
+    "kind": "function",
+    "metadata": null,
+    "name": "write_doc",
+    "outer_typed_dict_key": null,
+    "parameters_json_schema": {
+     "additionalProperties": false,
+     "properties": {
+      "content": {
+       "type": "string"
+      },
+      "expected_revision": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null
+      },
+      "name": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "name",
+      "content"
+     ],
+     "type": "object"
+    },
+    "return_schema": null,
+    "sequential": false,
+    "strict": null,
+    "timeout": null,
+    "tool_kind": null,
+    "toolset_id": "<agent>",
+    "unless_native": null,
+    "with_native": null
+   }
+  ]
+ ]
+}

@@ -10,12 +10,13 @@ It does get a small, read-only view of the rest of the repo: the three
 lives one file away doesn't have to be re-asked in chat. No Monty sandbox —
 see that module for why.
 
-What it DOES share with chat: the same auth, the same model
-registry, the same transient-failure retry budget
-(`RetryingModel`, minus chat's retry-status side channel — this stream is a
-plain pull loop) and per-request client teardown, and the same Vercel
-UIMessage stream encoding, so the client consumes it with the identical
-ai-sdk stream reader.
+What it DOES share with chat: the same auth, the same model resolution
+(`model_choice`, `quick_question` slot), the same transient-failure retry
+budget (`RetryingModel`, minus chat's retry-status chunks), the same tool
+budget wrapper (`budget.ToolBudgetCapability`), and the same stream pump
+(`pump.StreamPump`: queued pump task, native-stream close and per-request
+client teardown) over the same Vercel UIMessage encoding, so the client
+consumes it with the identical ai-sdk stream reader.
 
 Paper access matches ADAPTIVE-mode chat exactly (same preload selection)
 minus the paper tools —
@@ -41,15 +42,17 @@ from pydantic_ai.ui.vercel_ai.request_types import RequestData
 from sqlalchemy.orm import Session
 
 from app.database.telemetry import track_event
+from app.llm.chat.budget import ToolBudget
+from app.llm.chat.model_choice import ModelChoiceError, choose_model
 from app.llm.chat.paper import build_paper_chat_context
+from app.llm.chat.pump import StreamPump
 from app.llm.chat.quick_question_tools import (
     MAX_LOOKUPS,
     QuickQuestionRepoTools,
+    lookup_budget_capability,
     register_repo_tools,
 )
 from app.llm.chat.stream import OpenPaperAdapter
-from app.llm.model_registry import LLMProvider, get_registry
-from app.llm.model_slots import resolve_slot
 from app.llm.repo.prelude import RepoPrelude
 from app.llm.retrying_model import RetryingModel
 from app.schemas.user import CurrentUser
@@ -431,51 +434,47 @@ async def run_quick_question(
         end_line=end_line,
     )
 
-    registry = get_registry()
-    provider_enum: Optional[LLMProvider] = None
-    if provider:
-        try:
-            provider_enum = LLMProvider(provider.lower())
-        except ValueError:
-            raise QuickQuestionError(f"Unknown provider '{provider}'.", 422)
-
     try:
-        if provider_enum is None and not model:
-            slot = resolve_slot("quick_question", registry)
-            spec = slot.spec
-            reasoning_effort = reasoning_effort or slot.reasoning_effort
-        else:
-            spec = registry.resolve(provider_enum, model)
+        choice = choose_model(
+            slot="quick_question",
+            provider=provider,
+            model=model,
+            reasoning_effort=reasoning_effort,
+        )
+    except ModelChoiceError as exc:
+        raise QuickQuestionError(str(exc), 422)
+    spec = choice.spec
+    try:
+        built_model = choice.registry.build_model(spec)
     except ValueError as exc:
         raise QuickQuestionError(str(exc), 422)
 
-    try:
-        pai_model = registry.build_model(spec)
-    except ValueError as exc:
-        raise QuickQuestionError(str(exc), 422)
-
-    # Same transient-failure budget as chat. No status callback: this stream
-    # is a plain pull loop with no side channel, and a one-shot answer that
-    # silently arrives a second late needs no UI affordance.
-    pai_model = RetryingModel(pai_model)
+    # Same transient-failure budget as chat. No status callback: a one-shot
+    # answer that silently arrives a second late needs no UI affordance, so
+    # this stream never carries `data-retry-status` chunks.
+    pai_model = RetryingModel(built_model)
 
     paper_preload = chat_context.preload
     prompt = build_quick_question_prompt(
         paper_preload=paper_preload, code=code, question=text
     )
 
+    # Bound to this request: the lookup budget dies with the answer.
+    lookups = ToolBudget(max_calls=MAX_LOOKUPS)
     agent: Agent[None, str] = Agent(
         pai_model,
         output_type=str,
         instructions=QUICK_QUESTION_SYSTEM_PROMPT,
         retries=1,
+        capabilities=[lookup_budget_capability(lookups)],
     )
-    # Bound to the snapshot the selection came from, and to this request: the
-    # lookup budget dies with the answer.
-    repo_tools = QuickQuestionRepoTools(
-        RepoPrelude(snapshot_file.root, snapshot_file.manifest_files)
+    # Bound to the snapshot the selection came from.
+    register_repo_tools(
+        agent,
+        QuickQuestionRepoTools(
+            RepoPrelude(snapshot_file.root, snapshot_file.manifest_files)
+        ),
     )
-    register_repo_tools(agent, repo_tools)
     adapter: OpenPaperAdapter = OpenPaperAdapter(
         agent=agent,
         run_input=_build_run_input(prompt),
@@ -484,8 +483,9 @@ async def run_quick_question(
         server_message_id=str(uuid.uuid4()),
     )
 
-    native_stream = None
-    event_stream = None
+    # Paced by the reader, as the plain pull loop this replaced was: an
+    # abandoned popover must not let the run race ahead into more lookups.
+    pump = StreamPump(on_demand=True)
     delivered = False
     try:
         native_stream = adapter.run_stream_native(
@@ -493,12 +493,12 @@ async def run_quick_question(
             # No conversation here, but the prompt prefix (system prompt +
             # preload + file) repeats across questions on the same paper, so
             # a paper-scoped key keeps them routed to the same cache.
-            model_settings=registry.build_settings(
-                spec, reasoning_effort, cache_key=f"openpaper:qq:{paper_id}"
+            model_settings=choice.registry.build_settings(
+                spec, choice.reasoning_effort, cache_key=f"openpaper:qq:{paper_id}"
             ),
-            # The REAL budget is MAX_LOOKUPS, enforced inside the tools so a
+            # The REAL budget is MAX_LOOKUPS, enforced around the tools so a
             # spent budget degrades into "answer now" (see
-            # quick_question_tools). These are the hard backstop and sit
+            # app.llm.chat.budget). These are the hard backstop and sit
             # well above it on purpose: pydantic-ai RAISES on an over-budget
             # call — checked against the PROJECTED batch, so one response
             # carrying N parallel calls trips it before any of them runs —
@@ -516,11 +516,13 @@ async def run_quick_question(
                 "kind": "quick_question_code",
             },
         )
-        event_stream = adapter.transform_stream(native_stream)
-        async for encoded in adapter.encode_stream(event_stream):
+        pump.start(adapter, native_stream)
+        async for encoded in pump:
             delivered = True
             yield encoded
+        await pump.join()
     finally:
+        pump.cancel()
         try:
             track_event(
                 "quick_question_asked",
@@ -533,31 +535,13 @@ async def run_quick_question(
                     "llm_provider": spec.provider.value,
                     "model": spec.id,
                     "delivered": delivered,
-                    "tool_calls": repo_tools.calls,
+                    "tool_calls": lookups.calls,
                 },
                 user_id=str(current_user.id),
             )
         except Exception:
             pass
-        # Close the NATIVE stream directly: closing only the outer protocol
-        # generator leaves the provider HTTP stream running (and billing).
-        # (pyright: pydantic-ai types both streams as AsyncIterator; they are
-        # async generators, so aclose() exists.)
-        try:
-            if native_stream is not None:
-                await native_stream.aclose()  # pyright: ignore[reportAttributeAccessIssue]
-        except BaseException as exc:
-            logger.warning("Failed to close quick-question stream: %s", exc)
-        try:
-            if event_stream is not None:
-                await event_stream.aclose()  # pyright: ignore[reportAttributeAccessIssue]
-        except BaseException:
-            # transform_stream yields finish chunks from its `finally`;
-            # aclose() reports that as RuntimeError. The native stream is
-            # already closed above, so nothing is leaked.
-            pass
-        # Per-request client, not owned by the pydantic-ai provider: if we
-        # don't close it here, nothing does.
-        from app.llm._pai_compat import close_model_transport
-
-        await close_model_transport(pai_model)
+        # Closes the native agent stream directly (closing only the protocol
+        # generator leaves the provider HTTP stream running and billing),
+        # then the per-request client, which nothing else would close.
+        await pump.close(pai_model)

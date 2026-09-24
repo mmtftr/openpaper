@@ -370,8 +370,8 @@ def prelude(tmp_path: Path) -> RepoPrelude:
     )
 
 
-def _tools(prelude: RepoPrelude, **kwargs) -> QuickQuestionRepoTools:
-    return QuickQuestionRepoTools(prelude, **kwargs)
+def _tools(prelude: RepoPrelude) -> QuickQuestionRepoTools:
+    return QuickQuestionRepoTools(prelude)
 
 
 def test_the_prompt_no_longer_claims_there_are_no_tools():
@@ -395,7 +395,50 @@ def test_tools_read_search_and_list_the_snapshot(prelude):
 
     hits = asyncio.run(tools.grep_repo("helper", None, "*.py", 10))
     assert "/repo/pkg/util.py:1" in hits
-    assert tools.calls == 3
+
+
+def _run_lookups(prelude: RepoPrelude, steps):
+    """Run a quick-question agent whose i-th response makes the tool calls
+    in `steps[i]`; returns (tool results by call id, the lookup budget)."""
+    from pydantic_ai import Agent
+    from pydantic_ai.messages import (
+        ModelResponse,
+        TextPart,
+        ToolCallPart,
+        ToolReturnPart,
+    )
+    from pydantic_ai.models.function import FunctionModel
+
+    from app.llm.chat.budget import ToolBudget
+    from app.llm.chat.quick_question_tools import lookup_budget_capability
+
+    def respond(messages, info):
+        step = sum(1 for m in messages if isinstance(m, ModelResponse))
+        if step < len(steps):
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(name, args, tool_call_id=f"s{step}-{index}")
+                    for index, (name, args) in enumerate(steps[step])
+                ]
+            )
+        return ModelResponse(parts=[TextPart("done")])
+
+    budget = ToolBudget(max_calls=MAX_LOOKUPS)
+    agent: Agent[None, str] = Agent(
+        FunctionModel(respond),
+        output_type=str,
+        capabilities=[lookup_budget_capability(budget)],
+    )
+    register_repo_tools(agent, _tools(prelude))
+    result = agent.run_sync("go")
+    # The lookups all return plain strings.
+    returns = {
+        part.tool_call_id: str(part.content)
+        for message in result.all_messages()
+        for part in getattr(message, "parts", [])
+        if isinstance(part, ToolReturnPart)
+    }
+    return returns, budget
 
 
 @pytest.mark.parametrize(
@@ -413,18 +456,28 @@ def test_an_empty_path_is_rejected_before_the_prelude(prelude):
     tools = _tools(prelude)
     assert "path is required" in asyncio.run(tools.read_file("  ", 1, None))
     assert "pattern is required" in asyncio.run(tools.grep_repo("", None, None, 10))
-    # A refused argument costs no lookup.
-    assert tools.calls == 0
+
+
+def test_a_refused_argument_costs_no_lookup_even_when_spent(prelude):
+    """Missing arguments are answered before the budget is consulted."""
+    steps = [[("tree", {"path": "/repo"})] for _ in range(MAX_LOOKUPS)]
+    steps.append([("read_file", {"path": "  "}), ("grep_repo", {"pattern": ""})])
+    returns, budget = _run_lookups(prelude, steps)
+    last = len(steps) - 1
+    assert "path is required" in returns[f"s{last}-0"]
+    assert "pattern is required" in returns[f"s{last}-1"]
+    assert budget.calls == MAX_LOOKUPS
 
 
 def test_the_lookup_budget_stops_after_max_lookups(prelude):
-    tools = _tools(prelude)
-    for _ in range(MAX_LOOKUPS):
-        assert "[budget]" not in asyncio.run(tools.tree("/repo", 2))
-    spent = asyncio.run(tools.tree("/repo", 2))
+    steps = [[("tree", {"path": "/repo", "max_depth": 2})] for _ in range(5)]
+    returns, budget = _run_lookups(prelude, steps)
+    for step in range(MAX_LOOKUPS):
+        assert "[budget]" not in returns[f"s{step}-0"]
+    spent = returns[f"s{MAX_LOOKUPS}-0"]
     assert spent.startswith("[budget]")
     assert str(MAX_LOOKUPS) in spent
-    assert tools.calls == MAX_LOOKUPS
+    assert budget.calls == MAX_LOOKUPS
 
 
 def test_a_failing_lookup_degrades_into_a_note(prelude, monkeypatch):
@@ -535,7 +588,7 @@ def quick_question_run(ready_snapshot, monkeypatch):
         lambda name, **kwargs: recorded.events.append((name, kwargs)),
     )
 
-    def run(model, *, question="What does this do?"):
+    def run(model, *, question="What does this do?", stop_after=None):
         class FakeRegistry:
             def resolve(self, provider=None, model_id=None, role=None):
                 return spec
@@ -546,7 +599,9 @@ def quick_question_run(ready_snapshot, monkeypatch):
             def build_settings(self, _spec, reasoning_effort=None, **_kwargs):
                 return None
 
-        monkeypatch.setattr(qq, "get_registry", lambda: FakeRegistry())
+        from app.llm.chat import model_choice
+
+        monkeypatch.setattr(model_choice, "get_registry", lambda: FakeRegistry())
 
         async def drive():
             out: List[str] = []
@@ -565,12 +620,73 @@ def quick_question_run(ready_snapshot, monkeypatch):
             )
             async for encoded in stream:
                 out.append(encoded)
+                if stop_after is not None and len(out) >= stop_after:
+                    # A reader that stalls, then goes away.
+                    await asyncio.sleep(0.05)
+                    await stream.aclose()
+                    break
             return out
 
         recorded.chunks = _parse_sse(asyncio.run(drive()))
         return recorded
 
     return run
+
+
+def test_an_abandoned_question_does_not_run_ahead(quick_question_run):
+    """The stream is paced by its reader (an on-demand pump), exactly like
+    the plain pull loop it replaced: a client that read only the `start`
+    chunk and left must not have driven the run into any model request or
+    lookup."""
+    requests: List[int] = []
+    script = [_read_call(1), _read_call(2), ["Done."]]
+    model = _script_model(script)
+    inner = model.stream_function
+    assert inner is not None
+
+    async def counting(messages, info):
+        requests.append(len(messages))
+        async for item in inner(messages, info):
+            yield item
+
+    model.stream_function = counting
+    from app.llm._pai_compat import MODEL_TRANSPORT_CLOSER
+    from app.llm.chat import pump as pump_module
+
+    closed: List[str] = []
+
+    async def close() -> None:
+        closed.append("closed")
+
+    setattr(model, MODEL_TRANSPORT_CLOSER, close)
+    recorded = quick_question_run(model, stop_after=1)
+    assert [c["type"] for c in recorded.chunks] == ["start"]
+    assert requests == []
+    # Teardown still completes with the pump parked waiting for a read.
+    assert closed == ["closed"]
+    assert not pump_module._BACKGROUND_TEARDOWNS
+    event = next(
+        kwargs["properties"]
+        for name, kwargs in recorded.events
+        if name == "quick_question_asked"
+    )
+    assert event["tool_calls"] == 0
+
+
+def test_the_per_request_client_is_closed_after_the_answer(quick_question_run):
+    """The shared pump's teardown releases the transport, as chat's does."""
+    from app.llm._pai_compat import MODEL_TRANSPORT_CLOSER
+
+    closed: List[str] = []
+    model = _script_model([["An answer."]])
+
+    async def close() -> None:
+        closed.append("closed")
+
+    setattr(model, MODEL_TRANSPORT_CLOSER, close)
+    recorded = quick_question_run(model)
+    assert [c.get("type") for c in recorded.chunks][-1] == "finish"
+    assert closed == ["closed"]
 
 
 def test_a_tool_call_round_trips_through_the_stream(quick_question_run):
@@ -683,12 +799,14 @@ def test_a_busy_worker_returns_a_note_and_refunds_the_lookup(prelude, monkeypatc
     monkeypatch.setattr(qqt, "_slots", taken)
     monkeypatch.setattr(qqt, "LOOKUP_SLOT_WAIT", 0.05)
 
-    tools = _tools(prelude)
-    output = asyncio.run(tools.read_file("/repo/pkg/mod.py", 1, None))
+    returns, budget = _run_lookups(
+        prelude, [[("read_file", {"path": "/repo/pkg/mod.py"})]]
+    )
+    output = returns["s0-0"]
     assert output.startswith("read_file: ")
     assert "busy" in output
     # Not the model's fault: the budget is untouched.
-    assert tools.calls == 0
+    assert budget.calls == 0
 
 
 def test_the_lookup_slot_is_released_when_the_helper_returns(prelude):

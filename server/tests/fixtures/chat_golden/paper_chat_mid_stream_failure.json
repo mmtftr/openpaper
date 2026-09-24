@@ -1,0 +1,81 @@
+{
+ "chunks": [
+  {
+   "messageId": "<uuid-1>",
+   "type": "start"
+  },
+  {
+   "type": "start-step"
+  },
+  {
+   "id": "<uuid-2>",
+   "type": "text-start"
+  },
+  {
+   "delta": "Partial answer ",
+   "id": "<uuid-2>",
+   "type": "text-delta"
+  },
+  {
+   "id": "<uuid-2>",
+   "type": "text-end"
+  },
+  {
+   "errorText": "status_code: 400, model_name: scripted, body: bad",
+   "type": "error"
+  },
+  {
+   "type": "finish-step"
+  },
+  {
+   "finishReason": "error",
+   "type": "finish"
+  },
+  "[DONE]"
+ ],
+ "events": [
+  {
+   "name": "chat_message_error",
+   "properties": {
+    "conversation_id": "66666666-7777-8888-9999-000000000000",
+    "error": "status_code: 400, model_name: scripted, body: bad",
+    "model": "scripted-model",
+    "paper_id": "11111111-2222-3333-4444-555555555555"
+   }
+  }
+ ],
+ "rows": [
+  {
+   "bucket": {
+    "client_message_id": "client-1",
+    "model_prompt": "this will fail\n\n---EVIDENCE---\n@cite[1]\na quoted passage\n---END-EVIDENCE---"
+   },
+   "content": "this will fail",
+   "id": "<uuid-3>",
+   "op": "create",
+   "references": {
+    "citations": [
+     {
+      "key": 1,
+      "reference": "a quoted passage"
+     }
+    ]
+   },
+   "role": "user"
+  },
+  {
+   "bucket": {
+    "client_message_id": "client-1",
+    "error": {
+     "message": "status_code: 400, model_name: scripted, body: bad"
+    },
+    "interrupted": true
+   },
+   "content": "Partial answer",
+   "id": "<uuid-1>",
+   "op": "create",
+   "references": null,
+   "role": "assistant"
+  }
+ ]
+}

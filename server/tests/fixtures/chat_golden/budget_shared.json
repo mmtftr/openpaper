@@ -1,0 +1,1530 @@
+{
+ "events": [],
+ "returns": [
+  [
+   "b-0",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q0",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-1",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q1",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-2",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q2",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-3",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q3",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-4",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q4",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-5",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q5",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-6",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q6",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-7",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q7",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-8",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q8",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-9",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q9",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-10",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q10",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-11",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q11",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-12",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q12",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-13",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q13",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-14",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q14",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-15",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q15",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-16",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q16",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-17",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q17",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-18",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q18",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-19",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q19",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-20",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q20",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-21",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q21",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-22",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q22",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-23",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q23",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-24",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q24",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-25",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q25",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-26",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q26",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-27",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q27",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-28",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q28",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-29",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q29",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-30",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q30",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-31",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q31",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-32",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q32",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-33",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q33",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-34",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q34",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-35",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q35",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-36",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q36",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-37",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q37",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-38",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q38",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-39",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q39",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-40",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q40",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-41",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q41",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-42",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q42",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-43",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q43",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-44",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q44",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-45",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q45",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-46",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q46",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-47",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q47",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-48",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q48",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-49",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q49",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-50",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q50",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-51",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q51",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-52",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q52",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-53",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q53",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-54",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q54",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-55",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q55",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-56",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q56",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-57",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q57",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-58",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q58",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-59",
+   "search_paper",
+   {
+    "args": {
+     "allowed_paper_ids": [
+      "11111111-2222-3333-4444-555555555555"
+     ],
+     "context_lines": 3,
+     "paper_id": "11111111-2222-3333-4444-555555555555",
+     "query": "q59",
+     "target_paper_id": null
+    },
+    "hits": [
+     1,
+     2
+    ],
+    "tool": "search_paper"
+   }
+  ],
+  [
+   "b-60",
+   "run_python",
+   {
+    "files": [],
+    "output": "[budget] The paper agent has run out of tool calls for this turn. Do not call another tool. Finish the answer using the evidence and context already gathered, and mention any remaining uncertainty."
+   }
+  ],
+  [
+   "b-61",
+   "read_pages",
+   {
+    "error": "ran_out_of_tool_calls",
+    "message": "The paper agent has run out of tool calls for this turn. Do not call another tool. Finish the answer using the evidence and context already gathered, and mention any remaining uncertainty."
+   }
+  ]
+ ],
+ "sandbox_runs": 0,
+ "tools": [
+  [
+   {
+    "capability_id": null,
+    "defer_loading": false,
+    "description": "Read a section by heading. On miss, returns available_sections. Use text_only=true when figures are not needed. Pass paper_id to target a supplementary paper; defaults to the main paper.",
+    "include_return_schema": null,
+    "kind": "function",
+    "metadata": null,
+    "name": "read_section",
+    "outer_typed_dict_key": null,
+    "parameters_json_schema": {
+     "additionalProperties": false,
+     "properties": {
+      "name": {
+       "type": "string"
+      },
+      "paper_id": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null
+      },
+      "text_only": {
+       "default": false,
+       "type": "boolean"
+      }
+     },
+     "required": [
+      "name"
+     ],
+     "type": "object"
+    },
+    "return_schema": null,
+    "sequential": false,
+    "strict": null,
+    "timeout": null,
+    "tool_kind": null,
+    "toolset_id": "<agent>",
+    "unless_native": null,
+    "with_native": null
+   },
+   {
+    "capability_id": null,
+    "defer_loading": false,
+    "description": "Read a contiguous 1-indexed inclusive page range. Output is capped at whole pages: pages_returned tells you which pages actually came back and next_page where to continue reading. Pass paper_id to target a supplementary paper; defaults to the main paper.",
+    "include_return_schema": null,
+    "kind": "function",
+    "metadata": null,
+    "name": "read_pages",
+    "outer_typed_dict_key": null,
+    "parameters_json_schema": {
+     "additionalProperties": false,
+     "properties": {
+      "end": {
+       "type": "integer"
+      },
+      "paper_id": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null
+      },
+      "start": {
+       "type": "integer"
+      }
+     },
+     "required": [
+      "start",
+      "end"
+     ],
+     "type": "object"
+    },
+    "return_schema": null,
+    "sequential": false,
+    "strict": null,
+    "timeout": null,
+    "tool_kind": null,
+    "toolset_id": "<agent>",
+    "unless_native": null,
+    "with_native": null
+   },
+   {
+    "capability_id": null,
+    "defer_loading": false,
+    "description": "Regex search the paper. Returns page, line, match, and surrounding context lines. Omit paper_id to search the main paper plus all supplementary papers together (each hit is tagged with its paper_id); pass paper_id to scope to one.",
+    "include_return_schema": null,
+    "kind": "function",
+    "metadata": null,
+    "name": "search_paper",
+    "outer_typed_dict_key": null,
+    "parameters_json_schema": {
+     "additionalProperties": false,
+     "properties": {
+      "context_lines": {
+       "default": 3,
+       "type": "integer"
+      },
+      "paper_id": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null
+      },
+      "query": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "query"
+     ],
+     "type": "object"
+    },
+    "return_schema": null,
+    "sequential": false,
+    "strict": null,
+    "timeout": null,
+    "tool_kind": null,
+    "toolset_id": "<agent>",
+    "unless_native": null,
+    "with_native": null
+   },
+   {
+    "capability_id": null,
+    "defer_loading": false,
+    "description": "Fetch a figure or table by label, such as Figure 2 or Table 4 (or, for an unlabeled figure, its id from the outline). Returns metadata (label, page, caption) plus the rendered image so you can read the figure directly. Pass paper_id to target a supplementary paper; defaults to the main paper.",
+    "include_return_schema": null,
+    "kind": "function",
+    "metadata": null,
+    "name": "get_figure",
+    "outer_typed_dict_key": null,
+    "parameters_json_schema": {
+     "additionalProperties": false,
+     "properties": {
+      "label": {
+       "type": "string"
+      },
+      "paper_id": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null
+      }
+     },
+     "required": [
+      "label"
+     ],
+     "type": "object"
+    },
+    "return_schema": null,
+    "sequential": false,
+    "strict": null,
+    "timeout": null,
+    "tool_kind": null,
+    "toolset_id": "<agent>",
+    "unless_native": null,
+    "with_native": null
+   },
+   {
+    "capability_id": null,
+    "defer_loading": false,
+    "description": "Run Python in a sandbox with this paper's companion GitHub repo (o/r) mounted read-only at /repo. Returns whatever the snippet printed. Helper functions tree(), read(), grep() are pre-defined \u2014 use them instead of hand-rolled directory walks. State persists between calls within this turn. It is a RESTRICTED interpreter (no os.walk, no Path.glob, no generators, no class inheritance, no str.format) \u2014 see the system prompt for the exact subset.",
+    "include_return_schema": null,
+    "kind": "function",
+    "metadata": null,
+    "name": "run_python",
+    "outer_typed_dict_key": null,
+    "parameters_json_schema": {
+     "additionalProperties": false,
+     "properties": {
+      "code": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "code"
+     ],
+     "type": "object"
+    },
+    "return_schema": null,
+    "sequential": false,
+    "strict": null,
+    "timeout": null,
+    "tool_kind": null,
+    "toolset_id": "<agent>",
+    "unless_native": null,
+    "with_native": null
+   },
+   {
+    "capability_id": null,
+    "defer_loading": false,
+    "description": "List every writing doc on this paper. Returns name, kind, revision, updated_at for each. The MAIN doc is always present as name='main'.",
+    "include_return_schema": null,
+    "kind": "function",
+    "metadata": null,
+    "name": "list_docs",
+    "outer_typed_dict_key": null,
+    "parameters_json_schema": {
+     "additionalProperties": false,
+     "properties": {},
+     "type": "object"
+    },
+    "return_schema": null,
+    "sequential": false,
+    "strict": null,
+    "timeout": null,
+    "tool_kind": null,
+    "toolset_id": "<agent>",
+    "unless_native": null,
+    "with_native": null
+   },
+   {
+    "capability_id": null,
+    "defer_loading": false,
+    "description": "Read a doc by name (use 'main' for the user's primary writeup). Returns {name, content, revision} or {error: 'not_found', name}. Pair with write_doc \u2014 the revision is required for the optimistic lock when updating.",
+    "include_return_schema": null,
+    "kind": "function",
+    "metadata": null,
+    "name": "read_doc",
+    "outer_typed_dict_key": null,
+    "parameters_json_schema": {
+     "additionalProperties": false,
+     "properties": {
+      "name": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "name"
+     ],
+     "type": "object"
+    },
+    "return_schema": null,
+    "sequential": false,
+    "strict": null,
+    "timeout": null,
+    "tool_kind": null,
+    "toolset_id": "<agent>",
+    "unless_native": null,
+    "with_native": null
+   },
+   {
+    "capability_id": null,
+    "defer_loading": false,
+    "description": "Write content to a doc by name. Creates the doc if it doesn't exist (NOTE kind, except name='main' which targets the MAIN doc). When updating an existing doc, expected_revision must come from the most recent read_doc.",
+    "include_return_schema": null,
+    "kind": "function",
+    "metadata": null,
+    "name": "write_doc",
+    "outer_typed_dict_key": null,
+    "parameters_json_schema": {
+     "additionalProperties": false,
+     "properties": {
+      "content": {
+       "type": "string"
+      },
+      "expected_revision": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null
+      },
+      "name": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "name",
+      "content"
+     ],
+     "type": "object"
+    },
+    "return_schema": null,
+    "sequential": false,
+    "strict": null,
+    "timeout": null,
+    "tool_kind": null,
+    "toolset_id": "<agent>",
+    "unless_native": null,
+    "with_native": null
+   }
+  ]
+ ]
+}

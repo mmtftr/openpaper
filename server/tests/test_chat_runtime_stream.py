@@ -24,13 +24,13 @@ from pydantic_ai.models.wrapper import WrapperModel
 
 from app.database.models import ConversableType
 from app.llm._pai_compat import MODEL_TRANSPORT_CLOSER
+from app.llm.chat import model_choice as model_choice_module
+from app.llm.chat import plan as plan_module
+from app.llm.chat import pump as pump_module
 from app.llm.chat import runtime as runtime_module
-from app.llm.chat.runtime import (
-    CHUNK_QUEUE_SIZE,
-    RETRY_STATUS_CHUNK_TYPE,
-    ChatRequestError,
-    run_paper_chat,
-)
+from app.llm.chat import store as store_module
+from app.llm.chat.pump import CHUNK_QUEUE_SIZE, RETRY_STATUS_CHUNK_TYPE
+from app.llm.chat.runtime import ChatRequestError, run_paper_chat
 from app.llm.chat.stream import OpenPaperAdapter
 from app.llm.model_registry import LLMProvider, ModelSpec
 from app.llm.retrying_model import RetryingModel
@@ -207,17 +207,17 @@ class _Fixture:
 
             return RetryingModel(model, on_retry=on_retry, sleep=sleep)
 
-        mp.setattr(runtime_module, "get_registry", lambda: FakeRegistry())
+        mp.setattr(model_choice_module, "get_registry", lambda: FakeRegistry())
         mp.setattr(runtime_module, "build_paper_agent", fake_build_agent)
-        mp.setattr(runtime_module, "build_paper_chat_context", lambda *a, **k: context)
-        mp.setattr(
-            runtime_module.conversation_crud, "get", lambda *a, **k: conversation
-        )
-        mp.setattr(runtime_module, "message_crud", self.crud)
+        mp.setattr(plan_module, "build_paper_chat_context", lambda *a, **k: context)
+        mp.setattr(plan_module.conversation_crud, "get", lambda *a, **k: conversation)
+        # Planning reads the conversation, the store writes it.
+        mp.setattr(plan_module, "message_crud", self.crud)
+        mp.setattr(store_module, "message_crud", self.crud)
         # The partial-turn safety net opens its own session. `get` is the
         # id-keyed idempotency probe: no row exists in these tests.
         mp.setattr(
-            runtime_module,
+            store_module,
             "SessionLocal",
             lambda: SimpleNamespace(close=lambda: None, get=lambda model, row_id: None),
         )
@@ -480,7 +480,7 @@ class TestInterruption:
                 for task in asyncio.all_tasks()
                 if task is not asyncio.current_task() and not task.done()
             ]
-            return seen, leftovers, set(runtime_module._BACKGROUND_TEARDOWNS)
+            return seen, leftovers, set(pump_module._BACKGROUND_TEARDOWNS)
 
         seen, leftovers, tracked = asyncio.run(drive())
         assert any("text-delta" in s for s in seen)
@@ -630,7 +630,7 @@ class TestPersistenceResilience:
         )
         fixture = _Fixture(monkeypatch, model=model)
         monkeypatch.setattr(
-            runtime_module,
+            store_module,
             "SessionLocal",
             lambda: SimpleNamespace(
                 close=lambda: None,
@@ -751,7 +751,7 @@ class TestRetryStatusDelivery:
 
     def test_recovered_never_drops_or_evicts_a_chunk(self, monkeypatch):
         produced: List[str] = []
-        monkeypatch.setattr(runtime_module, "CHUNK_QUEUE_SIZE", 1)
+        monkeypatch.setattr(pump_module, "CHUNK_QUEUE_SIZE", 1)
         monkeypatch.setattr(
             runtime_module, "OpenPaperAdapter", self._recording_adapter(produced)
         )
@@ -893,7 +893,7 @@ class TestPumpTeardown:
 
         setattr(model, MODEL_TRANSPORT_CLOSER, close_transport)
 
-        monkeypatch.setattr(runtime_module, "PUMP_TEARDOWN_TIMEOUT", 0.05)
+        monkeypatch.setattr(pump_module, "PUMP_TEARDOWN_TIMEOUT", 0.05)
         monkeypatch.setattr(
             runtime_module, "OpenPaperAdapter", self._immortal_adapter(swallow=4)
         )
@@ -906,9 +906,9 @@ class TestPumpTeardown:
             await asyncio.wait_for(stream.aclose(), timeout=5.0)
             elapsed = asyncio.get_running_loop().time() - started
             await asyncio.sleep(0)  # let the done callback run
-            return elapsed, set(runtime_module._BACKGROUND_TEARDOWNS)
+            return elapsed, set(pump_module._BACKGROUND_TEARDOWNS)
 
-        with caplog.at_level("ERROR", logger="app.llm.chat.runtime"):
+        with caplog.at_level("ERROR", logger="app.llm.chat.pump"):
             elapsed, tracked = asyncio.run(drive())
 
         # 3 attempts x 0.05s, plus slack — nowhere near the 5s wait_for.
@@ -944,7 +944,7 @@ class TestPumpTeardown:
                 for task in asyncio.all_tasks()
                 if task is not asyncio.current_task() and not task.done()
             ]
-            return first, leftovers, set(runtime_module._BACKGROUND_TEARDOWNS)
+            return first, leftovers, set(pump_module._BACKGROUND_TEARDOWNS)
 
         first, leftovers, tracked = asyncio.run(drive())
         assert "text-delta" in first
@@ -965,7 +965,7 @@ class TestVisionCapabilityReachesReplay:
             calls.append(kwargs)
             return []
 
-        monkeypatch.setattr(runtime_module, "load_model_history", fake_load)
+        monkeypatch.setattr(plan_module, "load_model_history", fake_load)
         return calls
 
     def _run(self, monkeypatch, *, supports_vision: bool):

@@ -27,7 +27,8 @@ from a failure that already streamed text. Closing it would mean proxying
 and replaying the stream — much more machinery than the case is worth.
 
 An optional `on_retry` callback lets the caller surface retry state to the
-UI (see `app.llm.chat.runtime`); callback failures are swallowed so a
+UI (see `app.llm.chat.pump.StreamPump.push_retry_status`); callback
+failures are swallowed so a
 broken observer can never break a chat turn.
 """
 
