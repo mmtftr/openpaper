@@ -2,13 +2,14 @@
 
 from types import SimpleNamespace
 
+from app.ingest.content import Page
 from app.llm.tools import section_tools as st
 
 
 def _patch_single_page(monkeypatch, markdown: str) -> None:
-    paper = SimpleNamespace(ocr={"pages": [{"index": 0, "markdown": markdown}]})
-    monkeypatch.setattr(st, "_is_mistral", lambda p: True)
-    monkeypatch.setattr(st, "_pages_from_paper", lambda p: p.ocr["pages"])
+    paper = SimpleNamespace(id="p")
+    pages = [Page(page_no=1, markdown=markdown)]
+    monkeypatch.setattr(st, "_load_pages", lambda db, p: pages)
     monkeypatch.setattr(st, "_get_paper_or_raise", lambda *a, **k: paper)
     monkeypatch.setattr(st, "_resolve_target_paper_id", lambda *a, **k: "p")
 

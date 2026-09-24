@@ -32,7 +32,10 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
+from sqlalchemy.orm import Session
+
 from app.database.models import Paper
+from app.ingest import content
 from app.llm import oneshot
 from app.llm.citation_normalizer import find_in_pdf_text
 
@@ -325,20 +328,14 @@ _RECONCILE_INSTRUCTIONS = (
 )
 
 
-def _pymupdf_text_for_page(paper: Paper, page: int) -> Optional[str]:
-    """Pull the cached pymupdf text for the given 1-indexed page out of the
-    paper's `ocr` jsonb. Returns None if the page wasn't OCR'd on the new
-    pipeline (e.g. pre-backfill papers)."""
-    ocr = getattr(paper, "ocr", None) or {}
-    pages = ocr.get("pages") or []
-    for p in pages:
-        idx = p.get("index")
-        if idx is None:
-            continue
-        if int(idx) + 1 == page:
-            txt = p.get("pymupdf_text")
-            return txt if isinstance(txt, str) else None
-    return None
+def _pymupdf_text_for_page(
+    db: Optional[Session], paper: Paper, page: int
+) -> Optional[str]:
+    """The pymupdf text layer of the given 1-indexed page (what the PDF
+    highlighter searches), or None if it isn't there (yet)."""
+    if db is None:
+        return None
+    return content.text_layer(db, paper.id, page)
 
 
 async def reconcile_citations(
@@ -348,9 +345,12 @@ async def reconcile_citations(
     family_index: Optional[Dict[str, Paper]] = None,
     parent_paper_id: Optional[str] = None,
     repo_snapshot: Optional[Any] = None,
+    db: Optional[Session] = None,
 ) -> Optional[List[Dict[str, Any]]]:
     """For each citation, replace its `reference` text with the substring
     that actually matches the PDF page (so the highlighter can find it).
+    `db` reads the pages' text layers; without it paper citations are left
+    verbatim.
 
     Strategy per citation:
       1. No page (legacy format) → leave verbatim.
@@ -405,14 +405,11 @@ async def reconcile_citations(
             continue
 
         candidate_paper, supplementary_id = _resolve_paper(cit)
-        if (
-            candidate_paper is None
-            or str(getattr(candidate_paper, "parser", "") or "") != "mistral"
-        ):
+        if candidate_paper is None:
             out.append(dict(cit))
             continue
 
-        page_text = _pymupdf_text_for_page(candidate_paper, int(page))
+        page_text = _pymupdf_text_for_page(db, candidate_paper, int(page))
         if not page_text:
             out.append(dict(cit))
             continue

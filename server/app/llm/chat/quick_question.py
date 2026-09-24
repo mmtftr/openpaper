@@ -17,8 +17,8 @@ plain pull loop) and per-request client teardown, and the same Vercel
 UIMessage stream encoding, so the client consumes it with the identical
 ai-sdk stream reader.
 
-Paper access matches ADAPTIVE-mode chat exactly (same preload selection,
-same parser-driven mode coercion) minus the paper tools —
+Paper access matches ADAPTIVE-mode chat exactly (same preload selection)
+minus the paper tools —
 `build_paper_chat_context` is reused for that so the two can't drift.
 
 The `OpenPaperAdapter` is reused for encoding, which also means the evidence
@@ -41,7 +41,7 @@ from pydantic_ai.ui.vercel_ai.request_types import RequestData
 from sqlalchemy.orm import Session
 
 from app.database.telemetry import track_event
-from app.llm.chat.paper import _select_preload, build_paper_chat_context
+from app.llm.chat.paper import build_paper_chat_context
 from app.llm.chat.quick_question_tools import (
     MAX_LOOKUPS,
     QuickQuestionRepoTools,
@@ -459,7 +459,7 @@ async def run_quick_question(
     # silently arrives a second late needs no UI affordance.
     pai_model = RetryingModel(pai_model)
 
-    paper_preload = _select_preload(chat_context.context_mode, chat_context.paper)
+    paper_preload = chat_context.preload
     prompt = build_quick_question_prompt(
         paper_preload=paper_preload, code=code, question=text
     )

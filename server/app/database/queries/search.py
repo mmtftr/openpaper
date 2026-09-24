@@ -2,10 +2,13 @@ from datetime import datetime
 from typing import List, Optional
 
 from pydantic import BaseModel
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, func, literal, or_, select
+from sqlalchemy.dialects.postgresql import aggregate_order_by
 from sqlalchemy.orm import Session, joinedload
 
 from app.database.models import Annotation, Highlight, Paper
+from app.ingest.content import PAGE_SEPARATOR
+from app.ingest.models import PaperPage
 from app.schemas.user import CurrentUser
 
 
@@ -85,7 +88,22 @@ def search_knowledge_base(
     search_pattern = f"%{query.lower()}%"
 
     # Build the main query for papers that match the search criteria
-    # We'll search in paper title, abstract, raw_content, and related annotations/highlights
+    # The paper's full text: its pages' markdown joined by a blank line (so a
+    # match may span a page break, as it could in the old `raw_content`).
+    full_text_matches = (
+        select(PaperPage.paper_id)
+        .group_by(PaperPage.paper_id)
+        .having(
+            func.lower(
+                func.string_agg(
+                    PaperPage.markdown,
+                    aggregate_order_by(literal(PAGE_SEPARATOR), PaperPage.page_no),
+                )
+            ).like(search_pattern)
+        )
+    )
+
+    # We'll search in paper title, abstract, full text, and related annotations/highlights
     paper_query = (
         db.query(Paper)
         .filter(Paper.user_id == user.id)
@@ -94,7 +112,7 @@ def search_knowledge_base(
             or_(
                 func.lower(Paper.title).like(search_pattern),
                 func.lower(Paper.abstract).like(search_pattern),
-                func.lower(Paper.raw_content).like(search_pattern),
+                Paper.id.in_(full_text_matches),
                 # Include papers that have matching highlights
                 Paper.id.in_(
                     db.query(Highlight.paper_id).filter(

@@ -24,16 +24,12 @@ PAPER_TOOLS = {"read_section", "read_pages", "search_paper"}
 DOC_TOOLS = {"list_docs", "read_doc", "write_doc"}
 
 
-def _paper(parser: str = "mistral") -> SimpleNamespace:
+def _paper() -> SimpleNamespace:
     return SimpleNamespace(
         id=PAPER_ID,
         title="A Paper",
         authors=["A. Author"],
         page_count=3,
-        parser=parser,
-        ocr={"pages": [{"index": 0, "markdown": "# Intro\n\nbody"}], "figures": []},
-        raw_content="# Intro\n\nbody",
-        page_offset_map={1: [0, 13]},
         abstract="abstract",
     )
 
@@ -50,7 +46,7 @@ def _deps(paper: Any, context_mode: str) -> PaperAgentDeps:
 
 
 def _registered_tool_names(
-    *, parser: str = "mistral", context_mode: str = "adaptive", vision: bool = True
+    *, context_mode: str = "adaptive", vision: bool = True
 ) -> List[str]:
     """Names the model actually sees, taken off the request the agent sends."""
     from pydantic_ai.messages import ModelResponse, TextPart
@@ -62,7 +58,7 @@ def _registered_tool_names(
         seen.extend(tool.name for tool in info.function_tools)
         return ModelResponse(parts=[TextPart("done")])
 
-    paper = _paper(parser)
+    paper = _paper()
     agent = build_paper_agent(
         model=FunctionModel(respond),
         # Only `supports_vision` is read off the spec, so a stub keeps this
@@ -83,7 +79,7 @@ def test_paper_tools_are_registered_in_every_mode(context_mode):
     assert DOC_TOOLS <= names
 
 
-def test_full_mode_registers_get_figure_for_a_mistral_paper():
+def test_full_mode_registers_get_figure():
     """Full mode pre-loads the markdown, which carries no figure bitmaps —
     a vision model still needs get_figure to look at Figure 3."""
     assert "get_figure" in _registered_tool_names(context_mode="full")
@@ -93,12 +89,6 @@ def test_get_figure_is_registered_for_a_vision_less_model_too():
     # Without vision it returns caption/label/page only, but it must exist.
     names = _registered_tool_names(context_mode="full", vision=False)
     assert "get_figure" in names
-
-
-def test_raw_mode_has_the_reading_tools_but_no_figures():
-    names = set(_registered_tool_names(parser="pymupdf", context_mode="raw"))
-    assert PAPER_TOOLS <= names
-    assert "get_figure" not in names
 
 
 def test_run_python_is_absent_without_a_repo_snapshot():
