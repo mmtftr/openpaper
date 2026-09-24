@@ -24,8 +24,7 @@ what the old pipeline stored in `papers.ocr`:
    `metadata_fallback` skipped, `preview` / `outline` queued where missing
    (`outline` runs on the next worker start: no generated outline yet).
 4. `highlights.origin = 'ai'` for the old pipeline's AI highlights
-   (`role = 'assistant'`); same for `annotations.origin`, which is added
-   here (the model has it, the schema migration didn't create it).
+   (`role = 'assistant'`).
 5. The search vector: `papers.ts_vector` = title (weight A) + the pages'
    markdown joined by a blank line (weight D) — the same text `raw_content`
    held. Recomputed when the title changes and, once per paper per
@@ -463,23 +462,13 @@ def upgrade() -> None:
     copy_pages_and_figures(conn)
     create_stage_rows(conn)
     op.execute("UPDATE highlights SET origin = 'ai' WHERE role = 'assistant'")
-    # `Annotation.origin` is on the model (d82caa5) but ingest_v2_20260926
-    # only added `highlights.origin`; without the column every annotation
-    # query fails. IF NOT EXISTS in case the schema migration gains it.
-    op.execute(
-        "ALTER TABLE annotations"
-        " ADD COLUMN IF NOT EXISTS origin text NOT NULL DEFAULT 'user'"
-    )
-    op.execute("UPDATE annotations SET origin = 'ai' WHERE role = 'assistant'")
     op.execute(SEARCH_TRIGGERS_UP)
 
 
 def downgrade() -> None:
-    # The deleted pymupdf-only paper is not restored; `annotations.origin`
-    # stays (the model has it).
+    # The deleted pymupdf-only paper is not restored.
     op.execute(SEARCH_TRIGGERS_DOWN)
     op.execute("UPDATE highlights SET origin = 'user'")
-    op.execute("UPDATE annotations SET origin = 'user'")
     op.execute("DELETE FROM ingest_stages")
     op.execute("DELETE FROM paper_figures")
     op.execute("DELETE FROM paper_pages")
