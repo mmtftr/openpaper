@@ -1,11 +1,11 @@
 import logging
 import os
 from datetime import datetime
-from typing import Optional
+
+from dotenv import load_dotenv
 
 from app.auth.utils import generate_verification_code, get_verification_code_expiry
 from app.helpers.email import load_email_template, send_email
-from dotenv import load_dotenv
 
 load_dotenv()
 

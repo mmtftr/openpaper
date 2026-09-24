@@ -3,6 +3,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
+from dotenv import load_dotenv
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+
 from app.auth.dependencies import get_required_user
 from app.database.crud.conversation_crud import conversation_crud
 from app.database.crud.paper_crud import PaperUpdate, paper_crud
@@ -30,9 +34,6 @@ from app.schemas.paper import (
     UpdatePaperFieldsRequest,
 )
 from app.schemas.user import CurrentUser
-from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 
 load_dotenv()
 

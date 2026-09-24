@@ -54,7 +54,6 @@ from typing import (
 
 import httpx
 import httpx2
-from app.schemas.chat_stream import retry_status_data
 from pydantic_ai.exceptions import (
     ModelAPIError,
     ModelHTTPError,
@@ -64,6 +63,8 @@ from pydantic_ai.messages import ModelMessage, ModelResponse
 from pydantic_ai.models import Model, ModelRequestParameters, StreamedResponse
 from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.settings import ModelSettings
+
+from app.schemas.chat_stream import retry_status_data
 
 logger = logging.getLogger(__name__)
 

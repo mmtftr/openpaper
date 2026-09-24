@@ -10,7 +10,6 @@ from sqlalchemy import (  # type: ignore
     CheckConstraint,
     Column,
     DateTime,
-    Float,
     ForeignKey,
     Index,
     Integer,
@@ -20,7 +19,6 @@ from sqlalchemy import (  # type: ignore
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
-from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import (  # type: ignore
     DeclarativeBase,
     backref,

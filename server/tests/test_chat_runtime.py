@@ -18,6 +18,19 @@ from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
 import pytest
+from pydantic_ai.messages import (
+    ModelMessagesTypeAdapter,
+    ModelRequest,
+    ModelResponse,
+    RetryPromptPart,
+    TextPart,
+    ThinkingPart,
+    ToolCallPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
+from pydantic_ai.ui.vercel_ai.request_types import TextUIPart as TextUIPartRequest
+from pydantic_ai.ui.vercel_ai.request_types import UIMessage as UIMessageRequest
 
 from app.llm.chat.evidence import (
     EVIDENCE_END,
@@ -44,27 +57,13 @@ from app.llm.chat.stream import (
     truncate_tool_output,
 )
 from app.llm.model_registry import (
+    LLMProvider,
     ModelRegistry,
     ModelRole,
     ModelSpec,
     _build_spec,
     _family_defaults,
 )
-from app.llm.model_registry import LLMProvider
-from pydantic_ai.ui.vercel_ai.request_types import TextUIPart as TextUIPartRequest
-from pydantic_ai.ui.vercel_ai.request_types import UIMessage as UIMessageRequest
-from pydantic_ai.messages import (
-    ModelMessagesTypeAdapter,
-    ModelRequest,
-    ModelResponse,
-    RetryPromptPart,
-    TextPart,
-    ThinkingPart,
-    ToolCallPart,
-    ToolReturnPart,
-    UserPromptPart,
-)
-
 
 # =====================================================================
 # EvidenceFilter
@@ -214,9 +213,10 @@ class TestOpenPaperAdapter:
     """
 
     def _adapter(self):
-        from app.llm.chat.stream import OpenPaperAdapter
         from pydantic_ai import Agent
         from pydantic_ai.ui.vercel_ai.request_types import SubmitMessage
+
+        from app.llm.chat.stream import OpenPaperAdapter
 
         run_input = SubmitMessage(
             id="conv-1",

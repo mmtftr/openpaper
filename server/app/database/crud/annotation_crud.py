@@ -1,11 +1,12 @@
 from typing import Optional
 from uuid import UUID
 
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
 from app.database.crud.base_crud import CRUDBase
 from app.database.models import Annotation
 from app.schemas.user import CurrentUser
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
 
 
 class AnnotationBase(BaseModel):

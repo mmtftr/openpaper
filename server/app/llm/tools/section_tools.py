@@ -15,15 +15,15 @@ from, so the agent can fill in the gap with another call.
 
 import re
 import time
-import uuid
 from logging import getLogger
 from typing import Any, Dict, List, Optional, Tuple
 
 import regex
+from sqlalchemy.orm import Session
+
 from app.database.crud.paper_crud import paper_crud
 from app.database.models import Paper
 from app.schemas.user import CurrentUser
-from sqlalchemy.orm import Session
 
 logger = getLogger(__name__)
 

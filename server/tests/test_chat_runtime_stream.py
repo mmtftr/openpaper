@@ -23,6 +23,7 @@ from pydantic_ai.models.test import TestModel
 from pydantic_ai.models.wrapper import WrapperModel
 
 from app.database.models import ConversableType
+from app.llm._pai_compat import MODEL_TRANSPORT_CLOSER
 from app.llm.chat import runtime as runtime_module
 from app.llm.chat.runtime import (
     CHUNK_QUEUE_SIZE,
@@ -30,10 +31,8 @@ from app.llm.chat.runtime import (
     ChatRequestError,
     run_paper_chat,
 )
-from app.llm._pai_compat import MODEL_TRANSPORT_CLOSER
 from app.llm.chat.stream import OpenPaperAdapter
-from app.llm.model_registry import LLMProvider
-from app.llm.model_registry import ModelSpec
+from app.llm.model_registry import LLMProvider, ModelSpec
 from app.llm.retrying_model import RetryingModel
 
 PAPER_ID = str(uuid.uuid4())

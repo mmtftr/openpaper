@@ -9,12 +9,12 @@ from typing import Dict, List, Optional
 import boto3
 import requests
 from botocore.config import Config
-from app.database.crud.paper_crud import PaperUpdate, paper_crud
-from app.database.crud.projects.project_paper_crud import project_paper_crud
-from app.database.models import Paper
-from app.schemas.user import CurrentUser
 from botocore.exceptions import ClientError
 from sqlalchemy.orm import Session
+
+from app.database.crud.paper_crud import PaperUpdate, paper_crud
+from app.database.models import Paper
+from app.schemas.user import CurrentUser
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +106,7 @@ class S3Service:
         except ClientError as e:
             logger.error(f"Error uploading file to S3: {e}")
             raise
-        except FileNotFoundError as e:
+        except FileNotFoundError:
             logger.error(f"File not found: {file_path}")
             raise ValueError(f"File not found: {file_path}")
 

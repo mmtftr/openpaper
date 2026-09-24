@@ -15,12 +15,13 @@ import logging
 from typing import List, Optional
 from uuid import UUID
 
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
 from app.database.crud.base_crud import CRUDBase
 from app.database.crud.sanitization import sanitize_for_postgres
 from app.database.models import Document, DocumentKind
 from app.schemas.user import CurrentUser
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

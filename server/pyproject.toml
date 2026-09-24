@@ -56,6 +56,8 @@ start = "app:start"
 dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "ruff==0.16.8",
+    "pyright==1.1.414",
 ]
 
 [tool.mypy]
@@ -64,6 +66,24 @@ plugins = [
 ]
 show_error_codes = true
 strict = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+extend-exclude = ["migrations"]
+
+[tool.ruff.lint]
+# Ruff's defaults (pyflakes + the pycodestyle errors that don't overlap the
+# formatter) plus import sorting. UP/B were tried and skipped: ~1100 mostly
+# cosmetic annotation rewrites and B008 flagging every FastAPI `Depends(...)`.
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.pyright]
+include = ["app", "tests"]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
 
 [tool.uv]
 exclude-newer = "2026-09-17T23:59:59Z"

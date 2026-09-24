@@ -2,6 +2,10 @@ import logging
 import uuid
 from typing import Optional
 
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
 from app.auth.dependencies import get_required_user
 from app.database.crud.highlight_crud import (
     HighlightCreate,
@@ -14,9 +18,6 @@ from app.database.telemetry import track_event
 from app.schemas.common import MessageResponse
 from app.schemas.highlight import HighlightColor, HighlightResponse, ScaledPosition
 from app.schemas.user import CurrentUser
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

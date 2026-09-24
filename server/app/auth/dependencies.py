@@ -2,12 +2,13 @@ import logging
 import uuid
 from typing import Annotated, Optional
 
-from app.database.crud.user_crud import user as user_crud
-from app.database.database import get_db
-from app.schemas.user import CurrentUser
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import APIKeyHeader
 from sqlalchemy.orm import Session
+
+from app.database.crud.user_crud import user as user_crud
+from app.database.database import get_db
+from app.schemas.user import CurrentUser
 
 logger = logging.getLogger(__name__)
 

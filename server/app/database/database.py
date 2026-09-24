@@ -1,8 +1,9 @@
 from contextlib import asynccontextmanager
 
-from app.database.config import Settings
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+
+from app.database.config import Settings
 
 settings = Settings()
 

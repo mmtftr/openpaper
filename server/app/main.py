@@ -3,13 +3,17 @@ import os
 
 import logfire
 import uvicorn  # type: ignore
+from dotenv import load_dotenv
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
 from app.api.annotation_api import annotation_router
 from app.api.api import router
 from app.api.auth_api import auth_router
 from app.api.conversation_api import conversation_router
-from app.api.errors import ERROR_RESPONSES, install_error_handlers
 from app.api.discover_api import discover_router
 from app.api.document_api import document_router
+from app.api.errors import ERROR_RESPONSES, install_error_handlers
 from app.api.highlight_api import highlight_router
 from app.api.message_api import message_router
 from app.api.paper_api import paper_router
@@ -23,9 +27,6 @@ from app.api.repo_api import repo_router
 from app.api.search_api import search_router
 from app.api.settings_api import settings_router
 from app.api.webhook_api import webhook_router
-from dotenv import load_dotenv
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
 logging.basicConfig(
     level=logging.INFO,

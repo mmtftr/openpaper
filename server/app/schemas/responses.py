@@ -1,7 +1,8 @@
 from typing import List, Optional
 
-from app.database.models import HighlightType
 from pydantic import BaseModel, Field
+
+from app.database.models import HighlightType
 
 
 class AIHighlight(BaseModel):

@@ -27,13 +27,14 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Optional
 
+from pydantic_ai import Agent
+
 from app.llm.repo.prelude import (
     MAX_RESULTS,
     MAX_TREE_DEPTH,
     VIRTUAL_ROOT,
     RepoPrelude,
 )
-from pydantic_ai import Agent
 
 logger = logging.getLogger(__name__)
 

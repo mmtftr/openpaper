@@ -42,6 +42,18 @@ from typing import (
     Tuple,
 )
 
+from pydantic_ai import UsageLimits
+from pydantic_ai.messages import ModelMessagesTypeAdapter
+from pydantic_ai.run import AgentRunResult
+from pydantic_ai.ui.vercel_ai.request_types import (
+    DataUIPart,
+    RequestData,
+    TextUIPart,
+    UIMessage,
+)
+from pydantic_ai.ui.vercel_ai.response_types import DataChunk
+from sqlalchemy.orm import Session
+
 from app.database.crud.conversation_crud import conversation_crud
 from app.database.crud.message_crud import MessageCreate, MessageUpdate, message_crud
 from app.database.database import SessionLocal
@@ -83,17 +95,6 @@ from app.schemas.chat_stream import (
     citations_data,
 )
 from app.schemas.user import CurrentUser
-from pydantic_ai import UsageLimits
-from pydantic_ai.messages import ModelMessagesTypeAdapter
-from pydantic_ai.run import AgentRunResult
-from pydantic_ai.ui.vercel_ai.request_types import (
-    DataUIPart,
-    RequestData,
-    TextUIPart,
-    UIMessage,
-)
-from pydantic_ai.ui.vercel_ai.response_types import DataChunk
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

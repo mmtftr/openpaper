@@ -1,13 +1,14 @@
 import logging
 from typing import Optional
 
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+
 from app.auth.dependencies import get_required_user
 from app.database.database import get_db
 from app.database.queries.search import SearchResults, search_knowledge_base
 from app.database.telemetry import track_event
 from app.schemas.user import CurrentUser
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

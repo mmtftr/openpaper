@@ -2,8 +2,9 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from app.database.models import PaperStatus
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.database.models import PaperStatus
 
 
 class ProjectResponse(BaseModel):

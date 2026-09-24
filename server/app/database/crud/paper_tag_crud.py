@@ -1,11 +1,12 @@
 import uuid
 from typing import List, Optional
 
-from app.database.crud.base_crud import CRUDBase
-from app.database.models import Paper, PaperTag, PaperTagAssociation, User
-from app.schemas.user import CurrentUser
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+
+from app.database.crud.base_crud import CRUDBase
+from app.database.models import Paper, PaperTag, PaperTagAssociation
+from app.schemas.user import CurrentUser
 
 
 # Pydantic models for PaperTag

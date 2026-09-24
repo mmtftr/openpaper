@@ -6,11 +6,12 @@ import uuid
 from typing import Optional
 from uuid import UUID
 
+from sqlalchemy.orm import Session
+
 from app.database.crud.base_crud import CRUDBase
 from app.database.models import Session as DBSession
 from app.database.models import User
 from app.schemas.user import UserCreate, UserUpdate
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

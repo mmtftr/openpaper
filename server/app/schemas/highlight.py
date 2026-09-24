@@ -12,8 +12,9 @@ from datetime import datetime
 from typing import Any, Literal, Optional
 from uuid import UUID
 
-from app.database.models import HighlightType
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.database.models import HighlightType
 
 HighlightColor = Literal["yellow", "green", "blue", "pink", "purple"]
 AuthorRole = Literal["user", "assistant"]

@@ -12,6 +12,10 @@ import logging
 from datetime import datetime
 from typing import Any, Optional
 
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
 from app.auth.dependencies import get_required_user
 from app.database.crud.model_slot_crud import (
     get_model_slot,
@@ -30,9 +34,6 @@ from app.llm.model_slots import (
     resolve_slot,
 )
 from app.schemas.user import CurrentUser
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

@@ -1,11 +1,12 @@
 from datetime import datetime
 from typing import List, Optional
 
-from app.database.models import Annotation, Highlight, Paper
-from app.schemas.user import CurrentUser
 from pydantic import BaseModel
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session, joinedload
+
+from app.database.models import Annotation, Highlight, Paper
+from app.schemas.user import CurrentUser
 
 
 class HighlightResult(BaseModel):

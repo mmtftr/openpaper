@@ -2,6 +2,10 @@ import logging
 import uuid
 from typing import List
 
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
 from app.auth.dependencies import get_required_user
 from app.database.crud.projects.project_paper_crud import (
     ProjectPaperCreate,
@@ -17,9 +21,6 @@ from app.schemas.project import (
     ProjectResponse,
 )
 from app.schemas.user import CurrentUser
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

@@ -3,9 +3,10 @@
 from typing import Dict, List, Literal, Optional
 from uuid import UUID
 
-from app.schemas.json_datetime import IsoDatetime
 from pydantic import BaseModel
 from typing_extensions import NotRequired, TypedDict
+
+from app.schemas.json_datetime import IsoDatetime
 
 # Available source filters for discover search
 # "openalex" routes to OpenAlex backend, others filter Exa by domain

@@ -2,7 +2,6 @@ import logging
 import os
 
 import psycopg2
-from alembic.config import main as alembic_config
 from dotenv import load_dotenv
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from pydantic_settings import BaseSettings
@@ -24,7 +23,6 @@ class Settings(BaseSettings):
 
 
 def run_migrations():
-    import logging
 
     from alembic import command
     from alembic.config import Config

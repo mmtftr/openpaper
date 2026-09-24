@@ -21,6 +21,12 @@ GET /stream-parts is schema-only: it types OpenPaper's custom stream parts
 import logging
 from typing import Any, Literal, Optional
 
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic_ai.ui.vercel_ai.request_types import UIMessage
+from sqlalchemy.orm import Session
+
 from app.api.errors import ApiError
 from app.auth.dependencies import get_required_user
 from app.database.database import get_db
@@ -34,11 +40,6 @@ from app.llm.model_registry import LLMProvider, get_registry
 from app.llm.model_slots import resolve_slot
 from app.schemas.chat_stream import ChatStreamSchema
 from app.schemas.user import CurrentUser
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field, ValidationError, field_validator
-from pydantic_ai.ui.vercel_ai.request_types import UIMessage
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

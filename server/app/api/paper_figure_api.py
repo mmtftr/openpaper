@@ -12,15 +12,16 @@ import re
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
+from sqlalchemy.orm import Session
+
 from app.auth.dependencies import get_required_user
 from app.database.crud.paper_crud import paper_crud
 from app.database.database import get_db
 from app.helpers.s3 import s3_service
 from app.schemas.paper import PaperFigureSummary
 from app.schemas.user import CurrentUser
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import Response
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

@@ -2,11 +2,12 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
 from app.database.crud.base_crud import CRUDBase
 from app.database.models import JobStatus, PaperUploadJob
 from app.schemas.user import CurrentUser
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
 
 
 # Define Pydantic models for type safety

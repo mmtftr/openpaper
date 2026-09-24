@@ -17,8 +17,7 @@ from app.llm._pai_compat import (
     make_openai_chat_model,
 )
 from app.llm.chat.stream import OpenPaperAdapter
-from app.llm.model_registry import ModelRegistry
-from app.llm.model_registry import LLMProvider
+from app.llm.model_registry import LLMProvider, ModelRegistry
 from app.llm.retrying_model import RetryingModel, is_retryable, retry_after_seconds
 
 

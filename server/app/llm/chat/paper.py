@@ -18,6 +18,10 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
+from pydantic_ai import Agent, RunContext
+from pydantic_ai.messages import BinaryImage, ToolReturn
+from sqlalchemy.orm import Session
+
 from app.database.crud.paper_crud import paper_crud
 from app.database.models import Paper
 from app.database.telemetry import track_event
@@ -44,9 +48,6 @@ from app.llm.tools.section_tools import (
 )
 from app.schemas.message import ResponseStyle
 from app.schemas.user import CurrentUser
-from pydantic_ai import Agent, RunContext
-from pydantic_ai.messages import BinaryImage, ToolReturn
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

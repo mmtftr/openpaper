@@ -2,8 +2,9 @@
 
 from typing import Optional
 
-from app.database.models import ModelSlot
 from sqlalchemy.orm import Session
+
+from app.database.models import ModelSlot
 
 
 def list_model_slots(db: Session) -> list[ModelSlot]:

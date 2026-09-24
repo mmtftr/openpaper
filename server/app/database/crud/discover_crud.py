@@ -4,10 +4,11 @@ import logging
 from typing import List, Optional
 from uuid import UUID
 
-from app.database.models import DiscoverSearch
-from app.schemas.user import CurrentUser
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+
+from app.database.models import DiscoverSearch
+from app.schemas.user import CurrentUser
 
 logger = logging.getLogger(__name__)
 

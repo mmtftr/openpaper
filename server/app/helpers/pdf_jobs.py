@@ -13,6 +13,10 @@ from typing import Any, Dict, Optional
 from uuid import UUID
 
 import requests
+from celery import Celery
+from dotenv import load_dotenv
+from sqlalchemy.orm import Session
+
 from app.database.crud.paper_crud import PaperCreate, paper_crud
 from app.database.crud.projects.project_paper_crud import (
     ProjectPaperCreate,
@@ -22,9 +26,6 @@ from app.database.models import PaperUploadJob
 from app.database.telemetry import track_event
 from app.helpers.s3 import s3_service
 from app.schemas.user import CurrentUser
-from celery import Celery
-from dotenv import load_dotenv
-from sqlalchemy.orm import Session
 
 load_dotenv()
 

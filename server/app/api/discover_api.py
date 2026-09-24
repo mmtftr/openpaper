@@ -5,6 +5,10 @@ import logging
 from typing import List
 from uuid import UUID
 
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
+
 from app.auth.dependencies import get_required_user
 from app.database.crud.discover_crud import discover_search_crud
 from app.database.database import get_db
@@ -17,9 +21,6 @@ from app.schemas.discover import (
     DiscoverSource,
 )
 from app.schemas.user import CurrentUser
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

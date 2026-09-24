@@ -3,17 +3,17 @@ from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
 
+from pydantic import BaseModel
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
 from app.database.crud.projects.project_base_crud import ProjectBaseCRUD
 from app.database.models import (
-    ConversableType,
     Project,
     ProjectPaper,
 )
 from app.schemas.project import ProjectResponse
 from app.schemas.user import CurrentUser
-from pydantic import BaseModel
-from sqlalchemy import func
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

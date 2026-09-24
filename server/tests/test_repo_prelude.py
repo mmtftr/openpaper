@@ -15,9 +15,7 @@ import pytest
 
 from app.llm.repo import storage
 from app.llm.repo.prelude import (
-    MAX_CONTEXT,
     MAX_READ_LINES,
-    MAX_RESULTS,
     RepoPrelude,
 )
 from app.llm.repo.storage import SnapshotPathError

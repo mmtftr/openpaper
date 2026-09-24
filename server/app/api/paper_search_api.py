@@ -1,6 +1,9 @@
 import logging
 from typing import Optional
 
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+
 from app.auth.dependencies import get_current_user
 from app.database.database import get_db
 from app.database.telemetry import track_event
@@ -11,8 +14,6 @@ from app.helpers.paper_search import (
     search_open_alex,
 )
 from app.schemas.user import CurrentUser
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

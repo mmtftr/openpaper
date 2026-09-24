@@ -36,16 +36,6 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, Sequence
 
-from app.database.models import Message
-from app.helpers.s3 import s3_service
-from app.llm.chat.evidence import strip_evidence_blocks
-from app.llm.chat.stream import EvidenceFilter, truncate_tool_output
-from app.schemas.chat_stream import (
-    CITATIONS_PART_ID,
-    CITATIONS_PART_TYPE,
-    citations_data,
-    message_metadata,
-)
 from pydantic import ValidationError
 from pydantic_ai.messages import (
     ModelMessage,
@@ -63,6 +53,17 @@ from pydantic_ai.ui.vercel_ai.request_types import (
     ToolOutputAvailablePart,
     UIMessage,
     UIMessagePart,
+)
+
+from app.database.models import Message
+from app.helpers.s3 import s3_service
+from app.llm.chat.evidence import strip_evidence_blocks
+from app.llm.chat.stream import EvidenceFilter, truncate_tool_output
+from app.schemas.chat_stream import (
+    CITATIONS_PART_ID,
+    CITATIONS_PART_TYPE,
+    citations_data,
+    message_metadata,
 )
 
 logger = logging.getLogger(__name__)

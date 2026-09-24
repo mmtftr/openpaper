@@ -6,7 +6,6 @@ tests (no DB, no network) while still exercising the real path validation.
 
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path

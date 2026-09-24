@@ -19,6 +19,18 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from uuid import UUID
 
+from dotenv import load_dotenv
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    Request,
+    UploadFile,
+)
+from sqlalchemy.orm import Session
+
 from app.api.webhook_api import handle_failed_upload
 from app.auth.dependencies import get_required_user
 from app.database.crud.paper_crud import paper_crud
@@ -38,17 +50,6 @@ from app.schemas.paper import (
     UploadStartedResponse,
 )
 from app.schemas.user import CurrentUser
-from dotenv import load_dotenv
-from fastapi import (
-    APIRouter,
-    BackgroundTasks,
-    Depends,
-    File,
-    HTTPException,
-    Request,
-    UploadFile,
-)
-from sqlalchemy.orm import Session
 
 load_dotenv()
 

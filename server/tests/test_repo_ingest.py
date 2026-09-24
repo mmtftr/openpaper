@@ -11,6 +11,7 @@ import io
 import tarfile
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -25,6 +26,8 @@ from app.llm.repo.ingest import (
     parse_repo_url,
 )
 
+if TYPE_CHECKING:
+    import httpx
 
 # -- URL validation -------------------------------------------------------
 

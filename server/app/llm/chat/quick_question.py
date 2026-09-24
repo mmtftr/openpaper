@@ -36,6 +36,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
 
+from pydantic_ai import Agent, UsageLimits
+from pydantic_ai.ui.vercel_ai.request_types import RequestData
+from sqlalchemy.orm import Session
+
 from app.database.telemetry import track_event
 from app.llm.chat.paper import _select_preload, build_paper_chat_context
 from app.llm.chat.quick_question_tools import (
@@ -44,14 +48,11 @@ from app.llm.chat.quick_question_tools import (
     register_repo_tools,
 )
 from app.llm.chat.stream import OpenPaperAdapter
-from app.llm.repo.prelude import RepoPrelude
 from app.llm.model_registry import LLMProvider, get_registry
 from app.llm.model_slots import resolve_slot
+from app.llm.repo.prelude import RepoPrelude
 from app.llm.retrying_model import RetryingModel
 from app.schemas.user import CurrentUser
-from pydantic_ai import Agent, UsageLimits
-from pydantic_ai.ui.vercel_ai.request_types import RequestData
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

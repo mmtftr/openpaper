@@ -2,6 +2,10 @@ import logging
 from typing import List
 from uuid import UUID
 
+from dotenv import load_dotenv
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+
 from app.auth.dependencies import get_required_user
 from app.database.crud.paper_tag_crud import PaperTagCreate, paper_tag_crud
 from app.database.database import get_db
@@ -13,9 +17,6 @@ from app.schemas.paper import (
     TaggedPaper,
 )
 from app.schemas.user import CurrentUser
-from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 
 load_dotenv()
 

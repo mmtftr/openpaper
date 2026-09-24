@@ -7,8 +7,9 @@ from typing import List, Optional
 from urllib.parse import quote, unquote
 
 import requests
-from app.schemas.paper import EnrichedData
 from pydantic import BaseModel, ConfigDict, model_validator
+
+from app.schemas.paper import EnrichedData
 
 logger = logging.getLogger(__name__)
 

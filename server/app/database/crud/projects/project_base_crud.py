@@ -1,6 +1,8 @@
 import logging
 from typing import Any, Dict, List, Optional, Union
 
+from sqlalchemy.orm import Query, Session
+
 from app.database.crud.base_crud import (
     CreateSchemaType,
     CRUDBase,
@@ -9,7 +11,6 @@ from app.database.crud.base_crud import (
 )
 from app.database.models import Project, ProjectPaper
 from app.schemas.user import CurrentUser
-from sqlalchemy.orm import Query, Session
 
 logger = logging.getLogger(__name__)
 

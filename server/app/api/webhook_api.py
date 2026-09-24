@@ -7,6 +7,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
 from app.database.crud.paper_crud import PaperUpdate, paper_crud
 from app.database.crud.paper_upload_crud import paper_upload_job_crud
 from app.database.crud.projects.project_paper_crud import project_paper_crud
@@ -18,9 +22,6 @@ from app.helpers.s3 import s3_service
 from app.schemas.highlight import ScaledPosition
 from app.schemas.responses import PaperMetadataExtraction
 from app.schemas.user import CurrentUser
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

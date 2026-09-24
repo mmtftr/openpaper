@@ -15,6 +15,12 @@ import logging
 from typing import List, Literal, Optional
 from uuid import UUID
 
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from app.api.errors import ApiError
 from app.auth.dependencies import get_required_user
 from app.database.crud.document_crud import (
     RevisionMismatch,
@@ -22,14 +28,9 @@ from app.database.crud.document_crud import (
 )
 from app.database.crud.paper_crud import paper_crud
 from app.database.database import get_db
-from app.api.errors import ApiError
 from app.database.models import DocumentKind
 from app.schemas.json_datetime import IsoDatetime
 from app.schemas.user import CurrentUser
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

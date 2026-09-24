@@ -20,7 +20,6 @@ import pytest
 from app.llm.chat.quick_question import (
     CODE_FULL_LINE_LIMIT,
     HEAD_LINES,
-    MAX_QUESTION_CHARS,
     QUICK_QUESTION_SYSTEM_PROMPT,
     TRUNCATION_MARKER,
     WINDOW_CONTEXT_LINES,
@@ -494,8 +493,7 @@ def _parse_sse(encoded: List[str]) -> List[dict]:
 @pytest.fixture()
 def quick_question_run(ready_snapshot, monkeypatch):
     """Drive the real `run_quick_question` against a scripted model."""
-    from app.llm.model_registry import ModelSpec
-    from app.llm.model_registry import LLMProvider
+    from app.llm.model_registry import LLMProvider, ModelSpec
 
     qq = ready_snapshot
     recorded = SimpleNamespace(

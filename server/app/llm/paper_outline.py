@@ -7,12 +7,13 @@ import re
 import threading
 import unicodedata
 
-from app.database.models import Paper
-from app.llm import oneshot
-from app.llm.tools.section_tools import _HEADING_RE
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import update
 from sqlalchemy.orm import Session
+
+from app.database.models import Paper
+from app.llm import oneshot
+from app.llm.tools.section_tools import _HEADING_RE
 
 logger = logging.getLogger(__name__)
 

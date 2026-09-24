@@ -4,6 +4,10 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
 from app.auth.dependencies import get_current_user, get_required_user
 from app.auth.email import email_auth_client
 from app.auth.utils import (
@@ -11,17 +15,11 @@ from app.auth.utils import (
     is_verification_code_valid,
     set_session_cookie,
 )
-from app.database.crud.annotation_crud import annotation_crud
-from app.database.crud.highlight_crud import highlight_crud
-from app.database.crud.message_crud import message_crud
 from app.database.crud.user_crud import user as user_crud
 from app.database.database import get_db
-from app.database.models import PaperStatus, User
+from app.database.models import User
 from app.database.telemetry import track_event
 from app.schemas.user import CurrentUser, UserUpdate
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

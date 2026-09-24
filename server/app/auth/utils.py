@@ -4,9 +4,10 @@ import string
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
-from app.auth.dependencies import SESSION_COOKIE_NAME
 from dotenv import load_dotenv
-from fastapi import Request, Response
+from fastapi import Response
+
+from app.auth.dependencies import SESSION_COOKIE_NAME
 
 load_dotenv()
 

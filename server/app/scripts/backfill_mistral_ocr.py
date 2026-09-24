@@ -28,9 +28,10 @@ import requests
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
+from sqlalchemy import update
+
 from app.database.database import SessionLocal
 from app.database.models import Paper
-from sqlalchemy import update
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)

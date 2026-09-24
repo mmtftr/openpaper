@@ -19,7 +19,6 @@ import re
 import unicodedata
 from typing import Optional
 
-
 _LATEX_UNICODE = {
     # Greek (lowercase + common uppercase)
     "alpha": "α", "beta": "β", "gamma": "γ", "delta": "δ", "epsilon": "ε",

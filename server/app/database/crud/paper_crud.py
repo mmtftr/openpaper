@@ -3,6 +3,9 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
+from pydantic import BaseModel
+from sqlalchemy.orm import Session, selectinload
+
 from app.database.crud.annotation_crud import AnnotationCreate, annotation_crud
 from app.database.crud.base_crud import CRUDBase
 from app.database.crud.highlight_crud import HighlightCreate, highlight_crud
@@ -15,10 +18,8 @@ from app.database.models import (
 )
 from app.helpers.parser import get_start_page_from_offset
 from app.llm.utils import find_offsets
-from app.schemas.responses import PaperMetadataExtraction, ResponseCitation
+from app.schemas.responses import PaperMetadataExtraction
 from app.schemas.user import CurrentUser
-from pydantic import BaseModel
-from sqlalchemy.orm import Session, selectinload
 
 logger = logging.getLogger(__name__)
 

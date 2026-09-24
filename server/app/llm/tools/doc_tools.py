@@ -23,11 +23,12 @@ import logging
 from typing import Any, Dict, Optional
 from uuid import UUID
 
+from sqlalchemy.orm import Session
+
 from app.database.crud.document_crud import RevisionMismatch, document_crud
 from app.database.crud.paper_crud import paper_crud
 from app.database.models import DocumentKind
 from app.schemas.user import CurrentUser
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

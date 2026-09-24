@@ -2,11 +2,12 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar, Union
 
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
 from app.database.crud.sanitization import sanitize_for_postgres
 from app.database.models import Base
 from app.schemas.user import CurrentUser
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
 
 # Type variable for SQLAlchemy models
 ModelType = TypeVar("ModelType", bound="Base")  # type: ignore

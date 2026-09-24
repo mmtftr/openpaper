@@ -17,6 +17,10 @@ import threading
 import uuid
 from typing import List, Optional
 
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
 from app.auth.dependencies import get_required_user
 from app.database.crud.paper_crud import paper_crud
 from app.database.crud.paper_repo_crud import (
@@ -36,9 +40,6 @@ from app.llm.repo.ingest import (
 )
 from app.schemas.json_datetime import IsoDatetime
 from app.schemas.user import CurrentUser
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

@@ -1,12 +1,13 @@
 from typing import Any, Dict, Optional
 from uuid import UUID
 
-from app.database.crud.base_crud import CRUDBase
-from app.database.models import Message
-from app.schemas.user import CurrentUser
 from pydantic import BaseModel
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
+
+from app.database.crud.base_crud import CRUDBase
+from app.database.models import Message
+from app.schemas.user import CurrentUser
 
 
 class MessageBase(BaseModel):
