@@ -23,19 +23,17 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import queue
 import threading
-from dataclasses import replace
-from typing import Any, AsyncIterator, Awaitable, Callable, Iterator, Optional, TypeVar
+from typing import Any, Awaitable, Callable, Optional, TypeVar
 
-import httpx
+import httpx2 as httpx
 import openai
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
 from pydantic_ai.profiles.openai import (
     OpenAIJsonSchemaTransformer,
     openai_model_profile,
 )
-from pydantic_ai.providers.azure import AzureProvider
+from pydantic_ai.providers.azure import AzureProvider, _openai_compatible_v1_base_url
 from pydantic_ai.providers.openai import OpenAIProvider as PaiOpenAIProvider
 
 logger = logging.getLogger(__name__)
@@ -86,26 +84,6 @@ def _is_azure_openai_enabled() -> bool:
     return os.getenv("AZURE_OPENAI", "").strip().lower() in ("1", "true", "yes")
 
 
-def _v1_azure_base_url(url: Optional[str]) -> Optional[str]:
-    """Base URL to use when `url` speaks the OpenAI-compatible v1 API.
-
-    Delegates to pydantic-ai's own rule (any `/v1` path, plus AI Foundry
-    serverless `*.models.ai.azure.com` hosts) so that building the client
-    ourselves does not narrow what `AzureProvider` used to accept — those
-    routes reject the `api-version` query parameter `AsyncAzureOpenAI`
-    always injects.
-    """
-    if not url:
-        return None
-    try:
-        from pydantic_ai.providers.azure import _openai_compatible_v1_base_url
-
-        return _openai_compatible_v1_base_url(url)
-    except Exception:  # pragma: no cover - private API moved
-        stripped = url.rstrip("/")
-        return stripped if stripped.endswith("/v1") else None
-
-
 def _openai_provider(
     *,
     api_key: Optional[str],
@@ -126,7 +104,9 @@ def _openai_provider(
             raise ValueError(
                 "AZURE_OPENAI=true requires AZURE_OPENAI_ENDPOINT to be set"
             )
-        v1_base_url = _v1_azure_base_url(endpoint)
+        # Verified against pinned Pydantic AI 2.44: includes Foundry
+        # *.models.ai.azure.com endpoints, which also reject api-version.
+        v1_base_url = _openai_compatible_v1_base_url(endpoint)
         if v1_base_url:
             # v1 OpenAI-compatible endpoint: use the plain async client + base_url.
             client = openai.AsyncOpenAI(
@@ -164,7 +144,7 @@ def _openai_provider(
 
 def _azure_strict_profile(model_name: str):
     base = openai_model_profile(model_name)
-    return replace(base, json_schema_transformer=AzureStrictJsonSchemaTransformer)
+    return {**base, "json_schema_transformer": AzureStrictJsonSchemaTransformer}
 
 
 def make_openai_chat_model(
@@ -273,35 +253,3 @@ def run_async(coro: Awaitable[_T]) -> _T:
     if "error" in box:
         raise box["error"]
     return box["value"]
-
-
-def async_iter_to_sync(
-    factory: Callable[[], AsyncIterator[_T]],
-) -> Iterator[_T]:
-    """Bridge an async iterator to a sync one. Runs the async iteration on a
-    background thread+loop and pushes items onto a queue.
-    """
-    q: "queue.Queue[object]" = queue.Queue()
-    sentinel = object()
-
-    async def driver() -> None:
-        try:
-            async for item in factory():
-                q.put(item)
-        except BaseException as exc:
-            q.put(("__error__", exc))
-        finally:
-            q.put(sentinel)
-
-    def runner() -> None:
-        asyncio.run(driver())
-
-    t = threading.Thread(target=runner, daemon=True)
-    t.start()
-    while True:
-        item = q.get()
-        if item is sentinel:
-            return
-        if isinstance(item, tuple) and len(item) == 2 and item[0] == "__error__":
-            raise item[1]  # type: ignore[misc]
-        yield item  # type: ignore[misc]

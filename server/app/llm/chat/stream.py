@@ -357,13 +357,8 @@ class OpenPaperEventStream(VercelAIEventStream[AgentDepsT, OutputDataT]):
             text,
             exc_info=error,
         )
-        # Close a dangling text part first — the AI SDK client would
-        # otherwise leave it in `streaming` state forever.
-        for chunk in self._text_chunks(self._evidence_filter.flush()):
-            yield chunk
-        if self._part_open:
-            self._part_open = False
-            yield TextEndChunk(id=self.message_id)
+        # Pydantic AI 2.x closes the open part through handle_text_end
+        # before on_error, including our evidence flush and text-end chunk.
         async for chunk in super().on_error(error):
             yield chunk
 

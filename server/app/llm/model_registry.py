@@ -393,7 +393,7 @@ class ModelRegistry:
             )
 
         if spec.provider == LLMProvider.GEMINI:
-            import httpx
+            import httpx2 as httpx
             from pydantic_ai.models.google import GoogleModel
             from pydantic_ai.providers.google import GoogleProvider
 

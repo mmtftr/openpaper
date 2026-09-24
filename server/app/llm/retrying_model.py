@@ -53,6 +53,7 @@ from typing import (
 )
 
 import httpx
+import httpx2
 from pydantic_ai.exceptions import (
     ModelAPIError,
     ModelHTTPError,
@@ -106,7 +107,7 @@ def _status_code(error: BaseException) -> Optional[int]:
     if isinstance(error, ModelHTTPError):
         return error.status_code
     response = getattr(error, "response", None)
-    if isinstance(response, httpx.Response):
+    if isinstance(response, (httpx.Response, httpx2.Response)):
         return response.status_code
     status = getattr(error, "status_code", None)
     if isinstance(status, int):
@@ -138,7 +139,7 @@ def is_retryable(error: BaseException) -> bool:
     # Connection resets, DNS failures, read timeouts — httpx raises these
     # directly when they happen mid-stream-consumption, and pydantic-ai
     # wraps them in ModelAPIError when they happen at request time.
-    if isinstance(error, (httpx.TimeoutException, httpx.TransportError)):
+    if isinstance(error, (httpx.TransportError, httpx2.TransportError)):
         return True
     if isinstance(error, (ConnectionError, TimeoutError, asyncio.TimeoutError)):
         return True
@@ -150,8 +151,8 @@ def is_retryable(error: BaseException) -> bool:
 def _header_bag(error: BaseException) -> Optional[Any]:
     """Best-effort headers for `error`, following one `__cause__` hop.
 
-    `ModelHTTPError` drops the response headers, but it is raised `from` the
-    provider SDK error, which still has them.
+    Pydantic AI 2.x preserves headers on `ModelHTTPError`; raw SDK errors
+    and connection failures may still carry them on their response/cause.
     """
     seen = 0
     candidate: Optional[BaseException] = error
@@ -271,12 +272,6 @@ class RetryingModel(WrapperModel):
         self._max_attempts = max(1, int(max_attempts))
         self._backoff: Tuple[float, ...] = tuple(backoff_seconds) or (1.0,)
         self._sleep = sleep
-
-    @property
-    def base_url(self) -> Optional[str]:
-        # `WrapperModel` leaves this at the base class's `None`, which would
-        # blank the provider URL in telemetry and instrumentation spans.
-        return self.wrapped.base_url
 
     # -- attempt policy --------------------------------------------------
 

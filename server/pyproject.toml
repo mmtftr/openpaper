@@ -12,11 +12,11 @@ requires-python = ">= 3.12"
 description = "An Application to Read & Understand Papers with AI"
 readme = "README.md"
 dependencies = [
-    "fastapi>=0.115",
+    "fastapi==0.141.1",
     "uvicorn>=0.34",
     "pydantic[email]>=2.10",
     "python-dotenv>=1.0.1",
-    "google-genai>=1.7.0",
+    "google-genai==2.18.0",
     "requests>=2.32.4",
     "sqlalchemy>=2.0.39",
     "psycopg2-binary>=2.9.10",
@@ -32,8 +32,8 @@ dependencies = [
     "itsdangerous>=2.2.0",
     "gunicorn>=23.0.0",
     "firecrawl-py>=2.7.0",
-    "openai>=1.82.0",
-    "anthropic>=0.96.0",
+    "openai==3.8.0",
+    "anthropic==1.3.0",
     "pillow>=12.1.1",
     "resend>=2.10.0",
     "celery>=5.5.3",
@@ -42,8 +42,12 @@ dependencies = [
     "pypdf2>=3.0.1",
     "exa-py>=1.0.0",
     "logfire[celery,fastapi,httpx,sqlalchemy,system-metrics]==4.41.0",
-    "opentelemetry-instrumentation-google-genai>=0.2b0",
-    "pydantic-ai==1.89.1",
+    "opentelemetry-instrumentation-google-genai==0.7b1",
+    "pydantic-ai==2.44.0",
+    "genai-prices==0.1.7",
+    # Imported directly (retrying_model, _pai_compat, model_registry) — the SDKs
+    # moved to it — so declared rather than left to arrive transitively.
+    "httpx2==2.13.0",
     "pydantic-monty==0.0.21",
     "regex>=2026.4.4",
 ]
@@ -64,3 +68,6 @@ plugins = [
 ]
 show_error_codes = true
 strict = true
+
+[tool.uv]
+exclude-newer = "2026-09-17T23:59:59Z"
