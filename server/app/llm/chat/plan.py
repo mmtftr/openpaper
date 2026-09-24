@@ -36,7 +36,7 @@ from app.llm.chat.history import (
     MODEL_PROMPT_KEY,
     load_model_history,
 )
-from app.llm.chat.model_choice import ModelChoice, choose_model
+from app.llm.chat.model_choice import ModelChoice, ModelChoiceError, choose_model
 from app.llm.chat.paper import PaperChatContext, build_paper_chat_context
 from app.schemas.user import CurrentUser
 
@@ -250,7 +250,7 @@ async def plan_paper_turn(
             model=model,
             reasoning_effort=reasoning_effort,
         )
-    except ValueError as exc:
+    except ModelChoiceError as exc:
         raise ChatRequestError(str(exc))
 
     try:

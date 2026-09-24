@@ -634,9 +634,10 @@ def quick_question_run(ready_snapshot, monkeypatch):
 
 
 def test_an_abandoned_question_does_not_run_ahead(quick_question_run):
-    """The stream is paced by its reader (lookahead 1): a client that read
-    only the `start` chunk and left must not have driven the run on into
-    extra model requests and lookups."""
+    """The stream is paced by its reader (an on-demand pump), exactly like
+    the plain pull loop it replaced: a client that read only the `start`
+    chunk and left must not have driven the run into any model request or
+    lookup."""
     requests: List[int] = []
     script = [_read_call(1), _read_call(2), ["Done."]]
     model = _script_model(script)
@@ -649,9 +650,21 @@ def test_an_abandoned_question_does_not_run_ahead(quick_question_run):
             yield item
 
     model.stream_function = counting
+    from app.llm._pai_compat import MODEL_TRANSPORT_CLOSER
+    from app.llm.chat import pump as pump_module
+
+    closed: List[str] = []
+
+    async def close() -> None:
+        closed.append("closed")
+
+    setattr(model, MODEL_TRANSPORT_CLOSER, close)
     recorded = quick_question_run(model, stop_after=1)
     assert [c["type"] for c in recorded.chunks] == ["start"]
-    assert len(requests) <= 1
+    assert requests == []
+    # Teardown still completes with the pump parked waiting for a read.
+    assert closed == ["closed"]
+    assert not pump_module._BACKGROUND_TEARDOWNS
     event = next(
         kwargs["properties"]
         for name, kwargs in recorded.events

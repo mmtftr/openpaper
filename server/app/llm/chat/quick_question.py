@@ -43,7 +43,7 @@ from sqlalchemy.orm import Session
 
 from app.database.telemetry import track_event
 from app.llm.chat.budget import ToolBudget
-from app.llm.chat.model_choice import choose_model
+from app.llm.chat.model_choice import ModelChoiceError, choose_model
 from app.llm.chat.paper import build_paper_chat_context
 from app.llm.chat.pump import StreamPump
 from app.llm.chat.quick_question_tools import (
@@ -441,10 +441,13 @@ async def run_quick_question(
             model=model,
             reasoning_effort=reasoning_effort,
         )
-        built_model = choice.registry.build_model(choice.spec)
-    except ValueError as exc:
+    except ModelChoiceError as exc:
         raise QuickQuestionError(str(exc), 422)
     spec = choice.spec
+    try:
+        built_model = choice.registry.build_model(spec)
+    except ValueError as exc:
+        raise QuickQuestionError(str(exc), 422)
 
     # Same transient-failure budget as chat. No status callback: a one-shot
     # answer that silently arrives a second late needs no UI affordance, so
@@ -482,7 +485,7 @@ async def run_quick_question(
 
     # Paced by the reader, as the plain pull loop this replaced was: an
     # abandoned popover must not let the run race ahead into more lookups.
-    pump = StreamPump(lookahead=1)
+    pump = StreamPump(on_demand=True)
     delivered = False
     try:
         native_stream = adapter.run_stream_native(

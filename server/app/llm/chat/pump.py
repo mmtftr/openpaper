@@ -88,21 +88,30 @@ OnComplete = Callable[[Any], AsyncIterator[Any]]
 class StreamPump:
     """One run's chunk queue, pump task and teardown. Single-use.
 
-    `lookahead` is how many encoded chunks the run may get ahead of the
-    reader (default `CHUNK_QUEUE_SIZE`). A pump can never be purely
-    demand-driven, but a lookahead of 1 comes closest to a plain pull loop:
-    a stalled or departed client then costs at most one chunk of extra work.
+    By default the run may get up to `CHUNK_QUEUE_SIZE` encoded chunks ahead
+    of the reader. `on_demand=True` paces it exactly like a plain pull loop
+    instead: the pump pulls the next chunk only when the reader asks for
+    one, so a stalled or departed client costs no extra model requests or
+    tool calls. That mode cannot carry retry-status chunks (they would
+    have to wait for a pull), so it is for streams without them.
     """
 
-    def __init__(self, *, lookahead: Optional[int] = None) -> None:
+    def __init__(self, *, on_demand: bool = False) -> None:
         # Bounded, so a client that stops reading still throttles the
         # provider stream the way a direct loop would instead of buffering a
         # whole turn. The bound is why iteration ALSO stops on a finished
         # pump: the end-of-stream sentinel is pushed from a `finally` that
         # runs under cancellation too, where it must never suspend and so
         # may be dropped.
-        size = CHUNK_QUEUE_SIZE if lookahead is None else max(1, lookahead)
-        self._queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=size)
+        self._queue: asyncio.Queue[Any] = asyncio.Queue(
+            maxsize=1 if on_demand else CHUNK_QUEUE_SIZE
+        )
+        # Set by the reader for each chunk it wants (on-demand mode only).
+        self._demand: Optional[asyncio.Event] = asyncio.Event() if on_demand else None
+        # Once stopping, the pump no longer waits for demand: teardown's
+        # drainer is then the reader, and a pump parked on demand could only
+        # be stopped by the next re-cancel.
+        self._stopping = False
         self._adapter: Optional[OpenPaperAdapter[Any, Any]] = None
         self._native_stream: Optional[Any] = None
         self._event_stream: Optional[Any] = None
@@ -174,9 +183,24 @@ class StreamPump:
         transient chunk to the consumer while a retry backoff sleeps.
         """
         assert self._adapter is not None and self._event_stream is not None
+        stream = self._adapter.encode_stream(self._event_stream)
+        demand = self._demand
         try:
-            async for encoded in self._adapter.encode_stream(self._event_stream):
-                await self._queue.put(encoded)
+            if demand is None:
+                async for encoded in stream:
+                    await self._queue.put(encoded)
+            else:
+                # On demand: advance the run by exactly one chunk per read.
+                chunks = stream.__aiter__()
+                while True:
+                    if not self._stopping:
+                        await demand.wait()
+                        demand.clear()
+                    try:
+                        encoded = await chunks.__anext__()
+                    except StopAsyncIteration:
+                        break
+                    await self._queue.put(encoded)
         finally:
             # `put_nowait`, never `await put`: this also runs when the
             # pump is CANCELLED, where suspending would strand the
@@ -196,6 +220,8 @@ class StreamPump:
         # (the sentinel can be dropped when the queue is full).
         if task is None or (self._queue.empty() and task.done()):
             raise StopAsyncIteration
+        if self._demand is not None and self._queue.empty():
+            self._demand.set()
         item = await self._queue.get()
         if item is _STREAM_END:
             raise StopAsyncIteration
@@ -209,6 +235,9 @@ class StreamPump:
     def cancel(self) -> None:
         """Stop the pump. Synchronous, so everything a caller does before its
         next `await` runs with the pump unable to advance."""
+        self._stopping = True
+        if self._demand is not None:
+            self._demand.set()
         if self._task is not None:
             self._task.cancel()
 
