@@ -1,11 +1,17 @@
 import logging
-import uuid
+from typing import List
+from uuid import UUID
 
 from app.auth.dependencies import get_required_user
 from app.database.crud.paper_tag_crud import PaperTagCreate, paper_tag_crud
 from app.database.database import get_db
 from app.database.telemetry import track_event
-from app.schemas.paper import BulkTagRequest
+from app.schemas.paper import (
+    BulkTagRequest,
+    MessageResponse,
+    PaperTagResponse,
+    TaggedPaper,
+)
 from app.schemas.user import CurrentUser
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException
@@ -23,7 +29,7 @@ def create_tag(
     tag_in: PaperTagCreate,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-):
+) -> PaperTagResponse:
     """
     Create a new tag for the current user.
     """
@@ -39,19 +45,19 @@ def create_tag(
         user_id=str(current_user.id),
     )
 
-    return {"id": str(tag.id), "name": tag.name, "color": tag.color}
+    return PaperTagResponse.model_validate(tag)
 
 
 @paper_tag_router.get("/")
 def get_all_tags(
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-):
+) -> List[PaperTagResponse]:
     """
     Get all tags for the current user.
     """
     tags = paper_tag_crud.get_multi(db, user=current_user)
-    return [{"id": str(t.id), "name": t.name, "color": t.color} for t in tags]
+    return [PaperTagResponse.model_validate(t) for t in tags]
 
 
 @paper_tag_router.post("/bulk", status_code=200)
@@ -59,7 +65,7 @@ def bulk_add_tags(
     request: BulkTagRequest,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-):
+) -> MessageResponse:
     """
     Apply multiple tags to multiple papers.
     """
@@ -80,7 +86,7 @@ def bulk_add_tags(
             user_id=str(current_user.id),
         )
 
-        return {"message": "Tags applied successfully."}
+        return MessageResponse(message="Tags applied successfully.")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -90,24 +96,24 @@ def bulk_add_tags(
 
 @paper_tag_router.delete("/papers/{paper_id}/tags/{tag_id}", status_code=204)
 def remove_tag_from_paper(
-    paper_id: str,
-    tag_id: str,
+    paper_id: UUID,
+    tag_id: UUID,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-):
+) -> None:
     """
     Remove a tag from a specific paper.
     """
     paper_tag_crud.remove_tag_from_paper(
         db,
-        paper_id=uuid.UUID(paper_id),
-        tag_id=uuid.UUID(tag_id),
+        paper_id=paper_id,
+        tag_id=tag_id,
         user=current_user,
     )
 
     track_event(
         "tag_removed_from_paper",
-        properties={"paper_id": paper_id, "tag_id": tag_id},
+        properties={"paper_id": str(paper_id), "tag_id": str(tag_id)},
         user_id=str(current_user.id),
     )
 
@@ -116,37 +122,35 @@ def remove_tag_from_paper(
 
 @paper_tag_router.get("/papers/{paper_id}/tags")
 def get_tags_for_paper(
-    paper_id: str,
+    paper_id: UUID,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-):
+) -> List[PaperTagResponse]:
     """
     Get all tags for a specific paper.
     """
     tags = paper_tag_crud.get_tags_for_paper(
-        db, paper_id=uuid.UUID(paper_id), user=current_user
+        db, paper_id=paper_id, user=current_user
     )
-    return [{"id": str(t.id), "name": t.name, "color": t.color} for t in tags]
+    return [PaperTagResponse.model_validate(t) for t in tags]
 
 
 @paper_tag_router.get("/tags/{tag_id}/papers")
 def get_papers_for_tag(
-    tag_id: str,
+    tag_id: UUID,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-):
+) -> List[TaggedPaper]:
     """
     Get all papers associated with a specific tag.
     """
-    papers = paper_tag_crud.get_papers_for_tag(
-        db, tag_id=uuid.UUID(tag_id), user=current_user
-    )
+    papers = paper_tag_crud.get_papers_for_tag(db, tag_id=tag_id, user=current_user)
     return [
-        {
-            "id": str(p.id),
-            "title": p.title,
-            "authors": p.authors,
-            "publish_date": p.publish_date,
-        }
+        TaggedPaper(
+            id=p.id,  # type: ignore[arg-type]
+            title=p.title,  # type: ignore[arg-type]
+            authors=p.authors,  # type: ignore[arg-type]
+            publish_date=p.publish_date,  # type: ignore[arg-type]
+        )
         for p in papers
     ]

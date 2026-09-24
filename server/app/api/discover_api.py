@@ -2,13 +2,20 @@
 
 import json
 import logging
+from typing import List
+from uuid import UUID
 
 from app.auth.dependencies import get_required_user
 from app.database.crud.discover_crud import discover_search_crud
 from app.database.database import get_db
 from app.database.telemetry import track_event
 from app.helpers.discover import run_discover_pipeline
-from app.schemas.discover import DISCOVER_SOURCES, DiscoverSearchRequest
+from app.schemas.discover import (
+    DISCOVER_SOURCES,
+    DiscoverSearchRecord,
+    DiscoverSearchRequest,
+    DiscoverSource,
+)
 from app.schemas.user import CurrentUser
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -21,7 +28,22 @@ discover_router = APIRouter()
 END_DELIMITER = "END_OF_STREAM"
 
 
-@discover_router.post("/search")
+@discover_router.post(
+    "/search",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "content": {"text/event-stream": {"schema": {"type": "string"}}},
+            "description": (
+                "JSON chunks, each followed by the literal `END_OF_STREAM`: "
+                '`{"type": "subqueries", "content": [str]}`, then one '
+                '`{"type": "results", "subquery": str, "content": [DiscoverResult]}` '
+                'per subquery, then `{"type": "done", "search_id": str | null}` '
+                '(or `{"type": "error", "content": str}`).'
+            ),
+        }
+    },
+)
 async def discover_search(
     request: DiscoverSearchRequest,
     db: Session = Depends(get_db),
@@ -99,55 +121,52 @@ async def discover_search(
     return StreamingResponse(response_generator(), media_type="text/event-stream")
 
 
+def _record(search) -> DiscoverSearchRecord:
+    return DiscoverSearchRecord(
+        id=search.id,
+        question=search.question,
+        subqueries=search.subqueries,
+        results=search.results,
+        created_at=search.created_at,
+    )
+
+
 @discover_router.get("/history")
-async def discover_history(
+def discover_history(
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-):
+) -> List[DiscoverSearchRecord]:
     """Get the user's past discover searches."""
     searches = discover_search_crud.get_history(db, user=current_user, limit=20)
-    return [
-        {
-            "id": str(s.id),
-            "question": s.question,
-            "subqueries": s.subqueries,
-            "results": s.results,
-            "created_at": s.created_at.isoformat() if s.created_at else None,
-        }
-        for s in searches
-    ]
+    return [_record(s) for s in searches]
 
 
 @discover_router.get("/sources")
-async def discover_sources():
+def discover_sources() -> List[DiscoverSource]:
     """Get the list of available source filters for discover search."""
     return [
-        {"key": key, "label": info["label"], "description": info["description"]}
+        DiscoverSource(key=key, label=info["label"], description=info["description"])
         for key, info in DISCOVER_SOURCES.items()
     ]
 
 
 @discover_router.get("/{search_id}")
-async def discover_get(
-    search_id: str,
+def discover_get(
+    search_id: UUID,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-):
+) -> DiscoverSearchRecord:
     """Get a single discover search by ID."""
-    search = discover_search_crud.get_by_id(db, search_id=search_id, user=current_user)
+    search = discover_search_crud.get_by_id(
+        db, search_id=str(search_id), user=current_user
+    )
     if not search:
         raise HTTPException(status_code=404, detail="Search not found")
 
     track_event(
         "did_view_discover_search",
-        properties={"search_id": search_id},
+        properties={"search_id": str(search_id)},
         user_id=str(current_user.id),
     )
 
-    return {
-        "id": str(search.id),
-        "question": search.question,
-        "subqueries": search.subqueries,
-        "results": search.results,
-        "created_at": search.created_at.isoformat() if search.created_at else None,
-    }
+    return _record(search)

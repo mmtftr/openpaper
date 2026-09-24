@@ -1,8 +1,11 @@
 """Schemas for the Discover feature."""
 
-from typing import Optional
+from typing import Dict, List, Literal, Optional
+from uuid import UUID
 
+from app.schemas.json_datetime import IsoDatetime
 from pydantic import BaseModel
+from typing_extensions import NotRequired, TypedDict
 
 # Available source filters for discover search
 # "openalex" routes to OpenAlex backend, others filter Exa by domain
@@ -63,10 +66,45 @@ DISCOVER_SOURCES = {
 class DiscoverSearchRequest(BaseModel):
     question: str
     sources: Optional[list[str]] = None  # List of source keys from DISCOVER_SOURCES
-    sort: Optional[str] = (
-        None  # Sort option: "cited_by_count:desc" or "publication_date:desc"
-    )
+    # OpenAlex sort; None keeps relevance order.
+    sort: Optional[Literal["cited_by_count:desc", "publication_date:desc"]] = None
     only_open_access: bool = False  # Filter for open access papers (OpenAlex only)
-    year_filter: Optional[str] = (
-        None  # Time filter: "last_year", "last_5_years", or None for all time
-    )
+    # None means all time.
+    year_filter: Optional[Literal["last_year", "last_5_years"]] = None
+
+
+class DiscoverResult(TypedDict):
+    """One search hit, as stored in `discover_searches.results`.
+
+    Exa hits carry `summary`; OpenAlex hits carry `cited_by_count`, `source`
+    and `institutions`. A TypedDict (not a model) so each hit serializes with
+    only the keys it was stored with.
+    """
+
+    title: Optional[str]
+    url: Optional[str]
+    authors: NotRequired[Optional[List[str]]]
+    published_date: NotRequired[Optional[str]]
+    text: NotRequired[Optional[str]]
+    highlights: NotRequired[Optional[List[str]]]
+    highlight_scores: NotRequired[Optional[List[float]]]
+    favicon: NotRequired[Optional[str]]
+    summary: NotRequired[Optional[str]]
+    cited_by_count: NotRequired[Optional[int]]
+    source: NotRequired[Optional[str]]
+    institutions: NotRequired[Optional[List[str]]]
+
+
+class DiscoverSearchRecord(BaseModel):
+    id: UUID
+    question: str
+    subqueries: Optional[List[str]] = None
+    # subquery -> its hits
+    results: Optional[Dict[str, List[DiscoverResult]]] = None
+    created_at: Optional[IsoDatetime] = None
+
+
+class DiscoverSource(BaseModel):
+    key: str
+    label: str
+    description: str

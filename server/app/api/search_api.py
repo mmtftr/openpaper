@@ -1,12 +1,12 @@
 import logging
+from typing import Optional
 
 from app.auth.dependencies import get_required_user
 from app.database.database import get_db
-from app.database.queries.search import search_knowledge_base
+from app.database.queries.search import SearchResults, search_knowledge_base
 from app.database.telemetry import track_event
 from app.schemas.user import CurrentUser
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -16,19 +16,19 @@ search_router = APIRouter()
 
 
 @search_router.get("/")
-async def search_knowledge_base_endpoint(
+def search_knowledge_base_endpoint(
     q: str = Query(..., description="Search query string"),
     limit: int = Query(
         50, ge=1, le=100, description="Maximum number of papers to return"
     ),
     offset: int = Query(0, ge=0, description="Number of papers to skip for pagination"),
-    papers_filter: str = Query(
+    papers_filter: Optional[str] = Query(
         None,
         description="Comma-separated list of paper IDs to filter results by specific papers",
     ),
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-):
+) -> SearchResults:
     """
     Search across papers, annotations, and highlights in the user's knowledge base.
 
@@ -75,7 +75,7 @@ async def search_knowledge_base_endpoint(
             },
         )
 
-        return JSONResponse(status_code=200, content=results.model_dump(mode="json"))
+        return results
 
     except HTTPException:
         # Re-raise HTTP exceptions as-is

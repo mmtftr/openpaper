@@ -12,7 +12,7 @@ optimistic-locking path on PUT.
 """
 
 import logging
-from typing import List, Optional
+from typing import List, Literal, Optional
 from uuid import UUID
 
 from app.auth.dependencies import get_required_user
@@ -22,7 +22,9 @@ from app.database.crud.document_crud import (
 )
 from app.database.crud.paper_crud import paper_crud
 from app.database.database import get_db
+from app.api.errors import ApiError
 from app.database.models import DocumentKind
+from app.schemas.json_datetime import IsoDatetime
 from app.schemas.user import CurrentUser
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
@@ -39,25 +41,34 @@ MAX_DOCUMENT_CONTENT_BYTES = 1_000_000
 
 
 class DocumentResponse(BaseModel):
-    id: str
-    paper_id: Optional[str]
+    id: UUID
+    paper_id: Optional[UUID]
     title: str
     content: str
     revision: int
-    kind: str
-    updated_at: Optional[str] = None
+    kind: DocumentKind
+    updated_at: Optional[IsoDatetime] = None
 
 
 class DocumentSummary(BaseModel):
     """List-view shape — drops `content` so the doc-switcher doesn't pull
     every doc's body just to render a dropdown."""
 
-    id: str
-    paper_id: Optional[str]
+    id: UUID
+    paper_id: Optional[UUID]
     title: str
     revision: int
-    kind: str
-    updated_at: Optional[str] = None
+    kind: DocumentKind
+    updated_at: Optional[IsoDatetime] = None
+
+
+class RevisionConflictError(ApiError):
+    """409 body for a stale `expected_revision`: carries the server's current
+    state so the editor can offer a reload without another round-trip."""
+
+    error: Literal["revision_mismatch"] = "revision_mismatch"
+    current_revision: int
+    current_content: str
 
 
 class UpdateDocumentRequest(BaseModel):
@@ -66,7 +77,7 @@ class UpdateDocumentRequest(BaseModel):
 
 
 class CreateDocumentRequest(BaseModel):
-    paper_id: str
+    paper_id: UUID
     title: Optional[str] = None
 
 
@@ -85,30 +96,30 @@ RESERVED_MAIN_NAME = "main"
 
 def _serialize(doc) -> DocumentResponse:
     return DocumentResponse(
-        id=str(doc.id),
-        paper_id=str(doc.paper_id) if doc.paper_id else None,
+        id=doc.id,
+        paper_id=doc.paper_id,
         title=str(doc.title or ""),
         content=str(doc.content or ""),
         revision=int(doc.revision),
-        kind=str(doc.kind),
-        updated_at=doc.updated_at.isoformat() if doc.updated_at else None,
+        kind=doc.kind,
+        updated_at=doc.updated_at,
     )
 
 
 def _serialize_summary(doc) -> DocumentSummary:
     return DocumentSummary(
-        id=str(doc.id),
-        paper_id=str(doc.paper_id) if doc.paper_id else None,
+        id=doc.id,
+        paper_id=doc.paper_id,
         title=str(doc.title or ""),
         revision=int(doc.revision),
-        kind=str(doc.kind),
-        updated_at=doc.updated_at.isoformat() if doc.updated_at else None,
+        kind=doc.kind,
+        updated_at=doc.updated_at,
     )
 
 
 @document_router.get("")
-async def list_documents(
-    paper_id: str,
+def list_documents(
+    paper_id: UUID,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
 ) -> List[DocumentSummary]:
@@ -121,29 +132,23 @@ async def list_documents(
     paper = paper_crud.get(db, id=paper_id, user=current_user)
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
-    try:
-        paper_uuid = UUID(paper_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid paper_id")
 
     paper_title = str(getattr(paper, "title", "") or "").strip()
     default_content = f"# {paper_title}\n\n" if paper_title else ""
     document_crud.get_or_create_main_for_paper(
         db,
-        paper_id=paper_uuid,
+        paper_id=paper_id,
         user=current_user,
         default_content=default_content,
         default_title=RESERVED_MAIN_NAME,
     )
 
-    docs = document_crud.list_for_paper(
-        db, paper_id=paper_uuid, user=current_user
-    )
+    docs = document_crud.list_for_paper(db, paper_id=paper_id, user=current_user)
     return [_serialize_summary(d) for d in docs]
 
 
 @document_router.post("")
-async def create_document(
+def create_document(
     body: CreateDocumentRequest,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
@@ -153,10 +158,6 @@ async def create_document(
     paper = paper_crud.get(db, id=body.paper_id, user=current_user)
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
-    try:
-        paper_uuid = UUID(body.paper_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid paper_id")
 
     title = (body.title or "").strip() or "Untitled"
     if len(title) > MAX_TITLE_LENGTH:
@@ -171,14 +172,14 @@ async def create_document(
         )
 
     doc = document_crud.create_note_for_paper(
-        db, paper_id=paper_uuid, user=current_user, title=title
+        db, paper_id=body.paper_id, user=current_user, title=title
     )
     return _serialize(doc)
 
 
 @document_router.get("/main")
-async def get_main_document(
-    paper_id: str,
+def get_main_document(
+    paper_id: UUID,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
 ) -> DocumentResponse:
@@ -191,17 +192,12 @@ async def get_main_document(
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
 
-    try:
-        paper_uuid = UUID(paper_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid paper_id")
-
     paper_title = str(getattr(paper, "title", "") or "").strip()
     default_content = f"# {paper_title}\n\n" if paper_title else ""
 
     doc = document_crud.get_or_create_main_for_paper(
         db,
-        paper_id=paper_uuid,
+        paper_id=paper_id,
         user=current_user,
         default_content=default_content,
         default_title=RESERVED_MAIN_NAME,
@@ -209,13 +205,16 @@ async def get_main_document(
     return _serialize(doc)
 
 
-@document_router.put("/{document_id}")
-async def update_document(
-    document_id: str,
+@document_router.put(
+    "/{document_id}",
+    responses={409: {"model": RevisionConflictError, "description": "Stale revision"}},
+)
+def update_document(
+    document_id: UUID,
     body: UpdateDocumentRequest,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-):
+) -> DocumentResponse:
     """Replace document content, gated by `expected_revision`.
 
     413 if content exceeds the hard size cap.
@@ -243,14 +242,12 @@ async def update_document(
             user=current_user,
         )
     except RevisionMismatch as e:
-        return JSONResponse(
-            status_code=409,
-            content={
-                "error": "revision_mismatch",
-                "current_revision": e.current_revision,
-                "current_content": e.current_content,
-            },
+        conflict = RevisionConflictError(
+            detail="Document was changed since it was loaded",
+            current_revision=e.current_revision,
+            current_content=e.current_content,
         )
+        return JSONResponse(status_code=409, content=conflict.model_dump())  # type: ignore[return-value]
     except PermissionError:
         raise HTTPException(status_code=404, detail="Document not found")
 
@@ -258,8 +255,8 @@ async def update_document(
 
 
 @document_router.get("/{document_id}")
-async def get_document(
-    document_id: str,
+def get_document(
+    document_id: UUID,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
 ) -> DocumentResponse:
@@ -272,8 +269,8 @@ async def get_document(
 
 
 @document_router.patch("/{document_id}")
-async def rename_document(
-    document_id: str,
+def rename_document(
+    document_id: UUID,
     body: RenameDocumentRequest,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
@@ -309,12 +306,12 @@ async def rename_document(
     return _serialize(updated)
 
 
-@document_router.delete("/{document_id}")
-async def delete_document(
-    document_id: str,
+@document_router.delete("/{document_id}", status_code=204)
+def delete_document(
+    document_id: UUID,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-):
+) -> None:
     """Delete a NOTE doc. MAIN docs are protected — returns 400 to keep the
     paper's primary writeup from disappearing accidentally."""
     doc = document_crud.get(db, id=document_id, user=current_user)
@@ -328,4 +325,4 @@ async def delete_document(
         raise HTTPException(status_code=404, detail="Document not found")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return JSONResponse(status_code=204, content=None)
+    return None
