@@ -56,6 +56,6 @@ def ocr_config() -> OcrConfig:
     return OcrConfig(
         api_key=(os.getenv("MISTRAL_API_KEY") or "").strip() or None,
         endpoint=os.getenv("MISTRAL_OCR_ENDPOINT") or "https://api.mistral.ai/v1/ocr",
-        model=os.getenv("MISTRAL_OCR_MODEL") or "mistral-ocr-latest",
+        model=os.getenv("MISTRAL_OCR_MODEL") or "mistral-ocr-4-1",
         batch_pages=int(os.getenv("MISTRAL_OCR_BATCH_PAGES") or 16),
     )
