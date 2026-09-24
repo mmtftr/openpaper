@@ -30,12 +30,13 @@ from pydantic_ai import BinaryContent
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.core.deadline import Deadline
 from app.core.errors import classify
+from app.ingest import storage
 from app.ingest.config import Resource
 from app.ingest.models import MarkdownSource, PaperPage
 from app.ingest.pdf import quality
 from app.ingest.stages.base import Stage, StageContext
-from app.ingest.stages.ocr import load_pdf_bytes
 from app.llm import oneshot
 
 SLOT = "ingest.ocr_repair"
@@ -43,6 +44,10 @@ REPAIR_DPI = int(os.environ.get("OPENAI_OCR_REPAIR_DPI", "220"))
 REPAIR_TIMEOUT_S = 120.0
 # Suspect pages of one paper re-OCR'd at once.
 REPAIR_PARALLEL = 4
+# Repairs stop this long before the stage's budget runs out; the pages not
+# repaired by then fall back, so a paper with many suspect pages still
+# finishes instead of timing out and redoing every repair on retry.
+REPAIR_MARGIN_S = 30.0
 
 REPAIR_PROMPT = (
     "OCR this PDF page into markdown. Preserve reading "
@@ -125,7 +130,7 @@ class OcrRepair(Stage[list[PageText]]):
     name = "ocr_repair"
     needs = ("ocr", "text_layer")
     resource = Resource.LLM
-    timeout_s = 600.0
+    timeout_s = 900.0
     model_slot = SLOT
     applies_to_supplementary = True
 
@@ -149,14 +154,15 @@ class OcrRepair(Stage[list[PageText]]):
             ctx.log.info("%s of %s pages look suspect", len(suspect), len(pages))
             self.resolve_model(ctx)
             model = ctx.model_used
-            pdf = await load_pdf_bytes(ctx)
+            pdf = await storage.load_pdf(ctx)
             gate = asyncio.Semaphore(REPAIR_PARALLEL)
             finished = 0
+            budget = Deadline(max(0.0, ctx.deadline.remaining() - REPAIR_MARGIN_S))
 
             async def repair(page: PageInput, scored: dict[str, Any]) -> PageText:
                 nonlocal finished
                 async with gate:
-                    result = await self._repair(ctx, pdf, page, scored, model)
+                    result = await self._repair(ctx, budget, pdf, page, scored, model)
                 finished += 1
                 await ctx.progress(finished, len(suspect))
                 return result
@@ -168,6 +174,7 @@ class OcrRepair(Stage[list[PageText]]):
     async def _repair(
         self,
         ctx: StageContext,
+        budget: Deadline,
         pdf: bytes,
         page: PageInput,
         scored: dict[str, Any],
@@ -175,8 +182,9 @@ class OcrRepair(Stage[list[PageText]]):
     ) -> PageText:
         ocr_quality = dict(scored)
         try:
+            budget.check()  # out of time: fall back without rendering
             png: bytes = await ctx.cpu(render_page_png, pdf, page.page_no, REPAIR_DPI)
-            async with asyncio.timeout(ctx.deadline.timeout(REPAIR_TIMEOUT_S)):
+            async with asyncio.timeout(budget.timeout(REPAIR_TIMEOUT_S)):
                 markdown = await reocr_page(png)
         except Exception as exc:
             message = classify(exc).message

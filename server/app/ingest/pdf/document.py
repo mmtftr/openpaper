@@ -52,3 +52,12 @@ def inspect_pdf(pdf_bytes: bytes) -> int:
         return doc.page_count
     finally:
         doc.close()
+
+
+def page_widths(pdf_bytes: bytes) -> dict[int, float]:
+    """{page_no (1-based): width in points} for every page."""
+    doc = open_pdf(pdf_bytes)
+    try:
+        return {i + 1: float(doc[i].rect.width) for i in range(doc.page_count)}
+    finally:
+        doc.close()

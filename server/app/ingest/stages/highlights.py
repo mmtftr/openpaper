@@ -30,10 +30,10 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.database.models import Annotation, Highlight, Paper
+from app.ingest import storage
 from app.ingest.config import Resource
 from app.ingest.models import PaperPage
 from app.ingest.pdf.anchor import anchor_quotes
-from app.ingest.stages._source_pdf import load_source_pdf
 from app.ingest.stages.base import Stage, StageContext, fail_permanent, skip
 from app.llm import oneshot
 from app.llm.utils import find_offsets
@@ -218,7 +218,7 @@ class Highlights(Stage[list[GeneratedHighlight]]):
     name = "highlights"
     needs = ("ocr_repair", "text_layer")
     resource = Resource.LLM
-    timeout_s = 300.0
+    timeout_s = 600.0
     model_slot = "ingest.highlights"
 
     async def run(self, ctx: StageContext) -> list[GeneratedHighlight]:
@@ -238,7 +238,7 @@ class Highlights(Stage[list[GeneratedHighlight]]):
         if not picks:
             return []
 
-        pdf = await load_source_pdf(ctx)
+        pdf = await storage.load_pdf(ctx)
         anchors: list[Optional[dict[str, Any]]]
         try:
             anchors = await ctx.cpu(anchor_quotes, pdf, [h.text for h in picks])

@@ -19,9 +19,9 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.database.models import Paper
+from app.ingest import storage
 from app.ingest.config import Resource
 from app.ingest.models import PaperPage
-from app.ingest.stages._source_pdf import load_source_pdf
 from app.ingest.stages.base import Stage, StageContext
 from app.llm import paper_outline
 
@@ -98,12 +98,12 @@ class Outline(Stage[list[dict[str, Any]]]):
     name = "outline"
     needs = ("ocr_repair",)
     resource = Resource.LLM
-    timeout_s = 180.0
+    timeout_s = 300.0
     model_slot = "ingest.outline"
     applies_to_supplementary = True
 
     async def run(self, ctx: StageContext) -> list[dict[str, Any]]:
-        pdf = await load_source_pdf(ctx)
+        pdf = await storage.load_pdf(ctx)
         bookmarks = await ctx.cpu(read_bookmarks, pdf)
         if bookmarks:
             ctx.log.info("outline from %d PDF bookmarks", len(bookmarks))

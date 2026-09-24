@@ -196,7 +196,7 @@ def ocr_env(monkeypatch):
     def clear(session, paper_id):
         state["cleared"] += 1
 
-    monkeypatch.setattr(ocr_stage, "load_pdf_bytes", load_pdf)
+    monkeypatch.setattr(ocr_stage.storage, "load_pdf", load_pdf)
     monkeypatch.setattr(ocr_stage, "save_batch", save_batch)
     monkeypatch.setattr(ocr_stage, "clear_ocr", clear)
     monkeypatch.setattr(ocr_stage, "saved_pages", lambda s, pid: set(state["already"]))
@@ -406,7 +406,7 @@ def test_ocr_runs_in_batches_saving_each(ocr_env):
     out = asyncio.run(ocr_stage.Ocr().run(ctx))
 
     assert out == ocr_stage.OcrOutput(pages_total=20, pages_ocred=20)
-    assert ocr_env["cleared"] == 1  # attempt 1 starts clean
+    assert ocr_env["cleared"] == 0  # only a reprocess clears (reset_outputs)
     assert sorted(ocr_env["fake"].batches) == [list(range(1, 17)), list(range(17, 21))]
     saved = sorted((p.page_no for batch in ocr_env["saved"] for p in batch))
     assert saved == list(range(1, 21))
@@ -418,15 +418,22 @@ def test_ocr_runs_in_batches_saving_each(ocr_env):
     assert all(f.label == f"Figure {f.page_no}" for f in figs)
 
 
-def test_ocr_retry_only_redoes_missing_pages(ocr_env):
+@pytest.mark.parametrize("attempt", [1, 2])
+def test_ocr_retry_only_redoes_missing_pages(ocr_env, attempt):
+    # `retry_stage` resets the attempt counter, so attempt 1 must resume too.
     ocr_env["already"] = set(range(1, 17))
-    ctx, progress = make_ctx("ocr", attempt=2)
+    ctx, progress = make_ctx("ocr", attempt=attempt)
     out = asyncio.run(ocr_stage.Ocr().run(ctx))
 
     assert ocr_env["cleared"] == 0
     assert ocr_env["fake"].batches == [[17, 18, 19, 20]]
     assert out.pages_ocred == 4
     assert progress == [(16, 20), (20, 20)]
+
+
+def test_ocr_reset_outputs_clears_saved_ocr(ocr_env):
+    ocr_stage.Ocr().reset_outputs(None, uuid.uuid4())  # type: ignore[arg-type]
+    assert ocr_env["cleared"] == 1
 
 
 def test_ocr_rate_limit_keeps_landed_batches_then_raises(ocr_env, monkeypatch):
@@ -555,7 +562,7 @@ def test_ocr_repair_scores_repairs_and_falls_back(monkeypatch):
     async def load_pdf(ctx):
         return pdf
 
-    monkeypatch.setattr(repair_stage, "load_pdf_bytes", load_pdf)
+    monkeypatch.setattr(repair_stage.storage, "load_pdf", load_pdf)
     monkeypatch.setattr(repair_stage, "load_pages", lambda s, pid: repair_inputs())
 
     def fn(messages, info: AgentInfo):
@@ -622,7 +629,7 @@ def test_ocr_repair_without_suspect_pages_makes_no_model_call(monkeypatch):
     async def no_pdf(ctx):
         raise AssertionError("PDF not needed")
 
-    monkeypatch.setattr(repair_stage, "load_pdf_bytes", no_pdf)
+    monkeypatch.setattr(repair_stage.storage, "load_pdf", no_pdf)
     ctx, progress = make_ctx("ocr_repair")
     out = asyncio.run(repair_stage.OcrRepair().run(ctx))
     assert all(p.markdown_source is MarkdownSource.OCR for p in out)

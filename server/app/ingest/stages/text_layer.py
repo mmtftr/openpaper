@@ -38,7 +38,7 @@ class TextLayer(Stage[TextLayerResult]):
     name = "text_layer"
     needs = ("source",)
     resource = Resource.CPU
-    timeout_s = 120.0
+    timeout_s = 300.0
     applies_to_supplementary = True
 
     async def run(self, ctx: StageContext) -> TextLayerResult:

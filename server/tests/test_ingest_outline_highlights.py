@@ -90,7 +90,7 @@ def serve_pdf(monkeypatch, module, pdf: bytes):
     async def load(ctx):
         return pdf
 
-    monkeypatch.setattr(module, "load_source_pdf", load)
+    monkeypatch.setattr(module.storage, "load_pdf", load)
 
 
 # -- outline -------------------------------------------------------------------------

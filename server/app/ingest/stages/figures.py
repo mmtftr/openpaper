@@ -52,7 +52,7 @@ class Figures(Stage[list[StoredFigure]]):
     name = "figures"
     needs = ("ocr",)
     resource = Resource.CPU
-    timeout_s = 300.0
+    timeout_s = 600.0
     applies_to_supplementary = True
 
     async def run(self, ctx: StageContext) -> list[StoredFigure]:
