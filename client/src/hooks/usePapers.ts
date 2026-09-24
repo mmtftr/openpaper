@@ -1,16 +1,20 @@
 import useSWR from 'swr';
-import { fetchFromApi } from '@/lib/api';
+import { api, unwrap } from '@/lib/api/client';
 import { PaperItem } from '@/lib/schema';
-
-const fetcher = (url: string) => fetchFromApi(url).then(data => data.papers || data);
 
 interface UserPapersProps {
 	detailed?: boolean;
 }
 
 export function usePapers({ detailed = false }: UserPapersProps = {}) {
-	const url = detailed ? '/api/paper/all?detailed=true' : '/api/paper/all';
-	const { data, error, isLoading, mutate } = useSWR<PaperItem[]>(url, fetcher);
+	const { data, error, isLoading, mutate } = useSWR<PaperItem[]>(
+		['/api/paper/all', detailed],
+		async () => {
+			const { papers } = await unwrap(api.GET('/api/paper/all', { params: { query: { detailed } } }));
+			// Compat: callers still hold the hand-written `PaperItem`.
+			return papers as PaperItem[];
+		},
+	);
 
 	const setPapers = (paperId: string, updatedPaper: PaperItem) => {
 		if (data) {

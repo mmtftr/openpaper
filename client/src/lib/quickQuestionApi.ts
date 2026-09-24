@@ -1,6 +1,12 @@
-import { readUIMessageStream, type UIMessage, type UIMessageChunk } from "ai";
+import {
+    parseJsonEventStream,
+    readUIMessageStream,
+    uiMessageChunkSchema,
+    type UIMessageChunk,
+} from "ai";
 
-import { API_BASE_URL } from "@/lib/api";
+import { API_BASE_URL, errorDetail, type Schemas } from "@/lib/api/client";
+import type { ChatUIMessage } from "@/lib/chatMessages";
 
 /**
  * Client for the ephemeral code quick-question endpoint
@@ -16,11 +22,13 @@ import { API_BASE_URL } from "@/lib/api";
 /** Server-side ceiling on one question. */
 export const QUICK_QUESTION_MAX_CHARS = 2000;
 
+type QuickQuestionBody = Schemas["QuickQuestionCodeBody"];
+
 /** Provider / model / effort as the chat model picker currently has them. */
 export interface CodeQuestionModel {
-    llmProvider?: string | null;
-    model?: string | null;
-    reasoningEffort?: string | null;
+    llmProvider?: QuickQuestionBody["llm_provider"];
+    model?: QuickQuestionBody["model"];
+    reasoningEffort?: QuickQuestionBody["reasoning_effort"];
 }
 
 export interface QuickQuestionParams {
@@ -106,72 +114,21 @@ export function quickQuestionStreamErrorMessage(error: unknown): string {
         : "The answer stopped early.";
 }
 
-/** The server's `detail` string, falling back to the bare status. */
-async function errorDetail(response: Response): Promise<string> {
-    try {
-        const body = await response.json();
-        const detail = body?.detail ?? body?.message ?? body?.error;
-        if (detail) {
-            return typeof detail === "string" ? detail : JSON.stringify(detail);
-        }
-    } catch {
-        // Non-JSON error body — the status alone has to do.
-    }
-    return `API error: ${response.status} ${response.statusText}`.trim();
-}
-
-/** One SSE frame's `data:` payload, decoded into a chunk if it is usable. */
-function enqueueFrame(
-    frame: string,
-    controller: TransformStreamDefaultController<UIMessageChunk>
-): void {
-    const data = frame
-        .split(/\r?\n/)
-        .filter((line) => line.startsWith("data:"))
-        // Per the SSE spec exactly one leading space is part of the framing;
-        // any further whitespace belongs to the payload.
-        .map((line) => line.slice(5).replace(/^ /, ""))
-        .join("\n");
-    if (!data.trim() || data.trim() === "[DONE]") return;
-    try {
-        const parsed: unknown = JSON.parse(data);
-        // Anything without a `type` isn't a UIMessage chunk. Chunk types we
-        // don't know are still forwarded — the SDK's stream processor ignores
-        // the ones it can't use, which is exactly the behaviour we want.
-        if (
-            parsed &&
-            typeof parsed === "object" &&
-            typeof (parsed as { type?: unknown }).type === "string"
-        ) {
-            controller.enqueue(parsed as UIMessageChunk);
-        }
-    } catch {
-        // A malformed frame is dropped rather than killing the stream: the
-        // parts that already arrived stay on screen.
-    }
-}
-
-/** SSE byte stream → UIMessage chunks. */
+/**
+ * SSE byte stream → UIMessage chunks, via the AI SDK's own parser (the one
+ * `DefaultChatTransport` uses for the chat stream). A frame that doesn't parse
+ * as a chunk is dropped rather than killing the stream: the parts that already
+ * arrived stay on screen.
+ */
 function toChunkStream(
     body: ReadableStream<Uint8Array>
 ): ReadableStream<UIMessageChunk> {
-    // `stream: true` keeps a multi-byte character split across two network
-    // reads from decoding into garbage.
-    const decoder = new TextDecoder();
-    let buffer = "";
-    return body.pipeThrough(
-        new TransformStream<Uint8Array, UIMessageChunk>({
-            transform(bytes, controller) {
-                buffer += decoder.decode(bytes, { stream: true });
-                // Frames are separated by a blank line; whatever follows the
-                // last separator is a partial frame and stays buffered.
-                const frames = buffer.split(/\r?\n\r?\n/);
-                buffer = frames.pop() ?? "";
-                for (const frame of frames) enqueueFrame(frame, controller);
-            },
-            flush(controller) {
-                buffer += decoder.decode();
-                if (buffer.trim()) enqueueFrame(buffer, controller);
+    const parsed = parseJsonEventStream({ stream: body, schema: uiMessageChunkSchema });
+    type ChunkParseResult = typeof parsed extends ReadableStream<infer R> ? R : never;
+    return parsed.pipeThrough(
+        new TransformStream<ChunkParseResult, UIMessageChunk>({
+            transform(result, controller) {
+                if (result.success) controller.enqueue(result.value);
             },
         })
     );
@@ -188,7 +145,7 @@ function toChunkStream(
 export async function openQuickQuestionStream(
     params: QuickQuestionParams,
     options: { signal: AbortSignal; onError?: (error: unknown) => void }
-): Promise<AsyncIterable<UIMessage>> {
+): Promise<AsyncIterable<ChatUIMessage>> {
     const response = await fetch(
         `${API_BASE_URL}/api/message/quick-question/code`,
         {
@@ -208,13 +165,14 @@ export async function openQuickQuestionStream(
                 llm_provider: params.model?.llmProvider ?? null,
                 model: params.model?.model ?? null,
                 reasoning_effort: params.model?.reasoningEffort ?? null,
-            }),
+            } satisfies QuickQuestionBody),
         }
     );
 
     if (!response.ok) {
+        const body: unknown = await response.json().catch(() => undefined);
         throw new QuickQuestionError(
-            await errorDetail(response),
+            errorDetail(body, response.status),
             response.status
         );
     }
@@ -225,7 +183,7 @@ export async function openQuickQuestionStream(
         );
     }
 
-    return readUIMessageStream<UIMessage>({
+    return readUIMessageStream<ChatUIMessage>({
         stream: toChunkStream(response.body),
         onError: options.onError,
     });

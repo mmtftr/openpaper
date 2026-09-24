@@ -1,9 +1,13 @@
+import type { Schemas } from "@/lib/api/client";
+
 /**
  * Picker options for the paper chat composer (model / reasoning effort /
  * context mode), shared by the composer and the chat session's request body.
  */
 
-export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
+type PaperChatRequest = Schemas["PaperChatRequest"];
+
+export type ReasoningEffort = NonNullable<PaperChatRequest["reasoning_effort"]>;
 
 export const REASONING_EFFORT_OPTIONS: { id: ReasoningEffort; label: string }[] = [
     { id: "low", label: "Low" },
@@ -14,7 +18,7 @@ export const REASONING_EFFORT_OPTIONS: { id: ReasoningEffort; label: string }[] 
 
 export const REASONING_EFFORT_VALUES: ReasoningEffort[] = ["low", "medium", "high", "xhigh"];
 
-export type ContextMode = "adaptive" | "comprehensive" | "full" | "raw";
+export type ContextMode = NonNullable<PaperChatRequest["context_mode"]>;
 
 export interface ContextModeOption {
     id: ContextMode;
@@ -61,13 +65,8 @@ export const CONTEXT_MODE_OPTIONS: ContextModeOption[] = [
     },
 ];
 
-export interface ModelOption {
-    id: string;
-    name: string;
-    provider: string;
-    supports_reasoning_effort?: boolean;
-    supports_vision?: boolean;
-}
+/** `GET /api/message/models` -> `models[]`. */
+export type ModelOption = Schemas["ChatModelOption"];
 
 // The same model id can exist under two providers (e.g. gpt-5.5 on Azure
 // AND on the codex proxy), so selection is keyed by provider too.

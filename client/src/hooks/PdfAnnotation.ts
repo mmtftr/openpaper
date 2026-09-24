@@ -1,34 +1,35 @@
 import {
     PaperHighlightAnnotation
 } from '@/lib/schema';
-import { fetchFromApi } from '@/lib/api';
-import { useEffect, useRef, useState } from 'react';
+import { api, unwrap } from '@/lib/api/client';
+import useSWR from 'swr';
+
+const EMPTY: PaperHighlightAnnotation[] = [];
 
 export function useAnnotations(paperId: string) {
-    const [annotations, setAnnotations] = useState<PaperHighlightAnnotation[]>([]);
-    // The paper whose annotations are wanted right now; responses for a paper
-    // the reader has since switched away from are dropped.
-    const currentPaperIdRef = useRef(paperId);
-    currentPaperIdRef.current = paperId;
+    // Cached per paper: a response (or a save) for a paper the reader has
+    // since switched away from lands in that paper's entry, not this one.
+    const { data, mutate } = useSWR(
+        paperId ? ['/api/annotation/{paper_id}', paperId] : null,
+        async ([, id]: [string, string]): Promise<PaperHighlightAnnotation[]> => {
+            try {
+                return await unwrap(api.GET('/api/annotation/{paper_id}', {
+                    params: { path: { paper_id: id } },
+                }));
+            } catch (error) {
+                console.error('Error loading annotations:', error);
+                throw error;
+            }
+        },
+    );
+    const annotations = data ?? EMPTY;
 
     const addAnnotation = async (highlightId: string, content: string) => {
-        const newAnnotation: Partial<PaperHighlightAnnotation> = {
-            highlight_id: highlightId,
-            paper_id: paperId,
-            content,
-        };
-
         try {
-            const savedAnnotation: PaperHighlightAnnotation = await fetchFromApi('/api/annotation/', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(newAnnotation),
-            });
-            if (currentPaperIdRef.current === paperId) {
-                setAnnotations(prev => [...prev, savedAnnotation]);
-            }
+            const savedAnnotation = await unwrap(api.POST('/api/annotation', {
+                body: { highlight_id: highlightId, paper_id: paperId, content },
+            }));
+            await mutate(prev => [...(prev ?? []), savedAnnotation], { revalidate: false });
             return savedAnnotation;
         } catch (error) {
             console.error('Error saving annotation:', error);
@@ -38,11 +39,10 @@ export function useAnnotations(paperId: string) {
 
     const removeAnnotation = async (annotationId: string) => {
         try {
-            await fetchFromApi(`/api/annotation/${annotationId}`, {
-                method: 'DELETE',
-            });
-
-            setAnnotations(prev => prev.filter(a => a.id !== annotationId));
+            await unwrap(api.DELETE('/api/annotation/{annotation_id}', {
+                params: { path: { annotation_id: annotationId } },
+            }));
+            await mutate(prev => prev?.filter(a => a.id !== annotationId), { revalidate: false });
         } catch (error) {
             console.error('Error removing annotation:', error);
             throw error;
@@ -51,18 +51,13 @@ export function useAnnotations(paperId: string) {
 
     const updateAnnotation = async (annotationId: string, content: string) => {
         try {
-            const updatedAnnotation: PaperHighlightAnnotation = await fetchFromApi(`/api/annotation/${annotationId}`, {
-                method: 'PATCH',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    content,
-                }),
-            });
-
-            setAnnotations(prev =>
-                prev.map(a => (a.id === annotationId ? updatedAnnotation : a))
+            const updatedAnnotation = await unwrap(api.PATCH('/api/annotation/{annotation_id}', {
+                params: { path: { annotation_id: annotationId } },
+                body: { content },
+            }));
+            await mutate(
+                prev => prev?.map(a => (a.id === annotationId ? updatedAnnotation : a)),
+                { revalidate: false },
             );
             return updatedAnnotation;
         } catch (error) {
@@ -71,32 +66,9 @@ export function useAnnotations(paperId: string) {
         }
     };
 
-    const fetchAnnotations = async () => {
-        try {
-            const loadedAnnotations: PaperHighlightAnnotation[] = await fetchFromApi(`/api/annotation/${paperId}`, {
-                method: 'GET',
-            });
-
-            if (currentPaperIdRef.current === paperId) {
-                setAnnotations(loadedAnnotations);
-            }
-            return loadedAnnotations;
-        } catch (error) {
-            console.error('Error loading annotations:', error);
-            throw error;
-        }
-    };
-
     const refreshAnnotations = async () => {
-        await fetchAnnotations();
+        await mutate();
     };
-
-    // Load on mount and whenever the displayed paper changes.
-    useEffect(() => {
-        setAnnotations([]);
-        fetchAnnotations().catch(() => {});
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [paperId]);
 
     return {
         annotations,

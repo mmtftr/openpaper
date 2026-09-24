@@ -128,7 +128,7 @@ export function useQuickQuestion() {
                     if (!isCurrent()) return;
                     setState((current) => ({
                         ...current,
-                        message: message as ChatUIMessage,
+                        message,
                     }));
                 }
 

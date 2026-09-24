@@ -12,12 +12,9 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-	PaperUploadJobStatusResponse,
-	SupplementaryMaterialSummary,
-} from "@/lib/schema";
+import { SupplementaryMaterialSummary } from "@/lib/schema";
 import { uploadSupplementaryFile, MAX_UPLOAD_SIZE_MB } from "@/lib/uploadUtils";
-import { fetchFromApi } from "@/lib/api";
+import { api, unwrap } from "@/lib/api/client";
 
 const SUPPLEMENTARY_POLL_INTERVAL_MS = 2000;
 
@@ -66,8 +63,10 @@ export function SupplementaryPicker({
 		new Promise((resolve, reject) => {
 			const poll = async () => {
 				try {
-					const response: PaperUploadJobStatusResponse = await fetchFromApi(
-						`/api/paper/upload/status/${jobId}`
+					const response = await unwrap(
+						api.GET("/api/paper/upload/status/{job_id}", {
+							params: { path: { job_id: jobId } },
+						})
 					);
 					if (response.status === "completed") {
 						resolve();

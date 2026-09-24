@@ -1,5 +1,5 @@
-import { fetchFromApi } from "@/lib/api"
-import { MinimalJob, PdfUploadResponse } from "@/lib/schema"
+import { api, unwrap } from "@/lib/api/client"
+import { MinimalJob } from "@/lib/schema"
 
 export const MAX_UPLOAD_SIZE_MB = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_SIZE_MB) || 50;
 
@@ -38,35 +38,37 @@ const fetchPdfAsFile = async (url: string): Promise<File> => {
 }
 
 /**
- * Uploads a single file, optionally associating it with a project.
+ * `POST /api/paper/upload` as multipart. The generated body type describes the
+ * file as a (binary) string; the `File` goes through as-is and the serializer
+ * wraps it in the FormData the endpoint expects.
  */
-const uploadFile = async (file: File, projectId?: string): Promise<MinimalJob> => {
-    const formData = new FormData()
-    formData.append("file", file)
-
-    const endpoint = projectId
-        ? `/api/paper/upload?project_id=${projectId}`
-        : "/api/paper/upload";
-
-    const res: PdfUploadResponse = await fetchFromApi(endpoint, {
-        method: "POST",
-        body: formData,
-    })
+const postUpload = async (
+    file: File,
+    query: { project_id?: string; supplementary_of?: string },
+): Promise<MinimalJob> => {
+    const res = await unwrap(api.POST("/api/paper/upload", {
+        params: { query },
+        body: { file: file as unknown as string },
+        bodySerializer: ({ file }) => {
+            const formData = new FormData()
+            formData.append("file", file)
+            return formData
+        },
+    }))
     return { jobId: res.job_id, fileName: file.name }
 }
 
 /**
+ * Uploads a single file, optionally associating it with a project.
+ */
+const uploadFile = (file: File, projectId?: string): Promise<MinimalJob> =>
+    postUpload(file, { project_id: projectId })
+
+/**
  * Uploads a single PDF as a supplementary material attached to a parent paper.
  */
-export const uploadSupplementaryFile = async (parentPaperId: string, file: File): Promise<MinimalJob> => {
-    const formData = new FormData();
-    formData.append("file", file);
-    const res: PdfUploadResponse = await fetchFromApi(
-        `/api/paper/upload?supplementary_of=${encodeURIComponent(parentPaperId)}`,
-        { method: "POST", body: formData },
-    );
-    return { jobId: res.job_id, fileName: file.name };
-};
+export const uploadSupplementaryFile = (parentPaperId: string, file: File): Promise<MinimalJob> =>
+    postUpload(file, { supplementary_of: parentPaperId })
 
 export const uploadFiles = async (files: File[]): Promise<MinimalJob[]> => {
     const newJobs: MinimalJob[] = []
@@ -88,19 +90,11 @@ export const uploadFiles = async (files: File[]): Promise<MinimalJob[]> => {
 }
 
 export const uploadFromUrl = async (url: string, projectId?: string): Promise<MinimalJob> => {
-    const body = projectId
-        ? { url, project_id: projectId }
-        : { url };
-
-    const res: PdfUploadResponse = await fetchFromApi("/api/paper/upload/from-url", {
-        method: "POST",
-        body: JSON.stringify(body),
-        headers: {
-            "Content-Type": "application/json",
-        },
-    })
-    const fileName = res.file_name || url
-    return { jobId: res.job_id, fileName: fileName }
+    const res = await unwrap(api.POST("/api/paper/upload/from-url", {
+        params: { query: { project_id: projectId } },
+        body: { url },
+    }))
+    return { jobId: res.job_id, fileName: url }
 }
 
 /**

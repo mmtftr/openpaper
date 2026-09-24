@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import useSWR from "swr";
 
 import {
     clearRepoFileCache,
@@ -15,6 +16,11 @@ import {
  *
  * `repo === null` means "no repo connected" (the endpoint 404s); `error` is
  * reserved for real failures so the UI can tell the two apart.
+ *
+ * Cached per paper by SWR: a response for a paper the reader has switched
+ * away from lands in that paper's cache entry, never in the current one, and
+ * a poll that started before a connect / disconnect is discarded by SWR's
+ * mutation ordering.
  */
 
 const POLL_INTERVAL_MS = 3000;
@@ -35,19 +41,12 @@ const messageOf = (error: unknown): string =>
     error instanceof Error ? error.message : "Something went wrong";
 
 export function useRepoStatus(paperId: string | null | undefined): UseRepoStatus {
-    const [repo, setRepo] = useState<PaperRepo | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const { data, error, isLoading, mutate } = useSWR(
+        paperId ? ["/api/paper/{paper_id}/repo", paperId] : null,
+        ([, id]: [string, string]) => getPaperRepo(id)
+    );
     const [mutating, setMutating] = useState(false);
-    const inFlightRef = useRef(false);
     const mountedRef = useRef(true);
-    // The paper the hook currently serves: a connect/disconnect that resolves
-    // after a paper switch must not write the OLD paper's repo into state.
-    const paperIdRef = useRef(paperId);
-    paperIdRef.current = paperId;
-    // Bumped whenever newer state supersedes in-flight reads (paper switch,
-    // connect, disconnect).
-    const epochRef = useRef(0);
 
     useEffect(() => {
         mountedRef.current = true;
@@ -56,91 +55,60 @@ export function useRepoStatus(paperId: string | null | undefined): UseRepoStatus
         };
     }, []);
 
-    const refresh = useCallback(async () => {
-        if (!paperId || inFlightRef.current) return;
-        inFlightRef.current = true;
-        // A poll started for the previous paper (or before a connect landed)
-        // must never write its answer over newer state.
-        const epoch = epochRef.current;
-        try {
-            const result = await getPaperRepo(paperId);
-            if (!mountedRef.current || epoch !== epochRef.current) return;
-            setRepo(result);
-            setError(null);
-        } catch (err) {
-            if (!mountedRef.current || epoch !== epochRef.current) return;
-            setError(messageOf(err));
-        } finally {
-            inFlightRef.current = false;
-            if (mountedRef.current && epoch === epochRef.current) {
-                setLoading(false);
-            }
-        }
-    }, [paperId]);
-
-    useEffect(() => {
-        // New paper: invalidate anything in flight and start clean.
-        epochRef.current += 1;
-        inFlightRef.current = false;
-        setRepo(null);
-        setError(null);
-        if (!paperId) {
-            setLoading(false);
-            return;
-        }
-        setLoading(true);
-        refresh();
-    }, [paperId, refresh]);
-
-    // Poll only while the server is still working on the snapshot. `status` is
-    // a primitive dep, so the interval survives refreshes that don't change it.
-    const status = repo?.status;
+    // Poll only while the server is still working on the snapshot. `status`
+    // is a primitive dep, so the interval survives refreshes that don't
+    // change it. (SWR's own `refreshInterval` is only re-read on a timer tick,
+    // so a connect from the "no repo" state would never start it.)
+    const status = data?.status;
     useEffect(() => {
         if (status !== "pending" && status !== "ingesting") return;
         const timer = setInterval(() => {
-            refresh();
+            mutate();
         }, POLL_INTERVAL_MS);
         return () => clearInterval(timer);
-    }, [status, refresh]);
+    }, [status, mutate]);
+
+    const refresh = useCallback(async () => {
+        await mutate();
+    }, [mutate]);
 
     const connect = useCallback(
         async (url: string) => {
             if (!paperId) return;
             setMutating(true);
-            // The freshly created row supersedes any poll already in flight,
-            // and a new snapshot invalidates any file cached from the old one.
-            epochRef.current += 1;
+            // A new snapshot invalidates any file cached from the old one.
             clearRepoFileCache(paperId);
             try {
-                const created = await connectPaperRepo(paperId, url);
-                if (mountedRef.current && paperIdRef.current === paperId) {
-                    epochRef.current += 1;
-                    setRepo(created);
-                    setError(null);
-                }
+                // The freshly created row supersedes any poll already in flight.
+                await mutate(connectPaperRepo(paperId, url), { revalidate: false });
             } finally {
                 if (mountedRef.current) setMutating(false);
             }
         },
-        [paperId]
+        [paperId, mutate]
     );
 
     const disconnect = useCallback(async () => {
         if (!paperId) return;
         setMutating(true);
-        epochRef.current += 1;
         clearRepoFileCache(paperId);
         try {
-            await disconnectPaperRepo(paperId);
-            if (mountedRef.current && paperIdRef.current === paperId) {
-                epochRef.current += 1;
-                setRepo(null);
-                setError(null);
-            }
+            await mutate(
+                disconnectPaperRepo(paperId).then(() => null),
+                { revalidate: false }
+            );
         } finally {
             if (mountedRef.current) setMutating(false);
         }
-    }, [paperId]);
+    }, [paperId, mutate]);
 
-    return { repo, loading, error, mutating, refresh, connect, disconnect };
+    return {
+        repo: data ?? null,
+        loading: isLoading,
+        error: error ? messageOf(error) : null,
+        mutating,
+        refresh,
+        connect,
+        disconnect,
+    };
 }
