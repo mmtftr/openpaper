@@ -164,6 +164,18 @@ After Phase 5, merge into `master`.
 - **Ops/docs:** client standalone output; rewrite `README.md`, `DEVELOPMENT.md`,
   `CLAUDE.md`.
 
+As built (2026-09-25): all five items landed on `restructure` and are live.
+Data layer: `app/database/models/` package, `NotFound` → 404, `app/settings.py`,
+`app/api/paper/*`; schema and OpenAPI unchanged, GET JSON identical on a copy
+of live data. Chat runtime: `runtime.py` (plan → store → pump → finish) with
+`plan.py`, `store.py`, `pump.py`, `model_choice.py`, `budget.py`
+(`WrapperToolset`), `history/`; stream goldens recorded on the old code pass.
+Client: `components/paper/*` + paper jotai store, `PaperChatPanel` 1817 → 196
+lines, `components/notes/NoteThread`. Ops: client image on Next standalone
+(5.3 GB → 401 MB); README/DEVELOPMENT/CLAUDE.md/.env.example rewritten.
+Phase review (codex + Opus): one real regression (repo status write retry) and
+five low-severity best-effort-write changes, all fixed in 47ce48a.
+
 ## Phase 6 — Codex-proxy fast model (after the refactor is otherwise done)
 
 Context (verified by the owner 2026-09-24): the proxy (`LLMProvider.CODEX_PROXY`,
@@ -197,6 +209,13 @@ stream usage when `stream_options.include_usage` is set (pydantic-ai sets it).
 5. Server test suite; one live **streamed** chat on the proxy and one FAST
    structured-output call; report input/output tokens and reasoning tokens
    observed (streamed usage should now be non-zero in the refactored chat path).
+
+As built (2026-09-25, 49a9aeb): as specified. Live: streamed chat on the
+proxy reports usage (astra: 27 in / 87 out / 18 reasoning); a FAST structured
+call on luna at `max` reports reasoning tokens (382 on a reasoning-heavy
+prompt, 0 on a trivial title). `max` is slower: citation reconcile ~11 s and
+LLM outline ~32 s (both off the critical path of the answer). Also restored
+Logfire in the ingest worker (lost with `jobs/`).
 
 ## How each phase is executed
 
