@@ -29,7 +29,6 @@ from app.api.repo_api import repo_router
 from app.api.search_api import search_router
 from app.api.subscription import subscription_router
 from app.api.webhook_api import webhook_router
-from app.database.admin import setup_admin
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -116,7 +115,6 @@ app.include_router(onboarding_router, prefix="/api/onboarding")
 app.include_router(discover_router, prefix="/api/discover")
 app.include_router(document_router, prefix="/api/document")
 
-setup_admin(app)  # Setup admin interface
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))

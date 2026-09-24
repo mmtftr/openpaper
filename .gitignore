@@ -72,3 +72,4 @@ client/public/pdf.worker.mjs
 # Dev-only companion-repo snapshots (REPO_STORAGE_DIR default; the deploy
 # uses the `repo-snapshots` docker volume instead)
 server/.repo_snapshots/
+*.pyc

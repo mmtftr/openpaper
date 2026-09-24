@@ -106,7 +106,6 @@ The response agent works by sending off an agent with access to a series of rese
 - `read_abstract`
 - `search_all_files`
 
-![knowledge base research diagram](./lr_research_diagram.png)
 
 Multi-paper chat workflow:
 

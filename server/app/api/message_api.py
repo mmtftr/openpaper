@@ -5,12 +5,12 @@ the request body is the AI SDK submit payload (`{trigger, id, messages}` —
 the client sends only the NEW user message; server-side history is ground
 truth) plus OpenPaper's custom fields (paper_id, conversation_id, model
 selection). The response streams UIMessage chunks produced by the
-pydantic-ai Vercel adapter. See app/llm/chat/ and AGENTIC_CHAT_REFACTOR.md.
+pydantic-ai Vercel adapter. See app/llm/chat/.
 
 POST /quick-question/code streams the same protocol for an ephemeral
 question about a selected code range in the paper's connected repo — it gets
 read-only repo lookups on a small budget, but nothing is persisted. See
-app/llm/chat/quick_question.py and REPO_INSPECTION_FEATURE.md.
+app/llm/chat/quick_question.py.
 
 GET /models lists user-selectable chat models with capability flags.
 """
