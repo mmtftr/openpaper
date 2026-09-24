@@ -72,14 +72,20 @@ async def discover_search(
                     subquery = chunk.get("subquery", "")
                     collected_results[subquery] = chunk.get("content", [])
                 elif chunk_type == "done":
-                    # Persist the search
-                    saved = discover_search_crud.create(
-                        db,
-                        question=request.question,
-                        subqueries=collected_subqueries,
-                        results=collected_results,
-                        user=current_user,
-                    )
+                    # Persist the search. The results are already streamed, so
+                    # a failed save only loses the history entry.
+                    try:
+                        saved = discover_search_crud.create(
+                            db,
+                            question=request.question,
+                            subqueries=collected_subqueries,
+                            results=collected_results,
+                            user=current_user,
+                        )
+                    except Exception as exc:
+                        logger.error(f"Saving discover search failed: {exc}")
+                        db.rollback()
+                        saved = None
 
                     # Determine search mode based on sources
                     use_openalex = request.sources and "openalex" in request.sources
@@ -103,7 +109,7 @@ async def discover_search(
                     )
 
                     # Include the search ID in the done chunk
-                    chunk["search_id"] = str(saved.id)
+                    chunk["search_id"] = str(saved.id) if saved else None
 
                 yield f"{json.dumps(chunk)}{END_DELIMITER}"
 

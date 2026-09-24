@@ -4,6 +4,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_required_user
@@ -42,12 +43,19 @@ def add_paper_to_project(
     """Add papers to a project. Papers that can't be added (already in it,
     not the user's) are skipped and logged."""
     for paper_id in request.paper_ids:
-        project_paper = project_paper_crud.create(
-            db,
-            obj_in=ProjectPaperCreate(paper_id=paper_id),
-            user=current_user,
-            project_id=project_id,
-        )
+        try:
+            project_paper = project_paper_crud.create(
+                db,
+                obj_in=ProjectPaperCreate(paper_id=paper_id),
+                user=current_user,
+                project_id=project_id,
+            )
+        except SQLAlchemyError as exc:
+            db.rollback()
+            logger.error(
+                f"Adding paper {paper_id} to project {project_id} failed: {exc}"
+            )
+            continue
         if not project_paper:
             logger.error(
                 f"Failed to add paper {paper_id} to project {project_id}. Check permissions or if the paper already exists in the project."

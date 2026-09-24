@@ -194,7 +194,14 @@ async def run_paper_chat(
                 )
                 if reconciled:
                     if assistant_row is not None:
-                        store.store_reconciled(assistant_row, reconciled)
+                        try:
+                            store.store_reconciled(assistant_row, reconciled)
+                        except Exception as exc:
+                            # The client still gets the reconciled chunk.
+                            logger.warning(
+                                "Saving reconciled citations failed: %s", exc
+                            )
+                            db.rollback()
                     yield DataChunk(
                         type=CITATIONS_PART_TYPE,
                         id=CITATIONS_PART_ID,
@@ -329,6 +336,7 @@ async def _title_and_record(
         )
     except Exception as exc:
         logger.warning("Conversation title generation failed (non-fatal): %s", exc)
+        db.rollback()
 
     spec = plan.choice.spec
     try:

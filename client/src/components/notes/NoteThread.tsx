@@ -31,6 +31,11 @@ interface NoteThreadProps extends NoteActions {
      */
     isActive: boolean;
     /**
+     * Panel only: another thread is active. An inactive panel thread keeps
+     * its expansion until then (deselecting everything doesn't fold it).
+     */
+    otherActive?: boolean;
+    /**
      * `card`: the note popover over the PDF — an edit or reply collapses when
      * the user clicks elsewhere. `panel`: a row of the Annotations side panel.
      */
@@ -67,6 +72,7 @@ export function NoteThread({
     notes,
     user,
     isActive,
+    otherActive = false,
     variant,
     header,
     addAnnotation,
@@ -109,11 +115,11 @@ export function NoteThread({
             setReplyDraft("");
             setEditingId(null);
             setEditDraft("");
-            setExpanded(false);
+            if (variant === "card" || otherActive) setExpanded(false);
         } else if (hasMulti) {
             setExpanded(true);
         }
-    }, [isActive, hasMulti]);
+    }, [isActive, hasMulti, variant, otherActive]);
 
     // Card only: a mousedown outside the edit field cancels an untouched edit,
     // and one outside the reply row collapses it to the pill (draft kept).

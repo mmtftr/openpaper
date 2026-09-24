@@ -20,6 +20,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.messages import BinaryImage, ToolReturn
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database.crud.paper_crud import paper_crud
@@ -386,6 +387,10 @@ async def _run_sync_tool(
                 db=session,
                 **args,
             )
+        except SQLAlchemyError as exc:
+            # A DB blip fails this one call, not the whole turn.
+            logger.warning("Tool %s hit a database error: %s", tool_name, exc)
+            return {"error": "database error, try again"}
         finally:
             session.close()
 

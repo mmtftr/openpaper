@@ -130,25 +130,28 @@ def _mark_checked(session: Session, row: PaperRepo, **fields) -> None:
     write would strand the row in `ingesting` and leave the UI polling for
     fifteen minutes, hence the retry.
     """
+    # Read the id up front: after a failed flush the row is expired and
+    # touching it raises until the session is rolled back.
+    row_id = row.id
     for attempt in (1, 2):
         try:
             paper_repo_crud.mark(session, row=row, **fields)
             return
         except Exception as exc:
+            try:
+                session.rollback()
+            except Exception:
+                pass
             logger.warning(
                 "Repo status write failed (attempt %d) for row %s: %s (%s)",
                 attempt,
-                getattr(row, "id", "?"),
+                row_id,
                 fields.get("status"),
                 exc,
             )
-        try:
-            session.rollback()
-        except Exception:
-            pass
     logger.error(
         "Giving up on repo status write for row %s (%s)",
-        getattr(row, "id", "?"),
+        row_id,
         fields.get("status"),
     )
 

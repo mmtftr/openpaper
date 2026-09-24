@@ -264,6 +264,7 @@ export function AnnotationsView({
 									notes={threadAnns}
 									user={user}
 									isActive={isActive}
+									otherActive={activeHighlight != null && !isActive}
 									addAnnotation={readonly ? undefined : addAnnotation}
 									updateAnnotation={readonly ? undefined : updateAnnotation}
 									removeAnnotation={readonly ? undefined : removeAnnotation}
