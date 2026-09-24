@@ -166,7 +166,9 @@ stream usage when `stream_options.include_usage` is set (pydantic-ai sets it).
    refactored code builds model settings: the old `ModelRegistry.build_settings`
    mapped `xhigh`→`high` for Chat-Completions specs (the proxy is `api="chat"`);
    that mapping must not clamp or drop `max`/`xhigh` for the codex proxy. Also
-   confirm pydantic-ai's OpenAI chat settings accept the literal `max`. Verify
+   confirm pydantic-ai's OpenAI chat settings accept the literal `max`. The slot
+   settings API (`/api/settings/models`, `ModelSlot.reasoning_effort`) and the chat
+   request's `reasoning_effort` Literal currently allow only low…xhigh — add `max`. Verify
    with a live call that reasoning tokens are non-zero.
 3. Remove the workaround: every FAST slot in `app/llm/model_slots.py`
    (`chat.title`, `chat.reconcile`, `discover`, `ingest.outline`) is pinned to the
