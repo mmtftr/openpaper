@@ -8,15 +8,18 @@ cookies, S3 served behind Caddy at `/s3/...`). Compose merges them
 automatically — `docker compose up` brings up the production-ish setup.
 
 Containers and roles:
-- `client` (Next.js) → `server` (FastAPI/gunicorn) → `postgres`; PDFs,
-  previews and figure images live in `minio` (local S3) under `papers/{id}/`
+- `client` (Next.js standalone build, `node server.js`) → `server`
+  (FastAPI/gunicorn) → `postgres`; PDFs, previews and figure images live in
+  `minio` (local S3) under `papers/{id}/`
 - `ingest-worker` (`python -m app.ingest.worker`, same image/env as `server`)
   processes uploads stage by stage (`docs/INGEST_DESIGN.md`); the queue and
   progress are the `ingest_stages` rows, its heartbeat is `ingest_worker`.
   The upload request itself stores the PDF and queues the stages, so the
   reader works before the worker picks anything up.
 
-Postgres is not host-published — only reachable from the docker network.
+Postgres is not host-published — only reachable from the docker network
+(the opt-in `compose.dev.yaml` overlay publishes it on `127.0.0.1:5434` for
+host dev servers, see `DEVELOPMENT.md`).
 Migrations run on every `server` start (its command chains
 `run_migrations.py` before gunicorn); `ingest-worker` waits for the server
 to be healthy. Public URLs come from `BASE_HOSTNAME` (top-level `.env`); a
@@ -40,11 +43,57 @@ creation, so it silently keeps the old values:
 docker compose up -d --force-recreate server ingest-worker
 ```
 
+`NEXT_PUBLIC_*` values are compiled into the client image, so changing them
+needs a client rebuild. `scripts/rebuild.sh [service ...]` builds,
+force-recreates and prunes the dangling images a rebuild leaves behind (they
+once filled the Docker VM disk).
+
 The server image installs exactly what `server/uv.lock` pins (`uv export
 --frozen` in `server/Dockerfile`), not a fresh resolve of `pyproject.toml`.
 Resolution is capped by `[tool.uv] exclude-newer` in `server/pyproject.toml`
 (a release-age cooldown) — a dependency bump needs that date moved forward
 and `uv lock` re-run, and never a date younger than about a week.
+
+## Repo map / where things live
+
+Server (`server/app/`):
+- `api/*`: HTTP routes, all mounted under `/api/...` in `main.py`
+  (`api/paper/` is the paper package: detail, library, delete, ...).
+  Request/response models are in `schemas/`.
+- `database/models/*`: SQLAlchemy 2.0 models, one module per domain;
+  `database/crud/*` writes (raise, don't swallow); `database/queries/*` reads.
+- `ingest/`: ingest v2. `graph.py` (stage DAG), `stages/<name>.py`,
+  `engine.py` + `worker.py` (the `ingest-worker` process), `service.py`
+  (enqueue/retry/reprocess), `content.py` (the read side chat and search
+  use). Contracts: `ingest/README.md`.
+- `llm/`: `model_registry.py` (providers, env model lists),
+  `model_slots.py` (per-call-site slots + Settings → Models overrides),
+  `oneshot.py`, `chat/` (paper chat runtime, quick question), `tools/`
+  (agent tools), `repo/` (companion-repo snapshot + sandbox).
+- `references/`: bibliography entry resolution (reader citation hover cards).
+- `settings.py`: the one pydantic-settings `Settings` for all env config;
+  `server/.env.example` documents it.
+
+Client (`client/src/`):
+- `app/`: routes. `(paper)/paper/[id]` is the reader page; `(main)/` has
+  papers, projects, discover, settings (`settings/models`), login.
+- `components/paper`: the paper page (layouts, paper-level jotai store,
+  loaders); `components/reader`: the pdf.js reader and highlight layers.
+- `components/chat`: `PaperChatPanel` and its hooks and message components.
+- `components/notes`: the shared highlight note thread (used by
+  `AnnotationsView` and `InlineAnnotationCard`); the per-paper notes document
+  editor is `components/PaperDocEditor*`.
+- `components/ingest`: `IngestStatusPopover`, `FeatureGate`.
+- `lib/api`: `openapi.json` + generated `schema.d.ts` + the `openapi-fetch`
+  client. Regenerate with `yarn gen:api`, never edit by hand.
+
+Checks (details in `DEVELOPMENT.md`):
+
+```bash
+sh server/scripts/check.sh                       # pytest + ruff + format + pyright
+cd client && npx tsc --noEmit -p . && yarn lint && yarn check:api && yarn build
+uv run scripts/smoke.py                           # end-to-end against the running stack
+```
 
 ## Azure OpenAI model deployments
 
