@@ -4,16 +4,11 @@ from typing import List, Optional
 from uuid import UUID
 
 from app.database.crud.projects.project_base_crud import ProjectBaseCRUD
-from app.database.crud.user_crud import user as user_crud
 from app.database.models import (
     AudioOverviewJob,
     ConversableType,
-    Conversation,
-    DataTableExtractionJob,
     Project,
     ProjectPaper,
-    ProjectRole,
-    ProjectRoles,
 )
 from app.schemas.user import CurrentUser
 from pydantic import BaseModel
@@ -41,13 +36,9 @@ class ProjectUpdate(ProjectBase):
 class AnnotatedProject(ProjectBase):
     id: Optional[str] = None
     num_papers: int = 0
-    num_conversations: int = 0
     num_audio_overviews: int = 0
-    num_data_tables: int = 0
-    num_roles: int = 0
     updated_at: Optional[str] = None
     created_at: Optional[str] = None
-    role: Optional[ProjectRoles] = None
 
 
 class ProjectCRUD(ProjectBaseCRUD[Project, ProjectCreate, ProjectUpdate]):
@@ -63,20 +54,11 @@ class ProjectCRUD(ProjectBaseCRUD[Project, ProjectCreate, ProjectUpdate]):
             db_obj = Project(
                 title=obj_in.title,
                 description=obj_in.description,
-                admin_id=user.id,
+                owner_id=user.id,
             )
             db.add(db_obj)
             db.commit()
             db.refresh(db_obj)
-
-            # Assign the creator the admin role
-            project_role = ProjectRole(
-                project_id=db_obj.id,
-                user_id=user.id,
-                role=ProjectRoles.ADMIN,
-            )
-            db.add(project_role)
-            db.commit()
 
             return db_obj
         except Exception as e:
@@ -88,19 +70,9 @@ class ProjectCRUD(ProjectBaseCRUD[Project, ProjectCreate, ProjectUpdate]):
         self, db: Session, user: CurrentUser, limit: Optional[int] = None
     ) -> List[AnnotatedProject]:
         """
-        Get all projects for a user with metadata (num_papers, num_conversations) in a single query.
+        Get all projects for a user with metadata (num_papers) in a single query.
         """
         try:
-            # Subquery to count roles per project
-            roles_subquery = (
-                db.query(
-                    ProjectRole.project_id,
-                    func.count(ProjectRole.id).label("num_roles"),
-                )
-                .group_by(ProjectRole.project_id)
-                .subquery()
-            )
-
             # Build a query that joins all necessary tables and aggregates the counts
             query = (
                 db.query(
@@ -108,26 +80,11 @@ class ProjectCRUD(ProjectBaseCRUD[Project, ProjectCreate, ProjectUpdate]):
                     func.coalesce(func.count(ProjectPaper.id.distinct()), 0).label(
                         "num_papers"
                     ),
-                    func.coalesce(func.count(Conversation.id.distinct()), 0).label(
-                        "num_conversations"
-                    ),
                     func.coalesce(func.count(AudioOverviewJob.id.distinct()), 0).label(
                         "num_audio_overviews"
                     ),
-                    func.coalesce(
-                        func.count(DataTableExtractionJob.id.distinct()), 0
-                    ).label("num_data_tables"),
-                    ProjectRole.role.label("role"),
-                    func.coalesce(roles_subquery.c.num_roles, 0).label("num_roles"),
                 )
-                .join(ProjectRole, Project.id == ProjectRole.project_id)
-                .outerjoin(roles_subquery, Project.id == roles_subquery.c.project_id)
                 .outerjoin(ProjectPaper, Project.id == ProjectPaper.project_id)
-                .outerjoin(
-                    Conversation,
-                    (Conversation.conversable_id == Project.id)
-                    & (Conversation.conversable_type == ConversableType.PROJECT.value),
-                )
                 .outerjoin(
                     AudioOverviewJob,
                     (AudioOverviewJob.conversable_id == Project.id)
@@ -136,12 +93,8 @@ class ProjectCRUD(ProjectBaseCRUD[Project, ProjectCreate, ProjectUpdate]):
                         == ConversableType.PROJECT.value
                     ),
                 )
-                .outerjoin(
-                    DataTableExtractionJob,
-                    (DataTableExtractionJob.project_id == Project.id),
-                )
-                .filter(ProjectRole.user_id == user.id)
-                .group_by(Project.id, ProjectRole.role, roles_subquery.c.num_roles)
+                .filter(Project.owner_id == user.id)
+                .group_by(Project.id)
                 .order_by(Project.updated_at.desc())
                 .limit(limit)
                 .all()
@@ -152,24 +105,16 @@ class ProjectCRUD(ProjectBaseCRUD[Project, ProjectCreate, ProjectUpdate]):
             for (
                 project,
                 num_papers,
-                num_conversations,
                 num_audio_overviews,
-                num_data_tables,
-                role,
-                num_roles,
             ) in query:
                 annotated_project = AnnotatedProject(
                     id=str(project.id),
                     title=project.title,
                     description=project.description,
                     num_papers=num_papers,
-                    num_conversations=num_conversations,
                     num_audio_overviews=num_audio_overviews,
-                    num_data_tables=num_data_tables,
-                    num_roles=num_roles,
                     updated_at=str(project.updated_at) if project.updated_at else None,
                     created_at=str(project.created_at) if project.created_at else None,
-                    role=ProjectRoles(role) if role is not None else None,
                 )
                 annotated_projects.append(annotated_project)
 
@@ -192,150 +137,6 @@ class ProjectCRUD(ProjectBaseCRUD[Project, ProjectCreate, ProjectUpdate]):
         except Exception as e:
             db.rollback()
             logger.error(f"Error touching project {project_id}: {str(e)}")
-
-    def has_role(
-        self, db: Session, *, project_id: str, user_id: str, role: ProjectRoles
-    ) -> bool:
-        """Check if a user has a specific role in a project."""
-        project_role = (
-            db.query(ProjectRole)
-            .filter(
-                ProjectRole.project_id == project_id,
-                ProjectRole.user_id == user_id,
-                ProjectRole.role == role,
-            )
-            .first()
-        )
-        return project_role is not None
-
-    def get_role_in_project(
-        self, db: Session, *, project_id: str, user: CurrentUser
-    ) -> ProjectRoles | None:
-        project_role = (
-            db.query(ProjectRole)
-            .filter(
-                ProjectRole.project_id == project_id,
-                ProjectRole.user_id == str(user.id),
-            )
-            .first()
-        )
-        return project_role.role if project_role else None
-
-    def get_all_roles(
-        self, db: Session, *, project_id: str, user: CurrentUser
-    ) -> List[ProjectRole]:
-        """Get all roles for a specific project."""
-        project = self.get(db, id=project_id, user=user)
-        if not project:
-            return []
-
-        return db.query(ProjectRole).filter(ProjectRole.project_id == project_id).all()
-
-    def remove_collaborator(
-        self, db: Session, *, project_id: str, role_id: str, user: CurrentUser
-    ) -> Optional[ProjectRole]:
-        """Remove a collaborator from a specific project."""
-        admin_project_role = self.has_role(
-            db, project_id=project_id, user_id=str(user.id), role=ProjectRoles.ADMIN
-        )
-
-        if not admin_project_role:
-            return None
-
-        project_role = (
-            db.query(ProjectRole)
-            .filter(
-                ProjectRole.project_id == project_id,
-                ProjectRole.id == role_id,
-            )
-            .first()
-        )
-
-        if not project_role:
-            return None
-
-        try:
-            db.delete(project_role)
-            db.commit()
-            return project_role
-        except Exception as e:
-            db.rollback()
-            logger.error(
-                f"Error removing collaborator {role_id} from project {project_id}: {str(e)}",
-                exc_info=True,
-            )
-            return None
-
-    def remove_self_from_project(
-        self, db: Session, *, project_id: str, user: CurrentUser
-    ) -> bool:
-        """Allow a user to remove themselves from a specific project."""
-        project_role = (
-            db.query(ProjectRole)
-            .filter(
-                ProjectRole.project_id == project_id,
-                ProjectRole.user_id == str(user.id),
-            )
-            .first()
-        )
-
-        if not project_role or project_role.role == ProjectRoles.ADMIN:
-            return False
-
-        try:
-            db.delete(project_role)
-            db.commit()
-            return True
-        except Exception as e:
-            db.rollback()
-            logger.error(
-                f"Error removing user {user.id} from project {project_id}: {str(e)}",
-                exc_info=True,
-            )
-            return False
-
-    def change_collaborator_role(
-        self,
-        db: Session,
-        *,
-        project_id: str,
-        role_id: str,
-        new_role: ProjectRoles,
-        user: CurrentUser,
-    ) -> Optional[ProjectRole]:
-        """Change a collaborator's role in a specific project."""
-        admin_project_role = self.has_role(
-            db, project_id=project_id, user_id=str(user.id), role=ProjectRoles.ADMIN
-        )
-
-        if not admin_project_role:
-            return None
-
-        project_role: ProjectRole | None = (
-            db.query(ProjectRole)
-            .filter(
-                ProjectRole.project_id == project_id,
-                ProjectRole.id == role_id,
-            )
-            .first()
-        )
-
-        if not project_role:
-            return None
-
-        try:
-            project_role.role = str(new_role.value)  # type: ignore
-            db.add(project_role)
-            db.commit()
-            db.refresh(project_role)
-            return project_role
-        except Exception as e:
-            db.rollback()
-            logger.error(
-                f"Error changing role for collaborator {role_id} in project {project_id}: {str(e)}",
-                exc_info=True,
-            )
-            return None
 
 
 project_crud = ProjectCRUD(Project)

@@ -3,10 +3,9 @@ import uuid
 from ctypes import cast
 from typing import List, Optional
 
-from app.database.crud.paper_crud import paper_crud
 from app.database.crud.projects.project_base_crud import ProjectBaseCRUD
 from app.database.crud.projects.project_crud import project_crud
-from app.database.models import Paper, Project, ProjectPaper, ProjectRole, ProjectRoles
+from app.database.models import Paper, Project, ProjectPaper
 from app.schemas.user import CurrentUser
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -47,17 +46,13 @@ class ProjectPaperCRUD(
             )
 
         try:
-            # Check if the user has permission to add a paper to this project
-            project_role = (
-                db.query(ProjectRole)
-                .filter(
-                    ProjectRole.project_id == project_id,
-                    ProjectRole.user_id == user.id,
-                    ProjectRole.role.in_([ProjectRoles.ADMIN, ProjectRoles.EDITOR]),
-                )
+            # Check if the user owns this project
+            project = (
+                db.query(Project)
+                .filter(Project.id == project_id, Project.owner_id == user.id)
                 .first()
             )
-            if not project_role:
+            if not project:
                 logger.warning(
                     f"User {user.id} does not have permission to add paper to project {project_id}"
                 )
@@ -109,52 +104,16 @@ class ProjectPaperCRUD(
             )
             return None
 
-    def get_paper_by_project(
-        self,
-        db: Session,
-        *,
-        paper_id: uuid.UUID,
-        project_id: uuid.UUID,
-        user: CurrentUser,
-    ) -> Optional[Paper]:
-        # First, check if the user has access to the project.
-        project_role = (
-            db.query(ProjectRole)
-            .filter(
-                ProjectRole.project_id == project_id,
-                ProjectRole.user_id == user.id,
-            )
-            .first()
-        )
-        if not project_role:
-            return None
-
-        project_paper = (
-            db.query(self.model)
-            .filter(
-                self.model.project_id == project_id, self.model.paper_id == paper_id
-            )
-            .first()
-        )
-
-        if not project_paper:
-            return None
-
-        return db.query(Paper).filter(Paper.id == project_paper.paper_id).first()
-
     def get_all_papers_by_project_id(
         self, db: Session, *, project_id: uuid.UUID, user: CurrentUser
     ) -> List[Paper]:
-        # First, check if the user has access to the project.
-        project_role = (
-            db.query(ProjectRole)
-            .filter(
-                ProjectRole.project_id == project_id,
-                ProjectRole.user_id == user.id,
-            )
+        # First, check if the user owns the project.
+        project = (
+            db.query(Project)
+            .filter(Project.id == project_id, Project.owner_id == user.id)
             .first()
         )
-        if not project_role:
+        if not project:
             return []
 
         project_papers = (
@@ -167,16 +126,13 @@ class ProjectPaperCRUD(
     def get_project_paper_ids_by_project_id(
         self, db: Session, *, project_id: uuid.UUID, user: CurrentUser
     ) -> List[uuid.UUID]:
-        # First, check if the user has access to the project.
-        project_role = (
-            db.query(ProjectRole)
-            .filter(
-                ProjectRole.project_id == project_id,
-                ProjectRole.user_id == user.id,
-            )
+        # First, check if the user owns the project.
+        project = (
+            db.query(Project)
+            .filter(Project.id == project_id, Project.owner_id == user.id)
             .first()
         )
-        if not project_role:
+        if not project:
             return []
 
         project_papers = (
@@ -193,16 +149,13 @@ class ProjectPaperCRUD(
         project_id: uuid.UUID,
         user: CurrentUser,
     ) -> Optional[ProjectPaper]:
-        # First, check if the user has access to the project.
-        project_role = (
-            db.query(ProjectRole)
-            .filter(
-                ProjectRole.project_id == project_id,
-                ProjectRole.user_id == user.id,
-            )
+        # First, check if the user owns the project.
+        project = (
+            db.query(Project)
+            .filter(Project.id == project_id, Project.owner_id == user.id)
             .first()
         )
-        if not project_role:
+        if not project:
             return None
 
         project_paper = (
@@ -232,69 +185,17 @@ class ProjectPaperCRUD(
         if not project_ids:
             return []
 
-        # Now, fetch all projects that match these IDs and that the user has access to
+        # Now, fetch all projects that match these IDs and that the user owns
         projects = (
             db.query(Project)
-            .join(ProjectRole, Project.id == ProjectRole.project_id)
             .filter(
                 Project.id.in_(project_ids),
-                ProjectRole.user_id == user.id,
+                Project.owner_id == user.id,
             )
             .all()
         )
 
         return projects
-
-    def get_forked_papers_by_parent_id(
-        self, db: Session, *, parent_paper_id: uuid.UUID, user: CurrentUser
-    ) -> Paper | None:
-        """
-        Find a forked paper by its parent_paper_id for the current user.
-        Delegates to paper_crud.get_forked_paper_by_parent_id.
-        """
-        return paper_crud.get_forked_paper_by_parent_id(
-            db, parent_paper_id=parent_paper_id, user=user
-        )
-
-    def fork_paper(
-        self,
-        db: Session,
-        *,
-        parent_paper_id: str,
-        new_file_object_key: str,
-        new_file_url: str,
-        new_preview_url: Optional[str],
-        project_id: str,
-        current_user: CurrentUser,
-    ) -> Optional[Paper]:
-        """
-        Fork a paper to create a duplicate for the current user.
-        Validates that the user has access to the paper via the project,
-        then delegates to paper_crud.fork_paper.
-        """
-        # Retrieve the original paper. Validate that the current_user has access to it via a project.
-        original_paper = self.get_paper_by_project(
-            db,
-            paper_id=uuid.UUID(parent_paper_id),
-            project_id=uuid.UUID(project_id),
-            user=current_user,
-        )
-
-        if not original_paper:
-            logger.error(
-                f"Original paper with ID {parent_paper_id} not found for forking."
-            )
-            return None
-
-        # Delegate to paper_crud.fork_paper for the actual forking logic
-        return paper_crud.fork_paper(
-            db,
-            original_paper=original_paper,
-            new_file_object_key=new_file_object_key,
-            new_file_url=new_file_url,
-            new_preview_url=new_preview_url,
-            current_user=current_user,
-        )
 
 
 project_paper_crud = ProjectPaperCRUD(ProjectPaper)

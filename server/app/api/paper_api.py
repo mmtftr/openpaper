@@ -3,10 +3,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from app.auth.dependencies import get_current_user, get_required_user
-from app.database.crud.annotation_crud import annotation_crud
+from app.auth.dependencies import get_required_user
 from app.database.crud.conversation_crud import conversation_crud
-from app.database.crud.highlight_crud import highlight_crud
 from app.database.crud.paper_crud import PaperUpdate, paper_crud
 from app.database.crud.paper_note_crud import (
     PaperNoteCreate,
@@ -20,7 +18,6 @@ from app.database.telemetry import track_event
 from app.helpers.paper_search import get_doi, get_enriched_data
 from app.helpers.parser import parse_publication_date
 from app.helpers.s3 import s3_service
-from app.helpers.subscription_limits import can_user_upload_paper
 from app.llm.paper_outline import OutlineEntry, cached_outline
 from app.schemas.responses import ResponseCitation
 from app.schemas.user import CurrentUser
@@ -38,12 +35,6 @@ logger = logging.getLogger(__name__)
 paper_router = APIRouter()
 
 CHECK_METADATA_INTERVAL_DAYS = 30
-
-
-class SharePaperSchemaResponse(BaseModel):
-    paper_data: dict
-    highlight_data: dict
-    annotations_data: dict
 
 
 class CreatePaperNoteSchema(BaseModel):
@@ -678,153 +669,6 @@ async def get_paper_markdown(
     return JSONResponse(status_code=200, content=_paper_markdown_payload(paper))
 
 
-@paper_router.post("/share")
-async def share_pdf(
-    request: Request,
-    id: str,
-    db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_required_user),
-):
-    """
-    Share a document by ID
-    """
-    # Fetch the document from the database
-    paper = paper_crud.get(db, id=id, user=current_user)
-
-    paper_crud.make_public(db, paper_id=id, user=current_user)
-    if not paper:
-        return JSONResponse(status_code=404, content={"message": "Document not found"})
-
-    track_event(
-        "paper_share",
-        properties={
-            "paper_id": str(paper.id),
-            "share_id": paper.share_id,
-        },
-        user_id=str(current_user.id),
-        db=db,
-    )
-
-    # Return the generated share id
-    return JSONResponse(
-        status_code=200,
-        content={
-            "message": "Document shared successfully",
-            "share_id": paper.share_id,
-        },
-    )
-
-
-@paper_router.post("/unshare")
-async def unshare_pdf(
-    request: Request,
-    id: str,
-    db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_required_user),
-):
-    """
-    Unshare a document by ID
-    """
-    # Fetch the document from the database
-    paper = paper_crud.get(db, id=id, user=current_user)
-
-    if not paper:
-        return JSONResponse(status_code=404, content={"message": "Document not found"})
-
-    paper_crud.make_private(db, paper_id=id, user=current_user)
-
-    track_event(
-        "paper_unshare",
-        properties={
-            "paper_id": str(paper.id),
-            "share_id": paper.share_id,
-        },
-        user_id=str(current_user.id),
-        db=db,
-    )
-
-    # Return the generated share id
-    return JSONResponse(
-        status_code=200,
-        content={
-            "message": "Document unshared successfully",
-        },
-    )
-
-
-@paper_router.get("/share")
-async def get_shared_pdf(
-    request: Request,
-    id: str,
-    db: Session = Depends(get_db),
-    current_user: Optional[CurrentUser] = Depends(get_current_user),
-):
-    """
-    Get a shared document by ID
-    """
-    # Fetch the document from the database
-    response = {}
-
-    paper = paper_crud.get_public_paper(db, share_id=id)
-
-    if not paper:
-        return JSONResponse(status_code=404, content={"message": "Document not found"})
-
-    paper_data = paper.to_dict()
-    paper_data.pop("ocr", None)
-
-    signed_url = s3_service.get_cached_presigned_url_by_owner(
-        db,
-        paper_id=str(paper.id),
-        object_key=str(paper.s3_object_key),
-        owner_id=str(paper.user_id),
-    )
-    if not signed_url:
-        return JSONResponse(status_code=404, content={"message": "File not found"})
-
-    annotations = annotation_crud.get_public_annotations_data_by_paper_id(
-        db, share_id=uuid.UUID(id)
-    )
-
-    highlights = highlight_crud.get_public_highlights_data_by_paper_id(db, share_id=id)
-
-    paper_data["file_url"] = signed_url
-    paper_data["summary"] = (
-        paper_crud.get_summary_replace_image_placeholders_shared_paper(
-            db, paper_id=str(paper.id)
-        )
-    )
-    response["paper"] = paper_data
-    response["highlights"] = [highlight.to_dict() for highlight in highlights]
-    response["annotations"] = [annotation.to_dict() for annotation in annotations]
-    response["owner"] = {"name": paper.user.name, "picture": paper.user.picture, "id": str(paper.user.id)}  # type: ignore
-
-    track_event(
-        "paper_shared_view",
-        properties={
-            "paper_id": str(paper.id),
-            "share_id": paper.share_id,
-        },
-        user_id=str(current_user.id) if current_user else None,
-        db=db,
-    )
-
-    # Return the file URL
-    return JSONResponse(status_code=200, content=response)
-
-
-@paper_router.get("/share/markdown")
-async def get_shared_paper_markdown(
-    id: str,
-    db: Session = Depends(get_db),
-):
-    paper = paper_crud.get_public_paper(db, share_id=id)
-    if not paper:
-        return JSONResponse(status_code=404, content={"message": "Document not found"})
-
-    return JSONResponse(status_code=200, content=_paper_markdown_payload(paper))
-
-
 @paper_router.delete("")
 async def delete_pdf(
     request: Request,
@@ -880,120 +724,4 @@ async def delete_pdf(
         return JSONResponse(
             status_code=500,
             content={"message": f"Error deleting document: {str(e)}"},
-        )
-
-
-class ForkSharedPaperRequest(BaseModel):
-    share_id: str
-
-
-@paper_router.post("/fork")
-async def fork_shared_paper(
-    request: ForkSharedPaperRequest,
-    db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_required_user),
-) -> JSONResponse:
-    """
-    Fork a shared paper into the current user's library.
-    The paper must be publicly shared (via share_id).
-    """
-    try:
-        # Check subscription limits before forking
-        can_upload, error_message = can_user_upload_paper(db, current_user)
-        if not can_upload:
-            return JSONResponse(
-                status_code=403,
-                content={"message": error_message},
-            )
-
-        # Find the shared paper by share_id
-        shared_paper = paper_crud.get_public_paper(db, share_id=request.share_id)
-
-        if not shared_paper:
-            raise HTTPException(
-                status_code=404,
-                detail="Shared paper not found or is no longer public.",
-            )
-
-        # Skip fork if user is the original owner
-        if shared_paper.user_id == current_user.id:
-            return JSONResponse(
-                status_code=200,
-                content={
-                    "message": "You already own this paper",
-                    "new_paper_id": str(shared_paper.id),
-                    "already_exists": True,
-                },
-            )
-
-        # Check if user already has a fork of this paper
-        existing_fork = paper_crud.get_forked_paper_by_parent_id(
-            db, parent_paper_id=uuid.UUID(str(shared_paper.id)), user=current_user
-        )
-        if existing_fork:
-            return JSONResponse(
-                status_code=200,
-                content={
-                    "message": "You already have this paper in your library",
-                    "new_paper_id": str(existing_fork.id),
-                    "already_exists": True,
-                },
-            )
-
-        # Duplicate the file in S3
-        duplicate_paper_key, duplicate_file_url = s3_service.duplicate_file(
-            source_object_key=str(shared_paper.s3_object_key),
-            new_filename=f"forked_{uuid.uuid4()}.pdf",
-        )
-
-        # Duplicate the preview image if it exists
-        duplicate_preview_url = None
-        if shared_paper.preview_url:
-            _, duplicate_preview_url = s3_service.duplicate_file_from_url(
-                s3_url=str(shared_paper.preview_url),
-                new_filename=f"forked_preview_{uuid.uuid4()}.png",
-            )
-
-        # Fork the paper using paper_crud
-        new_paper = paper_crud.fork_paper(
-            db,
-            original_paper=shared_paper,
-            new_file_object_key=duplicate_paper_key,
-            new_file_url=duplicate_file_url,
-            new_preview_url=duplicate_preview_url,
-            current_user=current_user,
-        )
-
-        if not new_paper:
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to fork paper.",
-            )
-
-        track_event(
-            "paper_forked_from_share",
-            user_id=str(current_user.id),
-            properties={
-                "share_id": request.share_id,
-                "original_paper_id": str(shared_paper.id),
-                "new_paper_id": str(new_paper.id),
-            },
-            db=db,
-        )
-
-        return JSONResponse(
-            status_code=201,
-            content={
-                "message": "Paper forked successfully",
-                "new_paper_id": str(new_paper.id),
-            },
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error forking shared paper: {e}", exc_info=True)
-        return JSONResponse(
-            status_code=400,
-            content={"message": "Failed to fork shared paper"},
         )

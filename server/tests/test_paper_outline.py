@@ -278,12 +278,10 @@ def api(monkeypatch, paper):
     app.dependency_overrides[get_current_user] = lambda: user
     app.dependency_overrides[get_db] = lambda: None
     get = Mock(return_value=paper)
-    public = Mock(return_value=paper)
     cached = Mock(return_value=[{"title": "Methods", "level": 1, "page": 3, "top_percent": 50}])
     monkeypatch.setattr(paper_api.paper_crud, "get", get)
-    monkeypatch.setattr(paper_api.paper_crud, "get_public_paper", public)
     monkeypatch.setattr(paper_api, "cached_outline", cached)
-    return SimpleNamespace(client=TestClient(app), app=app, get=get, public=public,
+    return SimpleNamespace(client=TestClient(app), app=app, get=get,
                            cached=cached, user=user, paper=paper)
 
 

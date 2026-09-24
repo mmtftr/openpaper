@@ -48,7 +48,7 @@ import {
 } from "@/components/ui/sheet";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useIsDarkMode } from "@/hooks/useDarkMode";
-import { useSubscription, isStorageAtLimit, isPaperUploadAtLimit, isStorageNearLimit, isPaperUploadNearLimit, isChatCreditAtLimit, isChatCreditNearLimit, formatFileSize, getStorageUsagePercentage, getPaperUploadPercentage, getChatCreditUsagePercentage, getAudioOverviewUsagePercentage, getProjectUsagePercentage, getDataTableUsagePercentage, getDiscoverSearchUsagePercentage } from "@/hooks/useSubscription";
+import { useSubscription, isStorageAtLimit, isPaperUploadAtLimit, isStorageNearLimit, isPaperUploadNearLimit, isChatCreditAtLimit, isChatCreditNearLimit, formatFileSize, getStorageUsagePercentage, getPaperUploadPercentage, getChatCreditUsagePercentage, getAudioOverviewUsagePercentage, getProjectUsagePercentage, getDiscoverSearchUsagePercentage } from "@/hooks/useSubscription";
 import Link from "next/link";
 import { Conversation, PaperItem, Project, SubscriptionData } from "@/lib/schema";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -233,13 +233,6 @@ const UsageLimitCard = ({
                     used={subscription.usage.audio_overviews_used}
                     total={subscription.limits.audio_overviews_weekly}
                     percentage={getAudioOverviewUsagePercentage(subscription)}
-                />
-
-                <UsageItem
-                    label="Weekly Data Tables"
-                    used={subscription.usage.data_tables_used}
-                    total={subscription.limits.data_tables_weekly}
-                    percentage={getDataTableUsagePercentage(subscription)}
                 />
 
                 <UsageItem

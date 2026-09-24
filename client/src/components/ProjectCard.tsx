@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { Project, ProjectRole } from "@/lib/schema";
+import { Project } from "@/lib/schema";
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, ArrowRight, FileText, MessageCircle, X, Users, Headphones, Table } from "lucide-react";
+import { MoreHorizontal, ArrowRight, FileText, X, Headphones } from "lucide-react";
 import { useState } from "react";
 import {
 	AlertDialog,
@@ -31,7 +31,6 @@ export function ProjectCard({ project, onProjectUpdate, onUnlink, compact = fals
 	const [showDeleteAlert, setShowDeleteAlert] = useState(false);
 	const [showEditAlert, setShowEditAlert] = useState(false);
 	const [showUnlinkAlert, setShowUnlinkAlert] = useState(false);
-	const [showExitAlert, setShowExitAlert] = useState(false);
 	const [currentTitle, setCurrentTitle] = useState(project.title);
 	const [currentDescription, setCurrentDescription] = useState(project.description || '');
 	const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -89,29 +88,6 @@ export function ProjectCard({ project, onProjectUpdate, onUnlink, compact = fals
 		setIsDropdownOpen(false);
 	};
 
-	const handleExitClick = () => {
-		setShowExitAlert(true);
-		setIsDropdownOpen(false);
-	};
-
-	const exitProject = async () => {
-		try {
-			const response = await fetchFromApi(`/api/projects/${project.id}/collaborators/self`, {
-				method: 'DELETE',
-			});
-			if (response) {
-				setShowExitAlert(false);
-				onProjectUpdate?.();
-				toast.success('You have left the project.');
-			} else {
-				toast.error('Failed to exit project. Please try again.');
-			}
-		} catch (error) {
-			console.error('An error occurred while exiting the project:', error);
-			toast.error('An unexpected error occurred. Please try again.');
-		}
-	};
-
 	const handleCardClick = (e: React.MouseEvent) => {
 		// Prevent navigation if dropdown is open or if clicking on dropdown area
 		if (isDropdownOpen) {
@@ -155,28 +131,10 @@ export function ProjectCard({ project, onProjectUpdate, onUnlink, compact = fals
 								{project.num_papers} {project.num_papers === 1 ? "paper" : "papers"}
 							</span>
 						)}
-						{project.num_conversations !== undefined && project.num_conversations > 0 && (
-							<span className="flex items-center gap-1">
-								<MessageCircle className="h-3.5 w-3.5" />
-								{project.num_conversations}
-							</span>
-						)}
-						{project.num_roles !== undefined && project.num_roles > 1 && (
-							<span className="flex items-center gap-1">
-								<Users className="h-3.5 w-3.5" />
-								{project.num_roles}
-							</span>
-						)}
 						{(project.num_audio_overviews ?? 0) > 0 && (
 							<span className="flex items-center gap-1">
 								<Headphones className="h-3.5 w-3.5" />
 								{project.num_audio_overviews}
-							</span>
-						)}
-						{(project.num_data_tables ?? 0) > 0 && (
-							<span className="flex items-center gap-1">
-								<Table className="h-3.5 w-3.5" />
-								{project.num_data_tables}
 							</span>
 						)}
 					</div>
@@ -230,26 +188,10 @@ export function ProjectCard({ project, onProjectUpdate, onUnlink, compact = fals
 										<FileText className="h-3 w-3" />
 										<span>{project.num_papers ?? 0}</span>
 									</div>
-									<div className="flex items-center gap-1">
-										<MessageCircle className="h-3 w-3" />
-										<span>{project.num_conversations ?? 0}</span>
-									</div>
 									{(project.num_audio_overviews ?? 0) > 0 && (
 										<div className="flex items-center gap-1">
 											<Headphones className="h-3 w-3" />
 											<span>{project.num_audio_overviews}</span>
-										</div>
-									)}
-									{(project.num_data_tables ?? 0) > 0 && (
-										<div className="flex items-center gap-1">
-											<Table className="h-3 w-3" />
-											<span>{project.num_data_tables}</span>
-										</div>
-									)}
-									{project.num_roles !== undefined && project.num_roles > 1 && (
-										<div className="flex items-center gap-1">
-											<Users className="h-3 w-3" />
-											<span>{project.num_roles ?? 0}</span>
 										</div>
 									)}
 								</div>
@@ -287,30 +229,18 @@ export function ProjectCard({ project, onProjectUpdate, onUnlink, compact = fals
 							</Button>
 						</DropdownMenuTrigger>
 						<DropdownMenuContent align="end" className="w-32">
-							{project.role === ProjectRole.Admin && (
-								<DropdownMenuItem
-									onClick={handleEditClick}
-									className="cursor-pointer"
-								>
-									Edit
-								</DropdownMenuItem>
-							)}
-							{project.role === ProjectRole.Admin && (
-								<DropdownMenuItem
-									onClick={handleDeleteClick}
-									className="cursor-pointer text-destructive focus:text-destructive"
-								>
-									Delete
-								</DropdownMenuItem>
-							)}
-							{project.role !== ProjectRole.Admin && (
-								<DropdownMenuItem
-									onClick={handleExitClick}
-									className="cursor-pointer text-destructive focus:text-destructive"
-								>
-									Exit
-								</DropdownMenuItem>
-							)}
+							<DropdownMenuItem
+								onClick={handleEditClick}
+								className="cursor-pointer"
+							>
+								Edit
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								onClick={handleDeleteClick}
+								className="cursor-pointer text-destructive focus:text-destructive"
+							>
+								Delete
+							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>
 				</div>
@@ -387,23 +317,6 @@ export function ProjectCard({ project, onProjectUpdate, onUnlink, compact = fals
 					<AlertDialogFooter>
 						<AlertDialogCancel>Cancel</AlertDialogCancel>
 						<AlertDialogAction onClick={onUnlink}>Unlink</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
-
-			<AlertDialog open={showExitAlert} onOpenChange={setShowExitAlert}>
-				<AlertDialogContent>
-					<AlertDialogHeader>
-						<AlertDialogTitle>Exit Project</AlertDialogTitle>
-						<AlertDialogDescription>
-							Are you sure you want to leave this project? You will lose access to all project resources and conversations.
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogCancel>Cancel</AlertDialogCancel>
-						<AlertDialogAction onClick={exitProject} className="text-destructive-foreground bg-destructive hover:bg-destructive/90">
-							Exit Project
-						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>

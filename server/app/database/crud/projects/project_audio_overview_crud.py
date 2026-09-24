@@ -4,7 +4,7 @@ from typing import Optional
 
 from app.database.crud.projects.project_base_crud import ProjectBaseCRUD
 from app.database.crud.projects.project_crud import project_crud
-from app.database.models import ProjectAudioOverview, ProjectRole, ProjectRoles
+from app.database.models import Project, ProjectAudioOverview
 from app.schemas.user import CurrentUser
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -48,17 +48,13 @@ class ProjectAudioOverviewCRUD(
             )
 
         try:
-            # Check if the user has permission to create in this project
-            project_role = (
-                db.query(ProjectRole)
-                .filter(
-                    ProjectRole.project_id == project_id,
-                    ProjectRole.user_id == user.id,
-                    ProjectRole.role.in_([ProjectRoles.ADMIN]),
-                )
+            # Check if the user owns this project
+            project = (
+                db.query(Project)
+                .filter(Project.id == project_id, Project.owner_id == user.id)
                 .first()
             )
-            if not project_role:
+            if not project:
                 return None
 
             db_obj = ProjectAudioOverview(

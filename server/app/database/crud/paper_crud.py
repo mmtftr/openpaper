@@ -16,7 +16,6 @@ from app.database.models import (
     PaperStatus,
     PaperUploadJob,
     RoleType,
-    User,
 )
 from app.helpers.parser import get_start_page_from_offset
 from app.llm.utils import find_offsets
@@ -62,7 +61,6 @@ class PaperCreate(PaperBase):
     s3_object_key: Optional[str] = None
     upload_job_id: Optional[str] = None
     preview_url: Optional[str] = None
-    parent_paper_id: Optional[uuid.UUID] = None
     supplementary_of_paper_id: Optional[uuid.UUID] = None
 
 
@@ -218,40 +216,6 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
         # Sum all the sizes efficiently
         total_size = sum(size[0] for size in papers_with_size if size[0] is not None)
         return total_size
-
-    def make_public(
-        self, db: Session, *, paper_id: str, user: CurrentUser
-    ) -> Optional[Paper]:
-        """Make a paper publicly accessible via share link"""
-        paper = self.get(db, id=paper_id, user=user)
-        if paper:
-            # Generate a unique share ID if not already present
-            if not paper.share_id:
-                paper.share_id = str(uuid.uuid4())  # type: ignore
-            paper.is_public = True  # type: ignore
-            db.commit()
-            db.refresh(paper)
-        return paper
-
-    def make_private(
-        self, db: Session, *, paper_id: str, user: CurrentUser
-    ) -> Optional[Paper]:
-        """Make a paper private (not publicly accessible)"""
-        paper = self.get(db, id=paper_id, user=user)
-        if paper:
-            paper.is_public = False  # type: ignore
-            db.commit()
-            db.refresh(paper)
-        return paper
-
-    def get_public_paper(self, db: Session, *, share_id: str) -> Optional[Paper]:
-        """Get a paper by its share_id if it's public"""
-        return (
-            db.query(Paper)
-            .join(User, Paper.user_id == User.id)
-            .filter(Paper.share_id == share_id, Paper.is_public == True)
-            .first()
-        )
 
     def get_by_upload_job_id(
         self, db: Session, *, upload_job_id: str, user: CurrentUser
@@ -455,41 +419,6 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
 
         return image_placeholders
 
-    def get_summary_replace_image_placeholders_shared_paper(
-        self, db: Session, *, paper_id: str
-    ) -> str:
-        """Replace image placeholders with actual images in a shared paper.
-
-        Args:
-            db (Session): Database session.
-            paper_id (str): ID of the paper to update.
-        """
-        # Get the paper without a user context first
-        paper = db.query(Paper).filter(Paper.id == paper_id).first()
-
-        if not paper:
-            raise ValueError(f"Paper with ID {paper_id} not found")
-
-        # Verify the paper is public
-        if not paper.is_public:
-            raise ValueError(f"Paper with ID {paper_id} is not a shared paper")
-
-        # Create a CurrentUser object from the paper's user_id
-        user_id = db.query(Paper.user_id).filter(Paper.id == paper_id).first()
-        if not user_id:
-            raise ValueError(f"User for paper with ID {paper_id} not found")
-
-        user = db.query(User).filter(User.id == user_id[0]).first()
-        if not user:
-            raise ValueError(f"User for paper with ID {paper_id} not found")
-
-        current_user = CurrentUser(id=user.id, email=user.email)
-
-        # Call the original method with the created user
-        return self.get_summary_replace_image_placeholders(
-            db, paper_id=paper_id, current_user=current_user
-        )
-
     def get_all_available_papers(
         self,
         db: Session,
@@ -666,19 +595,6 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
 
         return list(topics)
 
-    def get_forked_paper_by_parent_id(
-        self, db: Session, *, parent_paper_id: uuid.UUID, user: CurrentUser
-    ) -> Paper | None:
-        """
-        Find a forked paper by its parent_paper_id for the current user.
-        A user can only have one fork of a given paper.
-        """
-        return (
-            db.query(Paper)
-            .filter(Paper.parent_paper_id == parent_paper_id, Paper.user_id == user.id)
-            .one_or_none()
-        )
-
     def list_supplementary_for(
         self,
         db: Session,
@@ -695,72 +611,6 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
             .order_by(self.model.created_at.asc())
             .all()
         )
-
-    def fork_paper(
-        self,
-        db: Session,
-        *,
-        original_paper: Paper,
-        new_file_object_key: str,
-        new_file_url: str,
-        new_preview_url: Optional[str],
-        current_user: CurrentUser,
-    ) -> Optional[Paper]:
-        """
-        Fork a paper to create a duplicate for the current user.
-
-        Args:
-            original_paper: The paper to fork
-            new_file_object_key: S3 object key for the forked paper's file
-            new_file_url: URL for the forked paper's file
-            new_preview_url: Optional preview URL for the forked paper
-            current_user: The user creating the fork
-
-        Returns:
-            The newly created forked paper, or None if creation failed
-        """
-        # Create a new PaperCreate object with the same data as the original
-        # TODO: Include AI highlights/annotations as well? See function used during intake `create_ai_annotations` for reference.
-        new_paper_data = PaperCreate(
-            file_url=new_file_url,
-            s3_object_key=new_file_object_key,
-            authors=original_paper.authors,  # type: ignore
-            title=str(original_paper.title),
-            abstract=str(original_paper.abstract),
-            institutions=original_paper.institutions,  # type: ignore
-            keywords=original_paper.keywords,  # type: ignore
-            summary=str(original_paper.summary),
-            starter_questions=original_paper.starter_questions,  # type: ignore
-            publish_date=str(original_paper.publish_date) if original_paper.publish_date else None,  # type: ignore
-            raw_content=original_paper.raw_content,  # type: ignore
-            upload_job_id=None,  # New upload job ID
-            preview_url=new_preview_url,
-            size_in_kb=(
-                int(original_paper.size_in_kb)  # type: ignore
-                if original_paper.size_in_kb is not None
-                else None
-            ),
-            parent_paper_id=uuid.UUID(str(original_paper.id)),  # Set parent paper ID
-        )
-
-        # Create the new paper in the database
-        forked_paper = self.create(db, obj_in=new_paper_data, user=current_user)
-
-        # Index passages for the forked paper
-        if forked_paper and original_paper.raw_content:
-            try:
-                self.index_paper_passages(
-                    db,
-                    paper_id=uuid.UUID(str(forked_paper.id)),  # type: ignore
-                    raw_content=str(original_paper.raw_content),
-                )
-            except Exception as e:
-                logger.error(
-                    f"Error indexing passages for forked paper {forked_paper.id}: {e}",
-                    exc_info=True,
-                )
-
-        return forked_paper
 
 
 # Create a single instance to use throughout the application

@@ -1,7 +1,6 @@
 import { PaperItem } from "@/lib/schema";
 import { Card } from "@/components/ui/card"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
-import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Book, MoreVertical, Trash2, Unlink } from "lucide-react";
 import { toast } from "sonner";
@@ -11,9 +10,7 @@ import Link from "next/link";
 import { formatFileSize } from "@/hooks/useSubscription";
 import { handleStatusChange } from "./utils/paperUtils";
 import { fetchFromApi } from "@/lib/api";
-import { ProjectPaperPreview } from "./ProjectPaperPreview";
 import { CitePaperButton } from "./CitePaperButton";
-import React from "react";
 
 
 interface PaperCardProps {
@@ -23,28 +20,9 @@ interface PaperCardProps {
 	minimalist?: boolean;
 	projectId?: string;
 	onUnlink?: () => void;
-	is_owner?: boolean;
 }
 
-const PaperCardWrapper = ({ is_owner, paper, children, projectId }: { is_owner: boolean, paper: PaperItem, children: React.ReactNode, projectId?: string }) => {
-	const [isOpen, setIsOpen] = React.useState(false);
-
-	if (is_owner) {
-		return <Link href={`/paper/${paper.id}`} className="block group">{children}</Link>;
-	}
-	return (
-		<Dialog open={isOpen} onOpenChange={setIsOpen}>
-			<DialogTrigger asChild>
-				<div className="block group cursor-pointer">{children}</div>
-			</DialogTrigger>
-			<DialogContent className="max-w-[90vw] sm:max-w-[90vw] h-[90vh] overflow-y-auto p-0">
-				<ProjectPaperPreview paper={paper} projectId={projectId!} />
-			</DialogContent>
-		</Dialog>
-	);
-}
-
-export default function PaperCard({ paper, handleDelete, setPaper, minimalist = false, projectId, onUnlink, is_owner = true }: PaperCardProps) {
+export default function PaperCard({ paper, handleDelete, setPaper, minimalist = false, projectId, onUnlink }: PaperCardProps) {
 
 	const handleUnlink = async () => {
 		if (!projectId) return;
@@ -105,7 +83,7 @@ export default function PaperCard({ paper, handleDelete, setPaper, minimalist = 
 											<CitePaperButton paper={[paper]} minimalist={true} />
 										)}
 										{
-											handleDelete && is_owner && (
+											handleDelete && (
 												<AlertDialog>
 													<AlertDialogTrigger asChild>
 														<Button variant="ghost" size="sm" className="h-6 w-6 p-0">
@@ -128,7 +106,7 @@ export default function PaperCard({ paper, handleDelete, setPaper, minimalist = 
 												</AlertDialog>
 											)
 										}
-										{projectId && !minimalist && is_owner && (
+										{projectId && !minimalist && (
 											<DropdownMenu>
 												<DropdownMenuTrigger asChild>
 													<Button variant="ghost" size="sm" className="h-6 w-6 p-0">
@@ -146,11 +124,11 @@ export default function PaperCard({ paper, handleDelete, setPaper, minimalist = 
 									</div>
 								</div>
 
-								<PaperCardWrapper is_owner={is_owner} paper={paper} projectId={projectId}>
+								<Link href={`/paper/${paper.id}`} className="block group">
 									<h3 className={`font-semibold text-gray-900 dark:text-gray-100 line-clamp-2 text-sm leading-tight group-hover:underline ${minimalist ? 'p-0 mt-0 text-base rounded-none' : 'text-lg mb-3'}`}>
 										{paper.title}
 									</h3>
-								</PaperCardWrapper>
+								</Link>
 
 								{/* Authors */}
 								{paper.authors && paper.authors.length > 0 && (
@@ -228,7 +206,7 @@ export default function PaperCard({ paper, handleDelete, setPaper, minimalist = 
 						}
 					</div>
 				</div>
-				{projectId && minimalist && is_owner && (
+				{projectId && minimalist && (
 					<DropdownMenu>
 						<DropdownMenuTrigger asChild>
 							<Button variant="ghost" size="sm" className="h-6 w-6 p-0">

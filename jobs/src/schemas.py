@@ -6,19 +6,6 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 from pydantic import BaseModel, Field
 
-class ResponseCitation(BaseModel):
-    """
-    Schema for a citation in the paper.
-    This is used to represent a single citation with its text and context.
-    """
-
-    text: str = Field(
-        description="The raw text of the citation as it appears in the paper. Ensure that this is a direct quote or paraphrase from the paper."
-    )
-    index: int = Field(
-        description="The index of the citation in the paper's reference list. This is used to identify the citation in discussions or findings."
-    )
-
 
 class HighlightType(str, Enum):
     TOPIC = "topic"
@@ -193,36 +180,3 @@ class PDFProcessingResult(BaseModel):
     ocr: Optional[Dict[str, Any]] = None
     figure_count: Optional[int] = None
     page_count: Optional[int] = None
-
-class DocumentMapping(BaseModel):
-    title: str
-    s3_object_key: str
-    id: str
-
-class DataTableSchema(BaseModel):
-    columns: List[str] = Field(
-        description="List of column names in the data table."
-    )
-    papers: List[DocumentMapping] = Field(
-        description="List of papers included in the data table."
-    )
-
-class DataTableCellValue(BaseModel):
-    """Value for a single cell in the data table with supporting citations."""
-    value: str = Field(description="The extracted value for this column")
-    citations: List[ResponseCitation] = Field(
-        default=[],
-        description="List of citations that support this specific value. These should be direct quotes or paraphrases from the paper."
-    )
-
-class DataTableRow(BaseModel):
-    paper_id: str
-    values: dict[str, DataTableCellValue]  # column_name -> cell value with citations
-
-class DataTableResult(BaseModel):
-    success: bool
-    columns: List[str] = Field(
-        description="List of column names in the data table."
-    )
-    rows: List[DataTableRow] = Field(default=[], description="Row data per paper")
-    row_failures: List[str] = Field(default=[], description="List of paper_ids that failed to process")

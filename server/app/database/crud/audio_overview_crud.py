@@ -9,7 +9,6 @@ from app.database.models import (
     ConversableType,
     JobStatus,
     Project,
-    ProjectRole,
 )
 from app.schemas.responses import ResponseCitation
 from app.schemas.user import CurrentUser
@@ -91,15 +90,14 @@ class AudioOverviewJobCRUD(
                 .all()
             )
         elif conversable_type == ConversableType.PROJECT:
-            # For projects, check user has project access through ProjectRole
+            # For projects, check the user owns the project
             return (
                 db.query(AudioOverviewJob)
                 .join(Project, AudioOverviewJob.conversable_id == Project.id)
-                .join(ProjectRole, Project.id == ProjectRole.project_id)
                 .filter(
                     AudioOverviewJob.conversable_id == conversable_id,
                     AudioOverviewJob.conversable_type == conversable_type,
-                    ProjectRole.user_id == current_user.id,
+                    Project.owner_id == current_user.id,
                 )
                 .order_by(AudioOverviewJob.created_at.desc())
                 .all()
@@ -286,15 +284,14 @@ class AudioOverviewCRUD(
                 .all()
             )
         elif conversable_type == ConversableType.PROJECT:
-            # For projects, check user has project access through ProjectRole
+            # For projects, check the user owns the project
             return (
                 db.query(AudioOverview)
                 .join(Project, AudioOverview.conversable_id == Project.id)
-                .join(ProjectRole, Project.id == ProjectRole.project_id)
                 .filter(
                     AudioOverview.conversable_id == conversable_id,
                     AudioOverview.conversable_type == conversable_type,
-                    ProjectRole.user_id == current_user.id,
+                    Project.owner_id == current_user.id,
                 )
                 .order_by(AudioOverview.created_at.desc())
                 .all()
@@ -362,12 +359,11 @@ class AudioOverviewCRUD(
         return (
             db.query(AudioOverview)
             .join(Project, AudioOverview.conversable_id == Project.id)
-            .join(ProjectRole, Project.id == ProjectRole.project_id)
             .filter(
                 AudioOverview.id == id,
                 AudioOverview.conversable_id == project_id,
                 AudioOverview.conversable_type == ConversableType.PROJECT,
-                ProjectRole.user_id == current_user.id,
+                Project.owner_id == current_user.id,
             )
             .first()
         )
