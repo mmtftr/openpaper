@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import type { PdfReaderProps } from "./PdfReader";
+import type { PdfReaderProps, TextSearchRequest } from "./PdfReader";
 
 /**
  * pdf.js touches `window`, `DOMMatrix` and `Worker` at import time, so the
@@ -24,7 +24,7 @@ export function PdfReader(props: PdfReaderProps) {
 	return <PdfReaderImpl {...props} />;
 }
 
-export type { PdfReaderProps };
+export type { PdfReaderProps, TextSearchRequest };
 export type { RenderedHighlightPosition, TextAnchor, PercentRect } from "./types";
 
 export type { HighlightJumpRequest } from "./useHighlightJump";

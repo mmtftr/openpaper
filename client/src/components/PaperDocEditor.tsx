@@ -2,7 +2,8 @@
 
 import { fetchFromApi } from '@/lib/api';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { subscribePaperChatStreaming } from '@/lib/paperDocEvents';
+import { agentDocWritesAtom } from '@/lib/paperDocRevision';
+import { useAtomValue } from 'jotai';
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, FileText, Plus, Pencil, Trash2, Check, X, ChevronDown } from 'lucide-react';
@@ -41,10 +42,6 @@ interface DocumentSummary {
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
 const MAX_DOC_BYTES = 1_000_000;
-// While a chat turn is in flight we poll for agent-driven `write_main_doc`
-// landings. The agent only writes MAIN today, so we skip the poll when the
-// user is viewing a NOTE doc (no point hitting the network).
-const AGENT_POLL_INTERVAL_MS = 2_000;
 
 type Status =
     | { kind: 'idle' }
@@ -447,58 +444,50 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
         [activeDocId, docs]
     );
 
-    // While the agentic chat is streaming, poll for `write_main_doc` results.
-    // Only meaningful when the user is viewing MAIN — the agent doesn't write
-    // NOTE docs today, so polling them would be pointless network noise.
-    const agentStreamingRef = useRef(false);
+    // The chat agent's `write_doc` results bump this paper's counter as they
+    // stream in (see paperChatSessions.ts). On a bump, refetch the doc list
+    // (the agent may have created a NOTE) and the open doc. A mount reads
+    // fresh data anyway, so only changes after mount count.
+    const agentDocWrites = useAtomValue(agentDocWritesAtom)[paperId] ?? 0;
+    const seenAgentDocWritesRef = useRef(agentDocWrites);
     useEffect(() => {
-        const unsub = subscribePaperChatStreaming(paperId, (streaming) => {
-            agentStreamingRef.current = streaming;
-        });
-        return unsub;
-    }, [paperId]);
-
-    useEffect(() => {
-        let timer: ReturnType<typeof setInterval> | null = null;
+        if (agentDocWrites === seenAgentDocWritesRef.current) return;
+        seenAgentDocWritesRef.current = agentDocWrites;
         let cancelled = false;
-        const tick = async () => {
-            if (!agentStreamingRef.current) return;
+        (async () => {
+            try {
+                const list: DocumentSummary[] = await fetchFromApi(
+                    `/api/document?paper_id=${encodeURIComponent(paperId)}`
+                );
+                if (!cancelled) setDocs(list);
+            } catch {
+                // Keep the current list; the next write or remount retries.
+            }
             const current = docRef.current;
-            if (!current) return;
-            if (current.kind !== 'main') return;
-            // Skip while the user is actively saving — refetching mid-PUT
-            // would race with the response body update.
-            if (inFlightRef.current) return;
+            if (cancelled || !current) return;
+            // Unsaved or in-flight user edits: leave the editor and our base
+            // revision alone, so their save hits the revision check and the
+            // conflict prompt instead of silently replacing the agent's write.
+            if (pendingContentRef.current != null || inFlightRef.current) return;
             try {
                 const response: DocumentResponse = await fetchFromApi(
-                    `/api/document/main?paper_id=${encodeURIComponent(paperId)}`
+                    `/api/document/${encodeURIComponent(current.id)}`
                 );
                 if (cancelled) return;
                 if (docRef.current?.id !== current.id) return;
                 if (response.revision <= current.revision) return;
-                if (pendingContentRef.current != null) {
-                    setDoc((prev) => prev ? {
-                        ...prev,
-                        revision: response.revision,
-                        content: response.content,
-                    } : prev);
-                    return;
-                }
+                if (pendingContentRef.current != null || inFlightRef.current) return;
                 setDoc(response);
                 setOverwriteContent(response.content);
                 setOverwriteToken((t) => t + 1);
             } catch {
-                // Polling errors are noisy — swallow and try again next tick.
+                // The doc stays as it is; the next write or remount retries.
             }
-        };
-        timer = setInterval(() => {
-            if (agentStreamingRef.current) tick();
-        }, AGENT_POLL_INTERVAL_MS);
+        })();
         return () => {
             cancelled = true;
-            if (timer) clearInterval(timer);
         };
-    }, [paperId]);
+    }, [agentDocWrites, paperId]);
 
     // Flush in-flight content on unmount so we don't lose the last keystroke.
     useEffect(() => {

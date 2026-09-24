@@ -9,7 +9,6 @@ import {
     type ReactElement,
     type ReactNode,
 } from "react";
-import type { Components } from "react-markdown";
 import { CheckIcon, CopyIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -121,7 +120,7 @@ export function CodeBlock({ code, lang, className }: CodeBlockProps) {
     );
 }
 
-/** Flatten a react-markdown children tree down to its text content. */
+/** Flatten a markdown-rendered children tree down to its text content. */
 function textContent(node: ReactNode): string {
     if (node === null || node === undefined || typeof node === "boolean") {
         return "";
@@ -138,7 +137,7 @@ function textContent(node: ReactNode): string {
 }
 
 /**
- * Markdown `pre` override. react-markdown hands us `<pre><code
+ * Markdown `pre` override. The renderer hands us `<pre><code
  * class="language-x">…</code></pre>`; we unwrap it into a CodeBlock and leave
  * inline `code` alone (prose styles already handle that).
  */
@@ -159,8 +158,3 @@ export function MarkdownPre({ children }: { children?: ReactNode }) {
     }
     return <CodeBlock code={parsed.code} lang={parsed.lang} />;
 }
-
-/** Spread into any react-markdown `components` map to get highlighted fences. */
-export const codeMarkdownComponents = {
-    pre: MarkdownPre,
-} as Components;

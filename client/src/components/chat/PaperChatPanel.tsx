@@ -1,30 +1,22 @@
 "use client";
 
 import {
-    FormEvent,
+    memo,
     useCallback,
     useEffect,
     useMemo,
     useRef,
     useState,
+    useSyncExternalStore,
 } from "react";
 import { useStickToBottomContext } from "use-stick-to-bottom";
-import type { Components } from "react-markdown";
 import { toast } from "sonner";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import rehypeKatex from "rehype-katex";
-import "katex/dist/katex.min.css";
 import {
     AlertTriangleIcon,
-    BookOpenIcon,
-    BrainIcon,
     CheckIcon,
     ChevronDownIcon,
     CircleStopIcon,
     CornerDownRightIcon,
-    CpuIcon,
     MessageSquarePlusIcon,
     MessagesSquareIcon,
     RefreshCwIcon,
@@ -32,24 +24,19 @@ import {
 } from "lucide-react";
 
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
 
-import { API_BASE_URL, fetchFromApi } from "@/lib/api";
+import { fetchFromApi } from "@/lib/api";
 import {
     ChatUIMessage,
     citationsFromMessage,
     interruptedMetadata,
     isCodeCitation,
-    isTruncatedAssistantMessage,
     normalizeChatError,
-    parseRetryStatus,
     pendingToolLabel,
     renderBlocks,
     retryTargetFromMessages,
-    RetryStatus,
     textFromMessage,
 } from "@/lib/chatMessages";
-import { setPaperChatStreaming } from "@/lib/paperDocEvents";
 import { useAuth } from "@/lib/auth";
 import {
     getAlphaHashToBackgroundColor,
@@ -94,15 +81,6 @@ import {
     MessageContent,
 } from "@/components/ai-elements/message";
 import {
-    PromptInput,
-    PromptInputBody,
-    PromptInputFooter,
-    PromptInputMessage,
-    PromptInputSubmit,
-    PromptInputTextarea,
-    PromptInputTools,
-} from "@/components/ai-elements/prompt-input";
-import {
     Sources,
     SourcesContent,
     SourcesTrigger,
@@ -120,9 +98,8 @@ import {
 
 import { ChatHistorySkeleton } from "@/components/ChatHistorySkeleton";
 import { ChatMessageActions } from "@/components/ChatMessageActions";
-import { AnimatedMarkdown, CopyableTable } from "@/components/AnimatedMarkdown";
+import { Markdown, type MarkdownComponents } from "@/components/markdown/Markdown";
 import CustomCitationLink from "@/components/utils/CustomCitationLink";
-import { codeMarkdownComponents } from "@/components/code/CodeBlock";
 import { CodeCitationItem } from "@/components/code/CodeCitationItem";
 import { CodeViewerProvider } from "@/components/code/CodeViewerProvider";
 import {
@@ -131,6 +108,24 @@ import {
 } from "@/lib/userReferences";
 import { RepoConnectPopover } from "@/components/code/RepoConnectPopover";
 import { ToolActivity } from "@/components/chat/ToolActivity";
+import {
+    ChatComposer,
+    type ChatComposerHandle,
+} from "@/components/chat/ChatComposer";
+import {
+    CONTEXT_MODE_OPTIONS,
+    ContextMode,
+    ModelOption,
+    modelKey,
+    REASONING_EFFORT_VALUES,
+    ReasoningEffort,
+} from "@/components/chat/chatOptions";
+import {
+    disposePaperChatSession,
+    getPaperChatSession,
+    recallActiveConversation,
+    rememberActiveConversation,
+} from "@/components/chat/paperChatSessions";
 import { Citation, PaperData } from "@/lib/schema";
 
 interface PaperChatPanelProps {
@@ -140,74 +135,24 @@ interface PaperChatPanelProps {
     userMessageReferences: string[];
     setUserMessageReferences: React.Dispatch<React.SetStateAction<string[]>>;
     // `paperId` lets the page route citation jumps to the right PDF when a
-    // citation refers to a supplementary. Optional for backwards-compat.
-    handleCitationClick: (key: string, messageIndex: number, paperId?: string) => void;
+    // citation refers to a supplementary; `page` is the page the agent quoted
+    // from, used as a search hint.
+    handleCitationClick: (
+        key: string,
+        messageIndex: number,
+        paperId?: string,
+        page?: number
+    ) => void;
     matchesCurrentCitation: (key: string, messageIndex: number) => boolean;
     flashesCurrentCitation?: (key: string, messageIndex: number) => boolean;
-    setExplicitSearchTerm: (value: string) => void;
+    /** Search the PDF for `term` (optionally starting at `page`). */
+    jumpToText: (term: string, page?: number) => void;
     headerSlot?: React.ReactNode;
 }
-
-type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
-
-const REASONING_EFFORT_OPTIONS: { id: ReasoningEffort; label: string }[] = [
-    { id: "low", label: "Low" },
-    { id: "medium", label: "Medium" },
-    { id: "high", label: "High" },
-    { id: "xhigh", label: "xhigh" },
-];
-
-type ContextMode = "adaptive" | "comprehensive" | "full" | "raw";
-
-interface ContextModeOption {
-    id: ContextMode;
-    label: string;
-    subtitle: string;
-    recommended: boolean;
-    forParser: "mistral" | "pymupdf";
-}
-
-// Each mode is gated by which parser ran on the paper. The picker hides
-// modes that don't apply (Raw only on pymupdf-parsed papers; the rest only
-// on Mistral-parsed papers).
-const CONTEXT_MODE_OPTIONS: ContextModeOption[] = [
-    {
-        id: "adaptive",
-        label: "Adaptive",
-        subtitle:
-            "Includes abstract, intro and conclusion with model-selected access to the rest",
-        recommended: true,
-        forParser: "mistral",
-    },
-    {
-        id: "comprehensive",
-        label: "Comprehensive",
-        subtitle:
-            "Includes the main paper content and all the figures, excl. references and appendix",
-        recommended: true,
-        forParser: "mistral",
-    },
-    {
-        id: "full",
-        label: "Full",
-        subtitle: "Includes the full paper content (slow, expensive)",
-        recommended: false,
-        forParser: "mistral",
-    },
-    {
-        id: "raw",
-        label: "Raw",
-        subtitle:
-            "Includes references and appendices, no figures (fallback parsing)",
-        recommended: false,
-        forParser: "pymupdf",
-    },
-];
 
 const CONTEXT_MODE_LS_KEY = "openpaper:paper-context-mode";
 const SELECTED_MODEL_LS_KEY = "openpaper:paper-chat-model";
 const REASONING_EFFORT_LS_KEY = "openpaper:paper-reasoning-effort";
-const REASONING_EFFORT_VALUES: ReasoningEffort[] = ["low", "medium", "high", "xhigh"];
 
 interface ConversationSummary {
     id: string;
@@ -227,35 +172,11 @@ interface SubmitMessageOptions {
 }
 
 /**
- * How long a "retrying…" indicator may stand without a follow-up chunk. The
- * server's `recovered` marker is transient and can be dropped under load; the
- * indicator must not outlive the turn when that happens.
- */
-const RETRY_STATUS_GRACE_MS = 10_000;
-
-/**
  * One name for a turn that errored, live or reloaded — the same failure must
  * not read as two different things either side of a refresh. "Stopped" is
  * reserved for turns that were deliberately interrupted.
  */
 const FAILED_TURN_TITLE = "Inference failed";
-
-interface ModelOption {
-    id: string;
-    name: string;
-    provider: string;
-    supports_reasoning_effort?: boolean;
-    supports_vision?: boolean;
-}
-
-// The same model id can exist under two providers (e.g. gpt-5.5 on Azure
-// AND on the codex proxy), so selection is keyed by provider too.
-const modelKey = (m: Pick<ModelOption, "id" | "provider">) =>
-    `${m.provider}::${m.id}`;
-
-// Server default for /api/conversation/{id}?page_size=10. Used to infer
-// "no more pages" when a fetch returns fewer than this.
-const HISTORY_PAGE_SIZE = 10;
 
 const COMPREHENSIVE_OVERVIEW_DISPLAY = "Create a comprehensive overview";
 const COMPREHENSIVE_OVERVIEW_PROMPT =
@@ -279,25 +200,33 @@ export function PaperChatPanel({
     handleCitationClick,
     matchesCurrentCitation,
     flashesCurrentCitation,
-    setExplicitSearchTerm,
+    jumpToText,
     headerSlot,
 }: PaperChatPanelProps) {
     const { user } = useAuth();
 
-    const [conversationId, setConversationId] = useState<string | null>(null);
+    // Seeded from the in-memory session store so a remount (tab switch)
+    // lands straight back on the conversation it left, transcript included.
+    const [conversationId, setConversationId] = useState<string | null>(() =>
+        recallActiveConversation(id)
+    );
     const [conversations, setConversations] = useState<ConversationSummary[]>(
         []
     );
     const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
-    const [currentMessage, setCurrentMessage] = useState("");
-    const [hasMoreMessages, setHasMoreMessages] = useState(true);
-    const [isLoadingMoreMessages, setIsLoadingMoreMessages] = useState(false);
-    const [pageNumberConversationHistory, setPageNumberConversationHistory] =
-        useState(1);
-    const [isFetchingHistory, setIsFetchingHistory] = useState(true);
     const [pendingStarterQuestion, setPendingStarterQuestion] = useState<
         string | null
     >(null);
+    const composerRef = useRef<ChatComposerHandle>(null);
+
+    // A different paper in the same mounted panel: start from its own
+    // remembered conversation, never the previous paper's.
+    const paperIdRef = useRef(id);
+    useEffect(() => {
+        if (paperIdRef.current === id) return;
+        paperIdRef.current = id;
+        setConversationId(recallActiveConversation(id));
+    }, [id]);
 
     const [selectedModel, setSelectedModel] = useState<string>(() => {
         if (typeof window === "undefined") return "";
@@ -353,12 +282,6 @@ export function PaperChatPanel({
         if (typeof window === "undefined") return;
         window.localStorage.setItem(CONTEXT_MODE_LS_KEY, contextMode);
     }, [contextMode]);
-    const contextModeLabel = useMemo(() => {
-        return (
-            CONTEXT_MODE_OPTIONS.find((m) => m.id === contextMode)?.label ??
-            "Adaptive"
-        );
-    }, [contextMode]);
     const contextWarningMessage =
         contextMode === "full"
             ? "This mode sends the entire paper to the model on every turn. Adaptive is faster and cheaper for most questions."
@@ -366,51 +289,24 @@ export function PaperChatPanel({
               ? "OCR parsing failed for this paper, so chat is using fallback PDF text without structured sections or figures."
               : null;
 
-    // ---- useChat wiring ------------------------------------------------
+    // ---- Chat session ----------------------------------------------------
     //
-    // The transport sends ONLY the newest user message; server-side history
-    // is ground truth. Dynamic body fields (model, context mode, references)
-    // are read from a ref at request time so the transport can stay stable.
-    const requestExtrasRef = useRef<{
-        paper_id: string;
-        conversation_id: string | null;
-        model?: string;
-        llm_provider?: string;
-        reasoning_effort?: ReasoningEffort;
-        context_mode?: ContextMode;
-        user_references?: string[];
-    }>({ paper_id: id, conversation_id: null });
-
-    const transport = useMemo(
-        () =>
-            new DefaultChatTransport<ChatUIMessage>({
-                api: `${API_BASE_URL}/api/message/chat/paper`,
-                credentials: "include",
-                prepareSendMessagesRequest: ({ id: chatId, messages, trigger, messageId }) => ({
-                    body: {
-                        trigger,
-                        id: chatId,
-                        messageId,
-                        messages: messages.slice(-1),
-                        ...requestExtrasRef.current,
-                    },
-                }),
-            }),
-        []
+    // One AI SDK `Chat` per conversation, held outside this component (see
+    // paperChatSessions.ts) so a stream and its transcript survive the panel
+    // unmounting on a side-panel tab switch.
+    const session = useMemo(
+        () => getPaperChatSession(id, conversationId),
+        [id, conversationId]
     );
-
-    const chatId = conversationId ?? "pending";
-
-    // A turn that ended badly WITHOUT the SDK raising: the stream closed on a
-    // clean EOF mid-answer, so `status` is "ready" and `error` is undefined.
-    // Keyed by the assistant message id so it disappears with that message.
-    const [truncatedTurn, setTruncatedTurn] = useState<{
-        messageId: string;
-        message: string;
-    } | null>(null);
-    // Server-side auto-retry of a failing provider call, streamed as transient
-    // `data-retry-status` parts (delivered to onData only, never persisted).
-    const [retryStatus, setRetryStatus] = useState<RetryStatus | null>(null);
+    const sessionState = useSyncExternalStore(
+        session.subscribe,
+        session.getState,
+        session.getState
+    );
+    const { retryStatus, truncatedTurn } = sessionState;
+    const isFetchingHistory = !sessionState.historyLoaded;
+    const hasMoreMessages = sessionState.hasMoreHistory;
+    const isLoadingMoreMessages = sessionState.loadingHistory;
 
     const {
         messages,
@@ -420,129 +316,9 @@ export function PaperChatPanel({
         status,
         error,
         clearError,
-    } = useChat<ChatUIMessage>({
-        id: chatId,
-        transport,
-        onData: (dataPart) => {
-            if (dataPart.type !== "data-retry-status") return;
-            const parsed = parseRetryStatus(dataPart.data);
-            if (!parsed) return;
-            setRetryStatus(parsed.state === "retrying" ? parsed : null);
-        },
-        onFinish: ({ message, isAbort, isDisconnect, isError, finishReason }) => {
-            // An abort is the user's own stop button; isError/isDisconnect
-            // already set `error`, which the error UI renders. (A server
-            // `error` chunk always lands here as isError — the SDK throws on
-            // it, so the `finish` chunk that would carry finishReason "error"
-            // is never processed.) What's left is the silent case: the stream
-            // closed on a clean EOF, with no terminal chunk at all.
-            if (isAbort || isError || isDisconnect) return;
-            const truncated =
-                finishReason == null && isTruncatedAssistantMessage(message);
-            setTruncatedTurn(
-                truncated
-                    ? {
-                          messageId: message.id,
-                          message:
-                              "Connection lost mid-response — the answer stopped early.",
-                      }
-                    : null
-            );
-        },
-    });
+    } = useChat<ChatUIMessage>({ chat: session.chat });
 
     const isStreaming = status === "submitted" || status === "streaming";
-
-    // The retry indicator belongs to one in-flight turn only.
-    useEffect(() => {
-        if (status === "ready" || status === "error") setRetryStatus(null);
-    }, [status]);
-
-    // Belt and braces: the "recovered" marker is a transient chunk and can be
-    // dropped server-side, which would otherwise pin "Retrying…" under a
-    // happily streaming answer for the rest of the turn. Each new retry chunk
-    // is a fresh object, so this timer restarts on every update.
-    useEffect(() => {
-        if (!retryStatus) return;
-        const timer = setTimeout(
-            () => setRetryStatus(null),
-            (retryStatus.delayMs ?? 0) + RETRY_STATUS_GRACE_MS
-        );
-        return () => clearTimeout(timer);
-    }, [retryStatus]);
-
-    // Broadcast to PaperDocEditor so it can poll for agent-driven writes
-    // landing on the user's main doc. Module-level pub-sub keyed by paperId.
-    useEffect(() => {
-        setPaperChatStreaming(id, isStreaming);
-    }, [id, isStreaming]);
-    useEffect(() => {
-        return () => {
-            setPaperChatStreaming(id, false);
-        };
-    }, [id]);
-
-    const initialLoadStartedRef = useRef(false);
-    const activeConversationRef = useRef<string | null>(null);
-    activeConversationRef.current = conversationId;
-
-    // Reset the chat surface whenever the conversation rotates. useChat is
-    // keyed by conversation id, so its message state resets on its own; the
-    // paging state is ours to reset.
-    useEffect(() => {
-        initialLoadStartedRef.current = false;
-        setPageNumberConversationHistory(1);
-        setHasMoreMessages(true);
-        setIsFetchingHistory(true);
-        setTruncatedTurn(null);
-        setRetryStatus(null);
-    }, [conversationId]);
-
-    // Conversation whose page load is in flight. Two overlapping loads of the
-    // same page would dedupe to one set of rows but bump the page counter
-    // twice, skipping a page of history. Keyed by conversation so a switch
-    // mid-load never blocks the new conversation's first page.
-    const pageFetchInFlightRef = useRef<string | null>(null);
-
-    const fetchPage = useCallback(
-        async (page: number) => {
-            if (!conversationId) return 0;
-            if (pageFetchInFlightRef.current === conversationId) return 0;
-            pageFetchInFlightRef.current = conversationId;
-            try {
-                const response = await fetchFromApi(
-                    `/api/conversation/${conversationId}?page=${page}`,
-                    { method: "GET" }
-                );
-                // The user may have switched conversations while this
-                // request was in flight — useChat's setMessages targets
-                // whatever chat is CURRENT, so a stale response would leak
-                // another conversation's history into this one.
-                if (activeConversationRef.current !== conversationId) return 0;
-                const fetched: ChatUIMessage[] = response.messages || [];
-                if (fetched.length === 0) {
-                    setHasMoreMessages(false);
-                    return 0;
-                }
-                if (fetched.length < HISTORY_PAGE_SIZE) {
-                    setHasMoreMessages(false);
-                }
-                // Offset pagination drifts when new turns land between page
-                // loads — dedupe by id so overlap never duplicates messages.
-                setMessages((prev) => {
-                    const seen = new Set(prev.map((m) => m.id));
-                    return [...fetched.filter((m) => !seen.has(m.id)), ...prev];
-                });
-                setPageNumberConversationHistory((p) => p + 1);
-                return fetched.length;
-            } finally {
-                if (pageFetchInFlightRef.current === conversationId) {
-                    pageFetchInFlightRef.current = null;
-                }
-            }
-        },
-        [conversationId, setMessages]
-    );
 
     // Gate on readiness only: `paperData` is a fresh object on every status
     // sync, and re-running this while the create POST below is in flight
@@ -568,11 +344,12 @@ export function PaperChatPanel({
             setConversations(list);
 
             const remembered =
-                typeof window !== "undefined"
+                recallActiveConversation(id) ??
+                (typeof window !== "undefined"
                     ? window.localStorage.getItem(
                           conversationStorageKey(id)
                       )
-                    : null;
+                    : null);
             const fromStorage = list.find((c) => c.id === remembered);
             const fallback = list[0];
 
@@ -611,13 +388,16 @@ export function PaperChatPanel({
     }, [paperReady, id]);
 
     useEffect(() => {
-        if (!id || !conversationId) return;
+        // Only a conversation that belongs to this paper is remembered for it
+        // (right after a paper switch the previous paper's id is still here).
+        if (!id || !conversationId || session.paperId !== id) return;
+        rememberActiveConversation(id, conversationId);
         if (typeof window === "undefined") return;
         window.localStorage.setItem(
             conversationStorageKey(id),
             conversationId
         );
-    }, [id, conversationId]);
+    }, [id, conversationId, session]);
 
     const refreshConversations = useCallback(async () => {
         try {
@@ -689,11 +469,10 @@ export function PaperChatPanel({
         }
         const remaining = conversations.filter((c) => c.id !== target);
         setConversations(remaining);
+        // Stops the deleted chat's stream if it still has one, or the server
+        // keeps generating into a deleted conversation.
+        disposePaperChatSession(target);
         if (conversationId === target) {
-            // The active chat is going away: stop its stream first, or the
-            // server keeps generating (and billing) into a deleted
-            // conversation — `useChat` does not abort on an id change.
-            if (isStreaming) stop();
             const next = remaining[0];
             if (next) {
                 setConversationId(next.id);
@@ -719,26 +498,13 @@ export function PaperChatPanel({
                 }
             }
         }
-    }, [conversationId, conversations, id, isStreaming, pendingDeleteId, stop]);
+    }, [conversationId, conversations, id, pendingDeleteId]);
 
-    // One-shot initial history load when both user and conversation are ready.
+    // One-shot initial history load per conversation, once the user is known.
     useEffect(() => {
-        if (!user || !conversationId) return;
-        if (initialLoadStartedRef.current) return;
-        initialLoadStartedRef.current = true;
-        setIsLoadingMoreMessages(true);
-        fetchPage(1)
-            .catch((err) =>
-                console.error("Error fetching initial messages:", err)
-            )
-            .finally(() => {
-                // A load for a conversation the user already left must not
-                // clear the NEW conversation's loading state.
-                if (activeConversationRef.current !== conversationId) return;
-                setIsLoadingMoreMessages(false);
-                setIsFetchingHistory(false);
-            });
-    }, [user, conversationId, fetchPage]);
+        if (!user) return;
+        session.ensureHistoryLoaded();
+    }, [user, session]);
 
     useEffect(() => {
         if (!id) return;
@@ -795,28 +561,20 @@ export function PaperChatPanel({
         [selectedModelOption, supportsReasoningEffort, reasoningEffort]
     );
 
-    const reasoningEffortLabel = useMemo(() => {
-        const opt = REASONING_EFFORT_OPTIONS.find(
-            (o) => o.id === reasoningEffort
-        );
-        return opt?.label ?? "Medium";
-    }, [reasoningEffort]);
-
     const submitMessage = useCallback(
-        (textOverride?: string, options?: SubmitMessageOptions) => {
-            const text = (textOverride ?? currentMessage).trim();
+        (rawText: string, options?: SubmitMessageOptions) => {
+            const text = rawText.trim();
             if (!text || isStreaming || !conversationId) return false;
 
             clearError();
-            setTruncatedTurn(null);
-            setRetryStatus(null);
+            session.clearTurnState();
 
             // A retry carries the ORIGINAL turn's references; the staged list
             // belongs to whatever the user is composing right now.
             const references = options?.references
                 ? [...options.references]
                 : [...userMessageReferences];
-            requestExtrasRef.current = {
+            session.requestExtras = {
                 paper_id: id,
                 conversation_id: conversationId,
                 context_mode: contextMode,
@@ -860,18 +618,17 @@ export function PaperChatPanel({
             // A retry re-sends a past turn: the composer and the staged
             // references are the user's current draft and must survive it.
             if (!options?.keepComposer) {
-                setCurrentMessage("");
+                composerRef.current?.setText("");
                 setUserMessageReferences([]);
             }
             return true;
         },
         [
-            currentMessage,
             isStreaming,
             conversationId,
             id,
+            session,
             userMessageReferences,
-            selectedModel,
             selectedModelOption,
             supportsReasoningEffort,
             reasoningEffort,
@@ -881,6 +638,17 @@ export function PaperChatPanel({
             setUserMessageReferences,
         ]
     );
+
+    // Stable entry points for memoised children; they call the latest
+    // closures, which change on every streamed chunk.
+    const submitMessageRef = useRef(submitMessage);
+    submitMessageRef.current = submitMessage;
+    const handleComposerSubmit = useCallback((text: string) => {
+        submitMessageRef.current(text);
+    }, []);
+    const handleStop = useCallback(() => {
+        void stop();
+    }, [stop]);
 
     useEffect(() => {
         if (pendingStarterQuestion) {
@@ -912,8 +680,7 @@ export function PaperChatPanel({
         const target = retryTargetFromMessages(messages);
         if (!target) return;
         retryInFlightRef.current = true;
-        setTruncatedTurn(null);
-        setRetryStatus(null);
+        session.clearTurnState();
         setMessages((prev) => prev.slice(0, target.keep));
         const sent = submitMessage(target.text, {
             references: target.references,
@@ -926,14 +693,13 @@ export function PaperChatPanel({
         isStreaming,
         conversationId,
         messages,
+        session,
         setMessages,
         submitMessage,
     ]);
-
-    const handlePromptSubmit = (msg: PromptInputMessage, e: FormEvent) => {
-        e.preventDefault();
-        submitMessage(msg.text);
-    };
+    const retryLastTurnRef = useRef(handleRetryLastTurn);
+    retryLastTurnRef.current = handleRetryLastTurn;
+    const onRetryLastTurn = useCallback(() => retryLastTurnRef.current(), []);
 
     // Code selections from the repo viewer land in the same pending-reference
     // list as PDF text selections (see PdfReader's handleAskAi) and travel out
@@ -954,21 +720,6 @@ export function PaperChatPanel({
         },
         [userMessageReferences, setUserMessageReferences]
     );
-
-    const modelLabel = selectedModelOption?.name ?? "Model";
-
-    const modelsByProvider = useMemo(() => {
-        const groups = new Map<string, ModelOption[]>();
-        for (const m of availableModels) {
-            const list = groups.get(m.provider) ?? [];
-            list.push(m);
-            groups.set(m.provider, list);
-        }
-        return Array.from(groups.entries());
-    }, [availableModels]);
-
-    const providerLabel = (provider: string) =>
-        provider.charAt(0).toUpperCase() + provider.slice(1);
 
     const heightClass = isMobile
         ? "h-[calc(100vh-128px)]"
@@ -1216,19 +967,7 @@ export function PaperChatPanel({
                             <LoadEarlier
                                 isLoading={isLoadingMoreMessages}
                                 onLoad={async () => {
-                                    setIsLoadingMoreMessages(true);
-                                    try {
-                                        await fetchPage(
-                                            pageNumberConversationHistory
-                                        );
-                                    } catch (err) {
-                                        console.error(
-                                            "Error loading earlier messages:",
-                                            err
-                                        );
-                                    } finally {
-                                        setIsLoadingMoreMessages(false);
-                                    }
+                                    await session.loadHistoryPage();
                                 }}
                             />
                         )}
@@ -1258,16 +997,10 @@ export function PaperChatPanel({
                                     handleCitationClick={handleCitationClick}
                                     matchesCurrentCitation={matchesCurrentCitation}
                                     flashesCurrentCitation={flashesCurrentCitation}
-                                    onJumpToReference={setExplicitSearchTerm}
-                                    turnNotice={
-                                        notice ? (
-                                            <MessageTurnNotice
-                                                notice={notice}
-                                                onRetry={handleRetryLastTurn}
-                                                retryDisabled={isStreaming}
-                                            />
-                                        ) : undefined
-                                    }
+                                    onJumpToReference={jumpToText}
+                                    notice={notice}
+                                    onRetry={onRetryLastTurn}
+                                    retryDisabled={notice ? isStreaming : false}
                                 />
                             );
                         })
@@ -1334,7 +1067,7 @@ export function PaperChatPanel({
                                                 setMessages((prev) =>
                                                     prev.slice(0, -1)
                                                 );
-                                                setCurrentMessage(
+                                                composerRef.current?.setText(
                                                     userTurnFailure.text
                                                 );
                                                 setUserMessageReferences(
@@ -1386,7 +1119,7 @@ export function PaperChatPanel({
                             >
                                 <button
                                     type="button"
-                                    onClick={() => setExplicitSearchTerm(ref)}
+                                    onClick={() => jumpToText(ref)}
                                     className="text-xs text-muted-foreground line-clamp-2 text-left flex-1 hover:text-foreground"
                                 >
                                     {ref}
@@ -1415,207 +1148,22 @@ export function PaperChatPanel({
                     </div>
                 )}
 
-                <PromptInput onSubmit={handlePromptSubmit}>
-                    <PromptInputBody>
-                        <PromptInputTextarea
-                            value={currentMessage}
-                            onChange={(e) =>
-                                setCurrentMessage(e.currentTarget.value)
-                            }
-                            placeholder="Ask something about this paper."
-                            disabled={isStreaming}
-                        />
-                    </PromptInputBody>
-                    <PromptInputFooter>
-                        <PromptInputTools>
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-                                        disabled={isStreaming}
-                                    >
-                                        <CpuIcon className="h-3.5 w-3.5" />
-                                        <span className="truncate max-w-[10rem]">
-                                            {modelLabel}
-                                        </span>
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent
-                                    align="start"
-                                    className="w-64 max-h-[60vh] overflow-y-auto"
-                                >
-                                    {availableModels.length === 0 ? (
-                                        <DropdownMenuItem disabled>
-                                            No models available
-                                        </DropdownMenuItem>
-                                    ) : (
-                                        modelsByProvider.map(
-                                            ([provider, items], gi) => (
-                                                <div key={provider}>
-                                                    {gi > 0 && (
-                                                        <DropdownMenuSeparator />
-                                                    )}
-                                                    <DropdownMenuLabel className="text-xs text-muted-foreground">
-                                                        {providerLabel(
-                                                            provider
-                                                        )}
-                                                    </DropdownMenuLabel>
-                                                    {items.map((m) => (
-                                                        <DropdownMenuItem
-                                                            key={modelKey(m)}
-                                                            onClick={() =>
-                                                                setSelectedModel(
-                                                                    modelKey(m)
-                                                                )
-                                                            }
-                                                            className="flex items-center justify-between"
-                                                        >
-                                                            <span className="truncate">
-                                                                {m.name}
-                                                            </span>
-                                                            {modelKey(m) ===
-                                                                selectedModel && (
-                                                                <CheckIcon className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                                                            )}
-                                                        </DropdownMenuItem>
-                                                    ))}
-                                                </div>
-                                            )
-                                        )
-                                    )}
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-
-                            {supportsReasoningEffort && (
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-                                            disabled={isStreaming}
-                                            aria-label={`Reasoning effort: ${reasoningEffortLabel}`}
-                                        >
-                                            <BrainIcon className="h-3.5 w-3.5" />
-                                            <span className="truncate max-w-[7rem]">
-                                                {reasoningEffortLabel}
-                                            </span>
-                                        </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent
-                                        align="start"
-                                        className="w-44"
-                                    >
-                                        <DropdownMenuLabel className="text-xs text-muted-foreground">
-                                            Reasoning effort
-                                        </DropdownMenuLabel>
-                                        <DropdownMenuSeparator />
-                                        {REASONING_EFFORT_OPTIONS.map((opt) => (
-                                            <DropdownMenuItem
-                                                key={opt.id}
-                                                onClick={() =>
-                                                    setReasoningEffort(opt.id)
-                                                }
-                                                className="flex items-center justify-between"
-                                            >
-                                                <span>{opt.label}</span>
-                                                {opt.id === reasoningEffort && (
-                                                    <CheckIcon className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                                                )}
-                                            </DropdownMenuItem>
-                                        ))}
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
-                            )}
-
-                            {availableContextModes.length > 1 && (
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-                                            disabled={isStreaming}
-                                            aria-label={`Context: ${contextModeLabel}`}
-                                        >
-                                            <BookOpenIcon className="h-3.5 w-3.5" />
-                                            <span className="truncate max-w-[8rem]">
-                                                {contextModeLabel}
-                                            </span>
-                                        </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent
-                                        align="start"
-                                        className="w-80"
-                                    >
-                                        <DropdownMenuLabel className="text-xs text-muted-foreground">
-                                            Paper context
-                                        </DropdownMenuLabel>
-                                        <DropdownMenuSeparator />
-                                        {availableContextModes.map((opt) => (
-                                            <DropdownMenuItem
-                                                key={opt.id}
-                                                onClick={() =>
-                                                    setContextMode(opt.id)
-                                                }
-                                                className="flex items-start gap-2 py-2"
-                                            >
-                                                <div className="flex flex-col flex-1 min-w-0">
-                                                    <div className="flex items-center gap-1.5">
-                                                        <span className="font-medium">
-                                                            {opt.label}
-                                                        </span>
-                                                        {!opt.recommended && (
-                                                            <AlertTriangleIcon className="h-3 w-3 text-amber-500" />
-                                                        )}
-                                                    </div>
-                                                    <span className="text-xs text-muted-foreground">
-                                                        {opt.subtitle}
-                                                    </span>
-                                                </div>
-                                                {opt.id === contextMode && (
-                                                    <CheckIcon className="h-3.5 w-3.5 text-green-500 shrink-0 mt-1" />
-                                                )}
-                                            </DropdownMenuItem>
-                                        ))}
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
-                            )}
-                        </PromptInputTools>
-                        <PromptInputSubmit
-                            status={
-                                isStreaming
-                                    ? "streaming"
-                                    : ("ready" as const)
-                            }
-                            type={isStreaming ? "button" : "submit"}
-                            aria-label={
-                                isStreaming
-                                    ? "Stop generating"
-                                    : "Send message"
-                            }
-                            onClick={
-                                isStreaming
-                                    ? (e) => {
-                                          e.preventDefault();
-                                          stop();
-                                      }
-                                    : undefined
-                            }
-                            disabled={
-                                isStreaming
-                                    ? false
-                                    : !currentMessage.trim() ||
-                                      !conversationId
-                            }
-                        />
-                    </PromptInputFooter>
-                </PromptInput>
+                <ChatComposer
+                    ref={composerRef}
+                    isStreaming={isStreaming}
+                    canSend={!!conversationId}
+                    onSubmit={handleComposerSubmit}
+                    onStop={handleStop}
+                    availableModels={availableModels}
+                    selectedModel={selectedModel}
+                    onSelectModel={setSelectedModel}
+                    supportsReasoningEffort={supportsReasoningEffort}
+                    reasoningEffort={reasoningEffort}
+                    onSelectReasoningEffort={setReasoningEffort}
+                    availableContextModes={availableContextModes}
+                    contextMode={contextMode}
+                    onSelectContextMode={setContextMode}
+                />
 
             </div>
         </div>
@@ -1784,7 +1332,7 @@ function citationComponents(
     handleCitationClick: (key: string, messageIndex: number) => void,
     messageIndex: number,
     citations: Citation[]
-): Components {
+): MarkdownComponents {
     // CustomCitationLink calls handleCitationClick(key, messageIndex) without a
     // paper_id (it's a shared component used in non-chat surfaces too); the
     // caller's handler resolves the citation — including whether it's a code
@@ -1802,25 +1350,64 @@ function citationComponents(
         li: inject,
         div: inject,
         td: inject,
-        table: CopyableTable,
-        ...codeMarkdownComponents,
-    } as Components;
+    } as MarkdownComponents;
 }
+
+type ChildrenProps = { children?: React.ReactNode };
+
+/**
+ * Citation blurbs in the sources list are short: strip block-level styling so
+ * they sit inline with the [N] marker and the line-clamp.
+ */
+const CITATION_BLURB_COMPONENTS = {
+    p: ({ children }: ChildrenProps) => <>{children}</>,
+    h1: ({ children }: ChildrenProps) => <strong>{children}</strong>,
+    h2: ({ children }: ChildrenProps) => <strong>{children}</strong>,
+    h3: ({ children }: ChildrenProps) => <strong>{children}</strong>,
+    h4: ({ children }: ChildrenProps) => <strong>{children}</strong>,
+    h5: ({ children }: ChildrenProps) => <strong>{children}</strong>,
+    h6: ({ children }: ChildrenProps) => <strong>{children}</strong>,
+    code: ({ children }: ChildrenProps) => (
+        <code className="font-mono text-[11px]">{children}</code>
+    ),
+} as MarkdownComponents;
 
 interface PaperMessageProps {
     message: ChatUIMessage;
     index: number;
     isStreamingMessage: boolean;
     user: ReturnType<typeof useAuth>["user"];
-    handleCitationClick: (key: string, messageIndex: number, paperId?: string) => void;
+    handleCitationClick: (
+        key: string,
+        messageIndex: number,
+        paperId?: string,
+        page?: number
+    ) => void;
     matchesCurrentCitation: (key: string, messageIndex: number) => boolean;
     flashesCurrentCitation?: (key: string, messageIndex: number) => boolean;
     onJumpToReference: (text: string) => void;
     /** Failure/stopped note for this turn, rendered under the assistant bubble. */
-    turnNotice?: React.ReactNode;
+    notice: TurnNotice | null;
+    onRetry: () => void;
+    retryDisabled: boolean;
 }
 
-function PaperMessage({
+const sameNotice = (a: TurnNotice | null, b: TurnNotice | null) =>
+    a === b ||
+    (!!a &&
+        !!b &&
+        a.tone === b.tone &&
+        a.title === b.title &&
+        a.headline === b.headline &&
+        a.detail === b.detail &&
+        a.canRetry === b.canRetry);
+
+/**
+ * Memoised per message: the transcript re-renders on every streamed chunk,
+ * but only the streaming message's props change. The notice is rebuilt on
+ * every panel render, so it is compared by value.
+ */
+const PaperMessage = memo(function PaperMessage({
     message,
     index,
     isStreamingMessage,
@@ -1829,11 +1416,21 @@ function PaperMessage({
     matchesCurrentCitation,
     flashesCurrentCitation,
     onJumpToReference,
-    turnNotice,
+    notice,
+    onRetry,
+    retryDisabled,
 }: PaperMessageProps) {
-    const citations = useMemo(
+    const parsedCitations = useMemo(
         () => citationsFromMessage(message),
         [message]
+    );
+    // The streaming message is a new object on every chunk; key the citations
+    // by value so the markdown overrides built from them stay stable.
+    const citationsKey = JSON.stringify(parsedCitations);
+    const citations = useMemo(
+        () => parsedCitations,
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [citationsKey]
     );
     const isUser = message.role === "user";
     const blocks = useMemo(() => renderBlocks(message), [message]);
@@ -1859,6 +1456,19 @@ function PaperMessage({
     // Code citations jump to their inline snippet in the sources list — the
     // same open-sources-and-scroll-to-`citation-{key}-{index}` move PDF
     // citations make, minus the document search, which has nothing to find.
+    //
+    // PDF citations: the page resolves the search text from this message's
+    // sources row (`citation-ref-{key}-{index}`), which only exists while the
+    // disclosure is open — so open it first and hand the click over once it
+    // has rendered. Each click is a new object, so repeats jump again.
+    const [pendingPdfJump, setPendingPdfJump] = useState<{
+        key: string;
+        paperId?: string;
+        page?: number;
+    } | null>(null);
+    const handleCitationClickRef = useRef(handleCitationClick);
+    handleCitationClickRef.current = handleCitationClick;
+
     const onCitationClick = useCallback(
         (key: string, msgIdx: number) => {
             const citation = citations.find((c) => String(c.key) === key);
@@ -1870,11 +1480,38 @@ function PaperMessage({
                 }
                 return;
             }
-            handleCitationClick(key, msgIdx, citation?.paper_id);
-            if (msgIdx === index) setSourcesOpen(true);
+            if (msgIdx !== index) {
+                handleCitationClickRef.current(
+                    key,
+                    msgIdx,
+                    citation?.paper_id,
+                    citation?.page
+                );
+                return;
+            }
+            setSourcesOpen(true);
+            setPendingPdfJump({
+                key,
+                paperId: citation?.paper_id,
+                page: citation?.page,
+            });
         },
-        [citations, handleCitationClick, index]
+        [citations, index]
     );
+
+    useEffect(() => {
+        if (!pendingPdfJump || !sourcesOpen) return;
+        const frame = requestAnimationFrame(() => {
+            handleCitationClickRef.current(
+                pendingPdfJump.key,
+                index,
+                pendingPdfJump.paperId,
+                pendingPdfJump.page
+            );
+            setPendingPdfJump(null);
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [pendingPdfJump, sourcesOpen, index]);
 
     // Scroll after the sources disclosure has mounted its content.
     useEffect(() => {
@@ -1899,6 +1536,14 @@ function PaperMessage({
         () => citationComponents(onCitationClick, index, citations),
         [onCitationClick, index, citations]
     );
+
+    const turnNotice = notice ? (
+        <MessageTurnNotice
+            notice={notice}
+            onRetry={onRetry}
+            retryDisabled={retryDisabled}
+        />
+    ) : null;
 
     if (isUser) {
         return (
@@ -1987,30 +1632,19 @@ function PaperMessage({
                                 />
                             );
                         }
-                        // Text: animated for the live message, static markdown
-                        // for history.
-                        return isStreamingMessage ? (
-                            <AnimatedMarkdown
-                                key={`text-${blockIndex}`}
-                                content={block.text}
-                                className="prose-sm"
-                                components={markdownComponents}
-                            />
-                        ) : (
+                        // Only the tail block of the live message is still
+                        // growing; everything before it renders as final.
+                        return (
                             <div
                                 key={`text-${blockIndex}`}
                                 className="prose dark:prose-invert prose-sm !max-w-none"
                             >
                                 <Markdown
-                                    remarkPlugins={[
-                                        [
-                                            remarkMath,
-                                            { singleDollarTextMath: false },
-                                        ],
-                                        remarkGfm,
-                                    ]}
-                                    rehypePlugins={[rehypeKatex]}
                                     components={markdownComponents}
+                                    streaming={
+                                        isStreamingMessage &&
+                                        blockIndex === blocks.length - 1
+                                    }
                                 >
                                     {block.text}
                                 </Markdown>
@@ -2045,7 +1679,14 @@ function PaperMessage({
             )}
         </div>
     );
-}
+}, (prev, next) => {
+    const keys = Object.keys(next) as (keyof PaperMessageProps)[];
+    return keys.every((key) =>
+        key === "notice"
+            ? sameNotice(prev.notice, next.notice)
+            : prev[key] === next[key]
+    );
+});
 
 interface PaperSourcesProps {
     citations: Citation[];
@@ -2142,41 +1783,16 @@ function PaperSources({
                                 <span className="text-[10px] font-mono text-muted-foreground shrink-0">
                                     [{citation.key}]
                                 </span>
-                                <span
+                                {/* A div, not a span: the renderer wraps its
+                                    output in a block element. */}
+                                <div
                                     id={`citation-ref-${citation.key}-${messageIndex}`}
-                                    className="text-xs text-muted-foreground line-clamp-2 leading-snug citation-ref-md"
+                                    className="min-w-0 text-xs text-muted-foreground line-clamp-2 leading-snug citation-ref-md"
                                 >
-                                    <Markdown
-                                        remarkPlugins={[
-                                            remarkGfm,
-                                            [
-                                                remarkMath,
-                                                { singleDollarTextMath: false },
-                                            ],
-                                        ]}
-                                        rehypePlugins={[rehypeKatex]}
-                                        components={{
-                                            // Citations are short blurbs;
-                                            // strip block-level styling so
-                                            // they sit inline with the [N]
-                                            // marker and the line-clamp.
-                                            p: ({ children }) => <>{children}</>,
-                                            h1: ({ children }) => <strong>{children}</strong>,
-                                            h2: ({ children }) => <strong>{children}</strong>,
-                                            h3: ({ children }) => <strong>{children}</strong>,
-                                            h4: ({ children }) => <strong>{children}</strong>,
-                                            h5: ({ children }) => <strong>{children}</strong>,
-                                            h6: ({ children }) => <strong>{children}</strong>,
-                                            code: ({ children }) => (
-                                                <code className="font-mono text-[11px]">
-                                                    {children}
-                                                </code>
-                                            ),
-                                        }}
-                                    >
+                                    <Markdown components={CITATION_BLURB_COMPONENTS}>
                                         {citation.reference}
                                     </Markdown>
-                                </span>
+                                </div>
                             </li>
                         );
                     })}

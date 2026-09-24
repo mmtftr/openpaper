@@ -28,14 +28,24 @@ import { useAnchoredHighlights } from "./useAnchoredHighlights";
 import { scaledPositionFromAnchor } from "./anchoring";
 import type { RenderedHighlightPosition, TextAnchor } from "./types";
 
+/** A request to find `term` in the PDF, starting at `page` when known. */
+export interface TextSearchRequest {
+	readonly term: string;
+	/** 1-indexed page the chat agent quoted from, when known. */
+	readonly page?: number;
+	/** A new value on EVERY request, including a repeated click on one citation. */
+	readonly nonce: number;
+}
+
 export interface PdfReaderProps {
 	pdfUrl: string;
 	/** Explicit panel navigation; nonce changes even when the id stays the same. */
 	highlightJumpRequest?: HighlightJumpRequest | null;
-	/** Quote pushed from a chat citation; searched and scrolled to. */
-	explicitSearchTerm?: string;
-	/** Page the chat agent reported for `explicitSearchTerm`, when known. */
-	explicitSearchPage?: number;
+	/**
+	 * Quote pushed from a chat citation; searched and scrolled to. Each new
+	 * request object searches again, even for the same term.
+	 */
+	explicitSearch?: TextSearchRequest | null;
 	onSearchComplete?: (term: string, matchCount: number) => void;
 
 	highlights?: PaperHighlight[];
@@ -135,8 +145,7 @@ function PdfReaderInner(props: PdfReaderProps) {
 	const {
 		pdfUrl,
 		highlightJumpRequest,
-		explicitSearchTerm,
-		explicitSearchPage,
+		explicitSearch,
 		onSearchComplete,
 		highlights = EMPTY_HIGHLIGHTS,
 		annotations = EMPTY_ANNOTATIONS,
@@ -169,7 +178,7 @@ function PdfReaderInner(props: PdfReaderProps) {
 
 	const pageHints = useMemo(() => new Map<string, number>(), []);
 	const { anchored, unanchored, resolveHighlight } = useAnchoredHighlights(highlights, pageHints);
-	useHighlightJump(explicitSearchTerm ? null : highlightJumpRequest, highlights, resolveHighlight);
+	useHighlightJump(explicitSearch?.term ? null : highlightJumpRequest, highlights, resolveHighlight);
 
 	// Surface highlights we could not place, so the side panel can say so.
 	const unanchoredKey = unanchored.map((h) => h.id ?? h.raw_text).join("|");
@@ -182,13 +191,13 @@ function PdfReaderInner(props: PdfReaderProps) {
 	// --- Chat citation → find + scroll -------------------------------------
 	const pendingSearchRef = useRef<string | null>(null);
 	useEffect(() => {
-		const term = explicitSearchTerm?.trim();
+		const term = explicitSearch?.term.trim();
 		if (!term || !api) return;
 		pendingSearchRef.current = term;
-		if (explicitSearchPage) api.goToPage(explicitSearchPage);
+		if (explicitSearch?.page) api.goToPage(explicitSearch.page);
 		setFindQuery(term);
 		api.find(term);
-	}, [explicitSearchTerm, explicitSearchPage, api, setFindQuery]);
+	}, [explicitSearch, api, setFindQuery]);
 
 	// pdf.js reports counts progressively; settle briefly before reporting so a
 	// mid-scan zero isn't mistaken for "no match".
@@ -403,7 +412,7 @@ function PdfReaderInner(props: PdfReaderProps) {
  *
  * Replaces the react-pdf-highlighter-extended viewer with pdf.js's own
  * `PDFViewer`, keeping every seam the chat and side panel depend on:
- * `explicitSearchTerm` still drives scroll-to-quote (now through pdf.js's find
+ * `explicitSearch` still drives scroll-to-quote (now through pdf.js's find
  * controller), selections still feed `setUserMessageReferences`, and
  * `onOverlaysCreated` still reports which highlights are anchored.
  *

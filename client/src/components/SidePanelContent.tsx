@@ -20,8 +20,8 @@ interface SidePanelContentProps {
     id: string;
     matchesCurrentCitation: (key: string, messageIndex: number) => boolean;
     flashesCurrentCitation?: (key: string, messageIndex: number) => boolean;
-    setExplicitSearchTerm: (value: string) => void;
-    handleCitationClick: (key: string, messageIndex: number) => void;
+    jumpToText: (term: string, page?: number) => void;
+    handleCitationClick: (key: string, messageIndex: number, paperId?: string, page?: number) => void;
     userMessageReferences: string[];
     setUserMessageReferences: React.Dispatch<React.SetStateAction<string[]>>;
     isMobile: boolean;
@@ -41,7 +41,7 @@ export function SidePanelContent({
     id,
     matchesCurrentCitation,
     flashesCurrentCitation,
-    setExplicitSearchTerm,
+    jumpToText,
     handleCitationClick,
     userMessageReferences,
     setUserMessageReferences,
@@ -93,7 +93,7 @@ export function SidePanelContent({
                     handleCitationClick={handleCitationClick}
                     matchesCurrentCitation={matchesCurrentCitation}
                     flashesCurrentCitation={flashesCurrentCitation}
-                    setExplicitSearchTerm={setExplicitSearchTerm}
+                    jumpToText={jumpToText}
                     headerSlot={<MetadataPopover paperData={paperData} />}
                 />
             )}

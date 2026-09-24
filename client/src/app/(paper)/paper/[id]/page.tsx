@@ -1,6 +1,6 @@
 'use client';
 
-import { PdfReader, RenderedHighlightPosition, type HighlightJumpRequest } from '@/components/reader';
+import { PdfReader, RenderedHighlightPosition, type HighlightJumpRequest, type TextSearchRequest } from '@/components/reader';
 import { Button } from '@/components/ui/button';
 import { fetchFromApi } from '@/lib/api';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
@@ -119,7 +119,15 @@ export default function PaperView() {
     const displayedPaperDataIdRef = useRef<string | null>(null);
     const flashCitationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [highlightJumpRequest, setHighlightJumpRequest] = useState<HighlightJumpRequest | null>(null);
-    const [explicitSearchTerm, setExplicitSearchTerm] = useState<string | undefined>(undefined);
+    // Text the reader should find and scroll to (chat citations, attached
+    // references). Every jump is a fresh object with a new nonce, so clicking
+    // the same citation twice searches again.
+    const [textSearch, setTextSearch] = useState<TextSearchRequest | null>(null);
+    const textSearchNonceRef = useRef(0);
+    const jumpToText = useCallback((term: string, page?: number) => {
+        textSearchNonceRef.current += 1;
+        setTextSearch({ term, page, nonce: textSearchNonceRef.current });
+    }, []);
     const [userMessageReferences, setUserMessageReferences] = useState<string[]>([]);
     const [renderedHighlightPositions, setRenderedHighlightPositions] = useState<Map<string, RenderedHighlightPosition>>(new Map());
 
@@ -298,8 +306,9 @@ export default function PaperView() {
 
     // Add this function to handle citation clicks. When `paperId` is provided
     // and refers to a supplementary, flip the displayed PDF first so the
-    // explicit search term lands on the right document.
-    const handleCitationClick = useCallback((key: string, messageIndex: number, paperId?: string) => {
+    // explicit search term lands on the right document. `page` is the page
+    // the agent quoted from, handed to the reader as a search hint.
+    const handleCitationClick = useCallback((key: string, messageIndex: number, paperId?: string, page?: number) => {
         setHighlightJumpRequest(null);
         setActiveCitationKey(key);
         setActiveCitationMessageIndex(messageIndex);
@@ -332,13 +341,13 @@ export default function PaperView() {
                     flashCitationTimeoutRef.current = null;
                 }
                 setFlashCitation(null);
-                setExplicitSearchTerm(searchTerm);
+                jumpToText(searchTerm, page);
             }
         }
 
         // Clear the highlight after a few seconds
         setTimeout(() => setActiveCitationKey(null), 3000);
-    }, [parentPaperId, displayedPaperId]);
+    }, [parentPaperId, displayedPaperId, jumpToText]);
 
     const handleSearchComplete = useCallback((term: string, matchCount: number) => {
         const pending = pendingCitationLookupRef.current;
@@ -364,7 +373,7 @@ export default function PaperView() {
 
     const handleHighlightClick = useCallback((highlight: PaperHighlight) => {
         setActiveHighlight(highlight);
-        setExplicitSearchTerm(undefined);
+        setTextSearch(null);
         if (isMobile) setMobileView('reader');
         if (highlight.id) {
             const highlightId = highlight.id;
@@ -665,7 +674,7 @@ export default function PaperView() {
         id: parentPaperId,
         matchesCurrentCitation,
         flashesCurrentCitation,
-        setExplicitSearchTerm,
+        jumpToText,
         handleCitationClick,
         userMessageReferences,
         setUserMessageReferences,
@@ -685,7 +694,7 @@ export default function PaperView() {
                                 <PdfReader
                                     pdfUrl={pdfUrlForViewer}
                                     highlightJumpRequest={highlightJumpRequest}
-                                    explicitSearchTerm={explicitSearchTerm}
+                                    explicitSearch={textSearch}
                                     onSearchComplete={handleSearchComplete}
                                     highlights={highlights}
                                     annotations={annotations}
@@ -789,7 +798,7 @@ export default function PaperView() {
                             <PdfReader
                                 pdfUrl={pdfUrlForViewer}
                                 highlightJumpRequest={highlightJumpRequest}
-                                explicitSearchTerm={explicitSearchTerm}
+                                explicitSearch={textSearch}
                                 onSearchComplete={handleSearchComplete}
                                 highlights={highlights}
                                 annotations={annotations}

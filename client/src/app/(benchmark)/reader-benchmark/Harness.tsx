@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PdfReader, type HighlightJumpRequest } from "@/components/reader";
 import { AnnotationsView } from "@/components/AnnotationsView";
 import type { PaperHighlight, PaperHighlightAnnotation } from "@/lib/schema";
@@ -87,6 +87,7 @@ export default function Harness() {
 	const [active, setActive] = useState<PaperHighlight | null>(null);
 	const [jump, setJump] = useState<HighlightJumpRequest | null>(null);
 	const [term, setTerm] = useState<string>();
+	const search = useMemo(() => (term ? { term, nonce: 0 } : null), [term]);
 	const [positions, setPositions] = useState(new Map<string, RenderedHighlightPosition>());
 	const [readerMount, setReaderMount] = useState(0);
 	const [urlVersion, setUrlVersion] = useState(0);
@@ -139,7 +140,7 @@ export default function Harness() {
 			<div className="min-w-0 flex-1" data-benchmark-reader>
 				<PdfReader key={readerMount} pdfUrl={`/reader-benchmark/assets/${paper.id}.pdf?version=${urlVersion}`} highlights={paper.highlights}
 					annotations={notes} activeHighlight={active} setActiveHighlight={setActive} {...noteApi}
-					highlightJumpRequest={jump} explicitSearchTerm={term} onOverlaysCreated={setPositions} />
+					highlightJumpRequest={jump} explicitSearch={search} onOverlaysCreated={setPositions} />
 			</div>
 			<aside className="w-96 shrink-0 overflow-hidden" data-benchmark-panel>
 				<AnnotationsView highlights={paper.highlights} annotations={notes} {...noteApi}
