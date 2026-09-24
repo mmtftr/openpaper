@@ -13,6 +13,7 @@ import logging
 import signal
 
 from app.ingest.engine import Engine
+from app.observability import configure_logfire
 
 
 async def main() -> None:
@@ -32,4 +33,5 @@ if __name__ == "__main__":
     # included (OpenAlex's `api_key`).
     for noisy in ("httpx", "httpcore"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
+    configure_logfire("openpaper-ingest-worker")
     asyncio.run(main())

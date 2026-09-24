@@ -59,28 +59,24 @@ SLOT_DEFAULTS: dict[str, SlotDefault] = {
     "chat.default": SlotDefault(
         None, ModelRole.DEFAULT, description="Paper chat (when no model is picked)"
     ),
-    # FAST slots are pinned to OpenAI/Azure: the codex proxy rejects its
-    # configured fast model (`gpt-5.4-mini`). Refactor Phase 6 unpins them.
     "chat.reconcile": SlotDefault(
-        LLMProvider.OPENAI,
+        None,
         ModelRole.FAST,
         description="Citation reconcile: map an OCR quote onto the PDF text",
     ),
-    "chat.title": SlotDefault(
-        LLMProvider.OPENAI, ModelRole.FAST, description="Conversation title"
-    ),
+    "chat.title": SlotDefault(None, ModelRole.FAST, description="Conversation title"),
     "quick_question": SlotDefault(
         None,
         ModelRole.DEFAULT,
         description="Code quick question (when no model is picked)",
     ),
     "discover": SlotDefault(
-        LLMProvider.OPENAI,
+        None,
         ModelRole.FAST,
         description="Discover: split a question into search queries",
     ),
     "ingest.outline": SlotDefault(
-        LLMProvider.OPENAI,
+        None,
         ModelRole.FAST,
         description="Outline cleanup of OCR headings",
     ),
@@ -106,7 +102,11 @@ SLOT_DEFAULTS: dict[str, SlotDefault] = {
 }
 
 
-ReasoningEffort = Literal["low", "medium", "high", "xhigh"]
+ReasoningEffort = Literal["low", "medium", "high", "xhigh", "max"]
+
+# Effort for a FAST slot that sets none, by provider: the codex proxy's fast
+# model is cheap and quick even at `max` (the owner's call).
+FAST_EFFORT_BY_PROVIDER: dict[LLMProvider, str] = {LLMProvider.CODEX_PROXY: "max"}
 
 
 @dataclass(frozen=True)
@@ -262,6 +262,8 @@ def resolve_slot(
         spec = _resolve_default(slot, default, reg)
 
     effort = default.reasoning_effort
+    if effort is None and default.role == ModelRole.FAST:
+        effort = FAST_EFFORT_BY_PROVIDER.get(spec.provider)
     if override is not None and override.reasoning_effort:
         effort = override.reasoning_effort
     return ResolvedSlot(slot=slot, spec=spec, reasoning_effort=effort)

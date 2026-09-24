@@ -175,6 +175,19 @@ def _family_defaults(provider: LLMProvider, model_id: str) -> Dict[str, Any]:
     return {"api": "native"}
 
 
+def _effort_for(spec: ModelSpec, effort: str) -> str:
+    """Clamp an effort tier to what the provider accepts.
+
+    The codex proxy forwards every tier up to `max` to the codex backend.
+    Azure tops out at `xhigh` on Responses and at `high` on Chat Completions.
+    """
+    if spec.provider == LLMProvider.CODEX_PROXY:
+        return effort
+    if spec.api == "responses":
+        return "xhigh" if effort == "max" else effort
+    return "high" if effort in ("xhigh", "max") else effort
+
+
 def _env_overrides() -> Dict[str, Dict[str, Any]]:
     raw = get_settings().MODEL_OVERRIDES
     if not raw:
@@ -484,15 +497,11 @@ class ModelRegistry:
 
         settings: Dict[str, Any] = {}
         if reasoning_effort and spec.supports_reasoning_effort:
-            if spec.api == "responses":
-                settings["openai_reasoning_effort"] = str(reasoning_effort)
-                if spec.supports_reasoning_summaries:
-                    settings["openai_reasoning_summary"] = "auto"
-            else:
-                # Chat Completions has no `xhigh` tier — map it down.
-                settings["openai_reasoning_effort"] = (
-                    "high" if reasoning_effort == "xhigh" else str(reasoning_effort)
-                )
+            settings["openai_reasoning_effort"] = _effort_for(
+                spec, str(reasoning_effort)
+            )
+            if spec.api == "responses" and spec.supports_reasoning_summaries:
+                settings["openai_reasoning_summary"] = "auto"
         if cache_key and spec.supports_prompt_cache_key:
             settings["openai_prompt_cache_key"] = cache_key
         if not settings:

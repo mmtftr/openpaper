@@ -1,6 +1,5 @@
 import logging
 
-import logfire
 import uvicorn  # type: ignore
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,6 +24,7 @@ from app.api.repo_api import repo_router
 from app.api.search_api import search_router
 from app.api.settings_api import settings_router
 from app.ingest.api import ingest_router
+from app.observability import configure_logfire, instrument_fastapi
 from app.references.api import reference_router
 from app.settings import get_settings
 
@@ -39,30 +39,7 @@ for _noisy in ("httpx", "httpcore"):
 
 logger = logging.getLogger(__name__)
 
-logfire.configure(
-    service_name="openpaper-server",
-    send_to_logfire="if-token-present",
-)
-
-
-def _safe_instrument(label: str, instrument) -> None:
-    """Best-effort observability hookup.
-
-    Each ``logfire.instrument_*`` pulls an optional OpenTelemetry integration
-    whose version must line up with logfire's. A mismatch (e.g. an unpinned
-    rebuild floats logfire ahead of an integration package) raises at import
-    time — but instrumentation is observability, not core function, so it must
-    not take down server boot. Log and continue.
-    """
-    try:
-        instrument()
-    except Exception as exc:  # noqa: BLE001 - telemetry must never break boot
-        logger.warning("Skipping logfire instrumentation %s: %s", label, exc)
-
-
-_safe_instrument("pydantic", lambda: logfire.instrument_pydantic(record="failure"))
-_safe_instrument("openai", logfire.instrument_openai)
-_safe_instrument("httpx", lambda: logfire.instrument_httpx(capture_all=True))
+configure_logfire("openpaper-server")
 
 app = FastAPI(
     title="Open Paper",
@@ -71,9 +48,7 @@ app = FastAPI(
     responses=ERROR_RESPONSES,
 )
 install_error_handlers(app)
-_safe_instrument(
-    "fastapi", lambda: logfire.instrument_fastapi(app, capture_headers=True)
-)
+instrument_fastapi(app)
 
 settings = get_settings()
 

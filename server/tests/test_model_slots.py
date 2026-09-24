@@ -23,7 +23,7 @@ from app.llm.model_slots import SLOT_DEFAULTS, SlotOverride, resolve_slot
 def _registry(default=LLMProvider.CODEX_PROXY, *, with_openai=True):
     configs = {
         LLMProvider.CODEX_PROXY: _ProviderConfig(
-            "k", "http://proxy/v1", "gpt-6-astra", "gpt-5.4-mini"
+            "k", "http://proxy/v1", "gpt-6-astra", "gpt-5.6-luna"
         ),
     }
     if with_openai:
@@ -33,27 +33,33 @@ def _registry(default=LLMProvider.CODEX_PROXY, *, with_openai=True):
     return ModelRegistry([], configs, default)
 
 
-# Today's per-call-site choices: (provider, model) with the codex proxy as
-# the default provider and Azure/OpenAI configured alongside it.
+# Built-in choices with the codex proxy as the default provider and
+# Azure/OpenAI configured alongside it. FAST slots on the proxy run at `max`.
 @pytest.mark.parametrize(
-    "slot,provider,model_id",
+    "slot,provider,model_id,effort",
     [
-        ("chat.default", LLMProvider.CODEX_PROXY, "gpt-6-astra"),
-        ("quick_question", LLMProvider.CODEX_PROXY, "gpt-6-astra"),
-        ("chat.reconcile", LLMProvider.OPENAI, "gpt-5.4-mini-azure"),
-        ("chat.title", LLMProvider.OPENAI, "gpt-5.4-mini-azure"),
-        ("discover", LLMProvider.OPENAI, "gpt-5.4-mini-azure"),
-        ("ingest.outline", LLMProvider.OPENAI, "gpt-5.4-mini-azure"),
+        ("chat.default", LLMProvider.CODEX_PROXY, "gpt-6-astra", None),
+        ("quick_question", LLMProvider.CODEX_PROXY, "gpt-6-astra", None),
+        ("chat.reconcile", LLMProvider.CODEX_PROXY, "gpt-5.6-luna", "max"),
+        ("chat.title", LLMProvider.CODEX_PROXY, "gpt-5.6-luna", "max"),
+        ("discover", LLMProvider.CODEX_PROXY, "gpt-5.6-luna", "max"),
+        ("ingest.outline", LLMProvider.CODEX_PROXY, "gpt-5.6-luna", "max"),
         # jobs/ parity: OCR repair on the fast model, metadata/highlights on
         # the OpenAI default model.
-        ("ingest.ocr_repair", LLMProvider.OPENAI, "gpt-5.4-mini-azure"),
-        ("ingest.metadata", LLMProvider.OPENAI, "gpt-5.5"),
-        ("ingest.highlights", LLMProvider.OPENAI, "gpt-5.5"),
+        ("ingest.ocr_repair", LLMProvider.OPENAI, "gpt-5.4-mini-azure", None),
+        ("ingest.metadata", LLMProvider.OPENAI, "gpt-5.5", None),
+        ("ingest.highlights", LLMProvider.OPENAI, "gpt-5.5", None),
     ],
 )
-def test_slot_defaults_reproduce_call_site_choices(slot, provider, model_id):
+def test_slot_defaults(slot, provider, model_id, effort):
     resolved = resolve_slot(slot, _registry())
     assert (resolved.spec.provider, resolved.spec.id) == (provider, model_id)
+    assert resolved.reasoning_effort == effort
+
+
+def test_fast_slot_on_azure_sends_no_effort():
+    resolved = resolve_slot("chat.title", _registry(LLMProvider.OPENAI))
+    assert resolved.spec.provider == LLMProvider.OPENAI
     assert resolved.reasoning_effort is None
 
 
@@ -92,9 +98,9 @@ def test_chat_default_matches_the_registry_default():
 
 
 def test_pinned_provider_falls_back_to_default_when_unconfigured():
-    resolved = resolve_slot("ingest.outline", _registry(with_openai=False))
+    resolved = resolve_slot("ingest.metadata", _registry(with_openai=False))
     assert resolved.spec.provider == LLMProvider.CODEX_PROXY
-    assert resolved.spec.id == "gpt-5.4-mini"
+    assert resolved.spec.id == "gpt-6-astra"
 
 
 def test_unknown_slot_raises():

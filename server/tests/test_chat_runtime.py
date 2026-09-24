@@ -1960,13 +1960,12 @@ class TestBuildSettings:
         assert s["openai_reasoning_effort"] == "high"
         assert "openai_reasoning_summary" not in s
 
-    def test_xhigh_is_downgraded_for_chat_completions(self):
-        """Design doc revision #15: `xhigh` -> `high` mapping for chat
-        completions (the Chat Completions API rejects `xhigh`)."""
-        s = self.reg.build_settings(self.chat_gpt, "xhigh")
-        assert s["openai_reasoning_effort"] == "high", (
-            "xhigh passed through unchanged to a chat-completions model"
-        )
+    def test_codex_proxy_keeps_xhigh_and_max(self):
+        """The codex proxy forwards every tier to the codex backend; only
+        Azure's Chat Completions tops out at `high`."""
+        for effort in ("xhigh", "max"):
+            s = self.reg.build_settings(self.chat_gpt, effort)
+            assert s["openai_reasoning_effort"] == effort
 
     def test_xhigh_preserved_for_responses_api(self):
         s = self.reg.build_settings(self.responses_gpt, "xhigh")

@@ -135,9 +135,10 @@ Settings → Models lists every model call site with a provider/model dropdown
 (NULL = today's default): `chat.default`, `chat.reconcile`, `chat.title`,
 `quick_question`, `discover`, `ingest.ocr_repair` (vision models only),
 `ingest.metadata`, `ingest.outline`, `ingest.highlights`, plus the OCR service
-model (`ingest.ocr`). Defaults reproduce today's choices (outline/discover use
-OpenAI) — until refactor Phase 6 switches the proxy's fast model to
-`gpt-5.6-luna` and returns outline to the default provider. Each stage records the model it used.
+model (`ingest.ocr`). Outline and discover follow the default provider's fast
+model (on the codex proxy: `gpt-5.6-luna` at effort `max`, since refactor
+Phase 6); OCR repair, metadata and highlights stay on OpenAI. Each stage
+records the model it used.
 
 ## 8. UI
 

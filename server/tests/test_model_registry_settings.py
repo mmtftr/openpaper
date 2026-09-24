@@ -126,6 +126,25 @@ class TestReasoningEffortUnchanged:
         settings = registry.build_settings(_spec(effort=True), "xhigh")
         assert settings["openai_reasoning_effort"] == "xhigh"
 
+    def test_max_clamped_for_azure(self, registry):
+        # Azure (verified 2026-09-25) accepts up to `xhigh` on Responses.
+        assert (
+            registry.build_settings(_spec(effort=True), "max")[
+                "openai_reasoning_effort"
+            ]
+            == "xhigh"
+        )
+        chat = _spec(api="chat", effort=True)
+        assert registry.build_settings(chat, "max")["openai_reasoning_effort"] == "high"
+
+    def test_codex_proxy_passes_every_tier(self, registry):
+        spec = _spec(api="chat", provider=LLMProvider.CODEX_PROXY, effort=True)
+        for effort in ("xhigh", "max"):
+            assert (
+                registry.build_settings(spec, effort)["openai_reasoning_effort"]
+                == effort
+            )
+
     def test_effort_dropped_when_unsupported_but_cache_survives(self, registry):
         spec = _spec(effort=False, cache_key=True)
         settings = registry.build_settings(spec, "high", cache_key=CACHE_KEY)

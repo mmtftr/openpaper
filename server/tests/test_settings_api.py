@@ -30,7 +30,7 @@ from app.schemas.user import CurrentUser
 def _registry():
     configs = {
         LLMProvider.CODEX_PROXY: _ProviderConfig(
-            "k", "http://proxy/v1", "gpt-6-astra", "gpt-5.4-mini"
+            "k", "http://proxy/v1", "gpt-6-astra", "gpt-5.6-luna"
         ),
         LLMProvider.OPENAI: _ProviderConfig("k", None, "gpt-5.5", "gpt-5.4-mini-azure"),
     }
@@ -76,7 +76,7 @@ def test_provider_only_override_uses_the_slot_role():
     resolved = resolve_slot(
         "chat.title", _registry(), {"chat.title": SlotOverride("codex_proxy")}
     )
-    assert resolved.spec.id == "gpt-5.4-mini"
+    assert resolved.spec.id == "gpt-5.6-luna"
 
 
 def test_unlisted_provider_role_model_is_accepted():
@@ -109,8 +109,8 @@ def test_effort_only_override_keeps_the_default_model():
 def test_unusable_override_falls_back_to_default(override, caplog):
     resolved = resolve_slot("discover", _registry(), {"discover": override})
     assert (resolved.spec.provider, resolved.spec.id) == (
-        LLMProvider.OPENAI,
-        "gpt-5.4-mini-azure",
+        LLMProvider.CODEX_PROXY,
+        "gpt-5.6-luna",
     )
     assert "ignoring override" in caplog.text
 
@@ -144,7 +144,7 @@ def test_failed_override_read_uses_defaults(monkeypatch):
 
     monkeypatch.setattr(model_slots, "load_overrides", boom)
     resolved = resolve_slot("chat.title", _registry())
-    assert resolved.spec.id == "gpt-5.4-mini-azure"
+    assert resolved.spec.id == "gpt-5.6-luna"
 
 
 # -- API ------------------------------------------------------------------
@@ -195,10 +195,10 @@ def test_get_lists_every_slot_with_defaults(client):
     assert title["role"] == "fast"
     assert title["override"] is None
     assert title["default"] == {
-        "provider": "openai",
-        "model": "gpt-5.4-mini-azure",
-        "model_name": "gpt-5.4-mini-azure",
-        "reasoning_effort": None,
+        "provider": "codex_proxy",
+        "model": "gpt-5.6-luna",
+        "model_name": "gpt-5.6-luna",
+        "reasoning_effort": "max",
     }
     assert title["effective"] == title["default"]
 
@@ -208,7 +208,7 @@ def test_get_lists_every_slot_with_defaults(client):
     models = {(m["provider"], m["id"]): m for m in body["models"]}
     # Picker models plus unlisted provider role models.
     assert ("openai", "gpt-5.4-mini-azure") in models
-    assert ("codex_proxy", "gpt-5.4-mini") in models
+    assert ("codex_proxy", "gpt-5.6-luna") in models
     assert models[("openai", "DeepSeek-V4-Flash-0731")]["supports_vision"] is False
 
 
@@ -226,7 +226,7 @@ def test_put_sets_then_resets_an_override(client, store):
     assert slot["override"]["model"] == "gpt-6-astra"
     assert slot["effective"]["model"] == "gpt-6-astra"
     assert slot["effective"]["reasoning_effort"] == "high"
-    assert slot["default"]["model"] == "gpt-5.4-mini-azure"
+    assert slot["default"]["model"] == "gpt-5.6-luna"
     assert "discover" in store
 
     resp = client.put(
@@ -235,7 +235,7 @@ def test_put_sets_then_resets_an_override(client, store):
     )
     assert resp.status_code == 200
     assert resp.json()["override"] is None
-    assert resp.json()["effective"]["model"] == "gpt-5.4-mini-azure"
+    assert resp.json()["effective"]["model"] == "gpt-5.6-luna"
     assert "discover" not in store
 
 
@@ -296,4 +296,4 @@ def test_get_flags_a_stale_override(client, store):
         if s["slot"] == "chat.title"
     )
     assert slot["override_error"]
-    assert slot["effective"]["model"] == "gpt-5.4-mini-azure"
+    assert slot["effective"]["model"] == "gpt-5.6-luna"

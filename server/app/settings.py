@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     OPENAI_BASE_URL: Optional[str] = None
     OPENAI_MODEL: Annotated[str, _EmptyIsDefault] = "gpt-5.5"
     OPENAI_FAST_MODEL: Annotated[str, _EmptyIsDefault] = "gpt-5.4-mini"
-    OPENAI_MODELS: Optional[str] = None  # the picker's list, "id:Name,..."
+    OPENAI_MODELS: Optional[str] = None  # the picker's list, "id|Name,..."
     AZURE_OPENAI: str = ""  # "1" / "true" / "yes" routes OpenAI to Azure
     AZURE_OPENAI_ENDPOINT: Optional[str] = None
     AZURE_OPENAI_API_VERSION: str = "2025-04-01-preview"
@@ -78,7 +78,7 @@ class Settings(BaseSettings):
     CODEX_PROXY_BASE_URL: Optional[str] = None
     CODEX_PROXY_API_KEY: str = "codex-proxy-local"
     CODEX_PROXY_MODEL: str = "gpt-5.5"
-    CODEX_PROXY_FAST_MODEL: str = "gpt-5.4-mini"
+    CODEX_PROXY_FAST_MODEL: str = "gpt-5.6-luna"
     CODEX_PROXY_MODELS: Optional[str] = None
 
     ANTHROPIC_API_KEY: Optional[str] = None

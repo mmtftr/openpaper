@@ -33,6 +33,7 @@ const REASONING_EFFORT_OPTIONS: { id: ReasoningEffort; label: string }[] = [
 	{ id: "medium", label: "Medium" },
 	{ id: "high", label: "High" },
 	{ id: "xhigh", label: "xhigh" },
+	{ id: "max", label: "max" },
 ];
 
 // Same labelling as the chat model picker.

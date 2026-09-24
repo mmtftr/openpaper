@@ -105,7 +105,7 @@ class PaperChatBody(BaseModel):
     conversation_id: str
     llm_provider: Optional[str] = None
     model: Optional[str] = None
-    reasoning_effort: Optional[Literal["low", "medium", "high", "xhigh"]] = None
+    reasoning_effort: Optional[Literal["low", "medium", "high", "xhigh", "max"]] = None
     context_mode: Optional[Literal["adaptive", "comprehensive", "full"]] = None
     # PDF text selections attached by the user. Bounded: they flow into the
     # model prompt.
@@ -142,7 +142,7 @@ class QuickQuestionCodeBody(BaseModel):
     end_line: int
     llm_provider: Optional[str] = None
     model: Optional[str] = None
-    reasoning_effort: Optional[Literal["low", "medium", "high", "xhigh"]] = None
+    reasoning_effort: Optional[Literal["low", "medium", "high", "xhigh", "max"]] = None
 
 
 @message_router.post(

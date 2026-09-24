@@ -2428,7 +2428,7 @@ export interface components {
             /** Provider */
             provider?: string | null;
             /** Reasoning Effort */
-            reasoning_effort?: ("low" | "medium" | "high" | "xhigh") | null;
+            reasoning_effort?: ("low" | "medium" | "high" | "xhigh" | "max") | null;
         };
         /**
          * OAStatus
@@ -2546,7 +2546,7 @@ export interface components {
             /** Paper Id */
             paper_id: string;
             /** Reasoning Effort */
-            reasoning_effort?: ("low" | "medium" | "high" | "xhigh") | null;
+            reasoning_effort?: ("low" | "medium" | "high" | "xhigh" | "max") | null;
             /**
              * Trigger
              * @default submit-message
@@ -2886,7 +2886,7 @@ export interface components {
             /** Question */
             question: string;
             /** Reasoning Effort */
-            reasoning_effort?: ("low" | "medium" | "high" | "xhigh") | null;
+            reasoning_effort?: ("low" | "medium" | "high" | "xhigh" | "max") | null;
             /** Start Line */
             start_line: number;
         };

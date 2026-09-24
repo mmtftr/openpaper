@@ -14,9 +14,10 @@ export const REASONING_EFFORT_OPTIONS: { id: ReasoningEffort; label: string }[] 
     { id: "medium", label: "Medium" },
     { id: "high", label: "High" },
     { id: "xhigh", label: "xhigh" },
+    { id: "max", label: "max" },
 ];
 
-export const REASONING_EFFORT_VALUES: ReasoningEffort[] = ["low", "medium", "high", "xhigh"];
+export const REASONING_EFFORT_VALUES: ReasoningEffort[] = ["low", "medium", "high", "xhigh", "max"];
 
 export type ContextMode = NonNullable<PaperChatRequest["context_mode"]>;
 

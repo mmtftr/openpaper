@@ -145,22 +145,26 @@ It is currently the default (`DEFAULT_LLM_PROVIDER=codex_proxy`) because
 it. Non-obvious facts about that proxy:
 
 - `gpt-6-astra` does **not** appear in its `GET /v1/models` list yet works
-  (streaming, tools, image input, `reasoning_effort` all verified live) — so
-  that list is not proof a codex model is unavailable.
+  (streaming, tools, image input verified live) — so that list is not proof
+  a codex model is unavailable.
+- It forwards `reasoning_effort` to the codex backend (it silently ignored it
+  before 2026-09-24), including `xhigh` and `max`, so `build_settings` passes
+  every tier through for this provider. Azure tops out at `xhigh` on
+  Responses (`max` 400s) and `high` on Chat Completions; `_effort_for` clamps.
 - It **ignores `response_format` json_schema** (returns prose). Structured
   output still works only because pydantic-ai defaults to tool-output
   (`final_result` tool); don't move any caller to native JSON-schema output
   while this provider is the default.
-- It **never sends token usage on streaming responses** (it keeps usage from
-  `response.completed` but only adds it to non-streaming bodies, even with
-  `stream_options.include_usage`), so streamed chats on this provider record
-  0 tokens. Non-streaming calls report usage. The fix belongs in the proxy
-  (`~/.local/bin/codex-raycast-proxy`), not the server.
-- It rejects `gpt-5.4-mini`, so every fast-model slot in
-  `app/llm/model_slots.py` (`chat.title`, `chat.reconcile`, `discover`,
-  `ingest.outline`) is pinned to the Azure/OpenAI provider.
+- Its fast model is `CODEX_PROXY_FAST_MODEL=gpt-5.6-luna` (it rejects
+  `gpt-5.4-mini`). FAST slots (`chat.title`, `chat.reconcile`, `discover`,
+  `ingest.outline`) follow the default provider and, on this provider, run
+  at effort `max` (`FAST_EFFORT_BY_PROVIDER` in `app/llm/model_slots.py`);
+  Settings → Models can override the effort per slot.
+- Streamed responses report token usage (incl. reasoning tokens) since the
+  2026-09-24 proxy fix.
 
 `DEFAULT_LLM_PROVIDER` is read by the `ModelRegistry`; slots without a
-pinned provider (`chat.default`, `quick_question`) follow it. The ingest
-worker's slots (`ingest.*`) are pinned to Azure/OpenAI, as the old jobs
-service was, unless Settings → Models overrides them.
+pinned provider (`chat.*`, `quick_question`, `discover`, `ingest.outline`)
+follow it. `ingest.ocr_repair`, `ingest.metadata` and `ingest.highlights`
+are pinned to Azure/OpenAI, as the old jobs service was, unless Settings →
+Models overrides them.

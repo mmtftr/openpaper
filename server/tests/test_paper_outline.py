@@ -279,28 +279,23 @@ def test_tree_without_cleanup_keeps_same_level_headings_flat(paper):
     assert [e["title"] for e in tree[:3]] == ["One", "Two", "Three"]
 
 
-def test_default_slot_uses_openai_fast_deployment():
-    from app.llm.model_registry import (
-        LLMProvider,
-        ModelRegistry,
-        ModelSpec,
-        _ProviderConfig,
-    )
+def test_default_slot_follows_the_default_providers_fast_model():
+    from app.llm.model_registry import LLMProvider, ModelRegistry, _ProviderConfig
     from app.llm.model_slots import resolve_slot
 
     configs = {
         LLMProvider.OPENAI: _ProviderConfig("k", None, "gpt-5.5", "gpt-5.4-mini"),
         LLMProvider.CODEX_PROXY: _ProviderConfig(
-            "k", "http://proxy/v1", "gpt-6-astra", "gpt-5.4-mini"
+            "k", "http://proxy/v1", "gpt-6-astra", "gpt-5.6-luna"
         ),
     }
-    specs = [
-        ModelSpec(id="gpt-5.4-mini", provider=LLMProvider.OPENAI, display_name="mini")
-    ]
-    # Even while the codex proxy is the default provider.
-    registry = ModelRegistry(specs, configs, LLMProvider.CODEX_PROXY)
-    spec = resolve_slot("ingest.outline", registry).spec
-    assert (spec.provider, spec.id) == (LLMProvider.OPENAI, "gpt-5.4-mini")
+    registry = ModelRegistry([], configs, LLMProvider.CODEX_PROXY)
+    resolved = resolve_slot("ingest.outline", registry)
+    assert (resolved.spec.provider, resolved.spec.id) == (
+        LLMProvider.CODEX_PROXY,
+        "gpt-5.6-luna",
+    )
+    assert resolved.reasoning_effort == "max"
 
 
 def test_missing_blocks_still_produce_page_targets(paper):
