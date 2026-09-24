@@ -1,5 +1,4 @@
 # filepath: annotated-paper/server/gunicorn.conf.py
-import multiprocessing
 import os
 
 # Bind address and port
@@ -7,9 +6,9 @@ import os
 port = os.getenv("PORT", "8000")
 bind = f"0.0.0.0:{port}"
 
-# Number of worker processes
-# Recommended: (2 * number of CPU cores) + 1
-workers = (multiprocessing.cpu_count() * 2) + 1
+# Number of worker processes. Single-user deployment: a few workers are plenty
+# (the CPU-based default spawned ~19 and used ~5 GB of RAM).
+workers = int(os.getenv("WEB_CONCURRENCY", "3"))
 
 # Worker class for ASGI applications (FastAPI)
 worker_class = "uvicorn.workers.UvicornWorker"

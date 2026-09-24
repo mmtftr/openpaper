@@ -96,7 +96,9 @@ class PdfProcessingWebhookData(BaseModel):
 
     task_id: str
     status: str
-    result: PDFProcessingResult
+    # The jobs service sends `result: None` plus `error` when the task raised.
+    result: Optional[PDFProcessingResult] = None
+    error: Optional[str] = None
 
 
 @webhook_router.post("/paper-processing/{job_id}")
@@ -137,7 +139,7 @@ async def handle_paper_processing_webhook(
     result = webhook_data.result
 
     try:
-        if status == "completed" and result.success:
+        if status == "completed" and result is not None and result.success:
             # Processing was successful
             metadata = result.metadata
             file_url = result.file_url
@@ -291,7 +293,11 @@ async def handle_paper_processing_webhook(
 
         else:
             # Processing failed
-            error_message = result.error if result.error else "Unknown error"
+            error_message = (
+                (result.error if result is not None else None)
+                or webhook_data.error
+                or "Unknown error"
+            )
             handle_failed_upload(
                 db=db, job_id=job_id, job_user=job_user, reason=error_message
             )

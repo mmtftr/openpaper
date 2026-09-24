@@ -12,10 +12,10 @@ logfire.configure(
     service_name="openpaper-jobs",
     send_to_logfire="if-token-present",
 )
-logfire.instrument_pydantic()
-logfire.instrument_openai()
+# No request/response bodies or prompts: they carry full PDFs and page images.
+logfire.instrument_pydantic(record="failure")
 logfire.instrument_celery()
-logfire.instrument_httpx(capture_all=True)
+logfire.instrument_httpx()
 
 BROKER_URL = os.getenv("CELERY_BROKER_URL", "pyamqp://guest@localhost:5672//")
 BACKEND_URL = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
@@ -41,7 +41,7 @@ celery_app.conf.update(
     },
     worker_prefetch_multiplier=1,  # Process one task at a time
     task_acks_late=True,
-    reject_on_worker_lost=True,
+    task_reject_on_worker_lost=True,
     task_acks_on_failure_or_timeout=True,
     worker_max_tasks_per_child=1000,
     # Health monitoring settings

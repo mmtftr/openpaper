@@ -54,10 +54,15 @@ def _safe_instrument(label: str, instrument) -> None:
 
 
 _safe_instrument("pydantic", lambda: logfire.instrument_pydantic(record="failure"))
-_safe_instrument("openai", logfire.instrument_openai)
-_safe_instrument("anthropic", logfire.instrument_anthropic)
-_safe_instrument("google_genai", logfire.instrument_google_genai)
-_safe_instrument("httpx", lambda: logfire.instrument_httpx(capture_all=True))
+# Model calls: spans with model, timing and token usage, but no prompt or
+# response content (prompts carry full paper text and page images).
+_safe_instrument(
+    "pydantic_ai",
+    lambda: logfire.instrument_pydantic_ai(
+        include_content=False, include_binary_content=False
+    ),
+)
+_safe_instrument("httpx", logfire.instrument_httpx)
 
 app = FastAPI(
     title="Open Paper",

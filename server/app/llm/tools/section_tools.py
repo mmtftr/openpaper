@@ -14,10 +14,12 @@ from, so the agent can fill in the gap with another call.
 """
 
 import re
+import time
 import uuid
 from logging import getLogger
 from typing import Any, Dict, List, Optional, Tuple
 
+import regex
 from app.database.crud.paper_crud import paper_crud
 from app.database.models import Paper
 from app.schemas.user import CurrentUser
@@ -568,9 +570,28 @@ def read_pages(
     return _read_pages_pymupdf(paper, start, end)
 
 
+# Total wall-clock budget for one `search_paper` call. A model-written regex
+# with catastrophic backtracking would otherwise hang the chat turn.
+SEARCH_TIME_BUDGET_S = 2.0
+
+
+class _TimedPattern:
+    """A compiled `regex` pattern whose searches share one deadline."""
+
+    def __init__(self, query: str, budget_s: float) -> None:
+        self._pattern = regex.compile(query, regex.IGNORECASE)
+        self._deadline = time.monotonic() + budget_s
+
+    def search(self, text: str):
+        remaining = self._deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError
+        return self._pattern.search(text, timeout=remaining)
+
+
 def _search_single_paper(
     paper: Paper,
-    pattern: "re.Pattern[str]",
+    pattern: _TimedPattern,
     context_lines: int,
     paper_id_for_tagging: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
@@ -657,9 +678,30 @@ def search_paper(
     allowed_paper_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     try:
-        pattern = re.compile(query, re.IGNORECASE)
-    except re.error as e:
+        pattern = _TimedPattern(query, SEARCH_TIME_BUDGET_S)
+    except regex.error as e:
         return {"error": f"Invalid regex: {e}"}
+    try:
+        return _search_paper(
+            paper_id, pattern, current_user, db, context_lines,
+            target_paper_id, allowed_paper_ids,
+        )
+    except TimeoutError:
+        return {
+            "error": f"Regex search timed out after {SEARCH_TIME_BUDGET_S:.0f}s; "
+            "use a simpler pattern."
+        }
+
+
+def _search_paper(
+    paper_id: str,
+    pattern: _TimedPattern,
+    current_user: CurrentUser,
+    db: Session,
+    context_lines: int,
+    target_paper_id: Optional[str],
+    allowed_paper_ids: Optional[List[str]],
+) -> Dict[str, Any]:
 
     # When the agent passes no explicit target, search across the whole
     # paper family (parent + supplementaries). Each hit is tagged with the
