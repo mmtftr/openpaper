@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/sheet';
 import { CitePaperButton } from '@/components/CitePaperButton';
 import { ManageProjectsButton } from '@/components/ManageProjectsButton';
+import { IngestStatusPopover } from '@/components/ingest/IngestStatusPopover';
 
 export function MobilePaperMenu() {
     const [isOpen, setIsOpen] = useState(false);
@@ -36,6 +37,9 @@ export function MobilePaperMenu() {
                         </div>
                         <div className="w-full [&>*]:w-full [&>*>button]:w-full [&>*>button]:justify-start [&>*>button]:text-left [&>*>button]:px-4 [&>*>button]:py-3 [&>*>button]:h-auto [&>*>button]:flex [&>*>button]:items-center">
                             <ManageProjectsButton />
+                        </div>
+                        <div className="w-full [&>*]:w-full [&>*>button]:w-full [&>*>button]:justify-start [&>*>button]:text-left [&>*>button]:px-4 [&>*>button]:py-3 [&>*>button]:h-auto [&>*>button]:flex [&>*>button]:items-center">
+                            <IngestStatusPopover />
                         </div>
                     </div>
                 </SheetContent>

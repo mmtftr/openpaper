@@ -9,6 +9,7 @@ import { useAuth } from '@/lib/auth';
 import { PaperChatPanel } from '@/components/chat/PaperChatPanel';
 import { MetadataPopover } from '@/components/chat/MetadataPopover';
 import { PaperDocEditor } from '@/components/PaperDocEditor';
+import { FeatureGate } from '@/components/ingest/FeatureGate';
 
 interface SidePanelContentProps {
     rightSideFunction: string;
@@ -18,6 +19,8 @@ interface SidePanelContentProps {
     handleHighlightClick: (highlight: PaperHighlight) => void;
     activeHighlight: PaperHighlight | null;
     id: string;
+    /** The paper whose PDF is shown (the annotations list follows it). */
+    displayedPaperId?: string;
     matchesCurrentCitation: (key: string, messageIndex: number) => boolean;
     flashesCurrentCitation?: (key: string, messageIndex: number) => boolean;
     jumpToText: (term: string, page?: number) => void;
@@ -39,6 +42,7 @@ export function SidePanelContent({
     handleHighlightClick,
     activeHighlight,
     id,
+    displayedPaperId,
     matchesCurrentCitation,
     flashesCurrentCitation,
     jumpToText,
@@ -63,6 +67,12 @@ export function SidePanelContent({
         <div className={`flex-grow h-full overflow-hidden ${isMobile ? '' : 'pr-[60px]'}`}>
             {rightSideFunction === 'Annotations' && user && (
                 <div className={`flex flex-col ${heightClass} overflow-y-auto`}>
+                    <FeatureGate
+                        paperId={displayedPaperId ?? id}
+                        feature="ai_highlights"
+                        variant="inline"
+                        className="border-b"
+                    />
                     <AnnotationsView
                         annotations={annotations}
                         highlights={highlights}
@@ -84,18 +94,20 @@ export function SidePanelContent({
             )}
 
             {rightSideFunction === 'Chat' && (
-                <PaperChatPanel
-                    id={id}
-                    paperData={paperData}
-                    isMobile={isMobile}
-                    userMessageReferences={userMessageReferences}
-                    setUserMessageReferences={setUserMessageReferences}
-                    handleCitationClick={handleCitationClick}
-                    matchesCurrentCitation={matchesCurrentCitation}
-                    flashesCurrentCitation={flashesCurrentCitation}
-                    jumpToText={jumpToText}
-                    headerSlot={<MetadataPopover paperData={paperData} />}
-                />
+                <FeatureGate paperId={id} feature="chat" className={heightClass}>
+                    <PaperChatPanel
+                        id={id}
+                        paperData={paperData}
+                        isMobile={isMobile}
+                        userMessageReferences={userMessageReferences}
+                        setUserMessageReferences={setUserMessageReferences}
+                        handleCitationClick={handleCitationClick}
+                        matchesCurrentCitation={matchesCurrentCitation}
+                        flashesCurrentCitation={flashesCurrentCitation}
+                        jumpToText={jumpToText}
+                        headerSlot={<MetadataPopover paperData={paperData} />}
+                    />
+                </FeatureGate>
             )}
         </div>
     );

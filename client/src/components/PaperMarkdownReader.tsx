@@ -9,6 +9,8 @@ import { api, unwrap, type Schemas } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useStageRefreshKey } from '@/hooks/useIngest';
+import { FeatureGate } from '@/components/ingest/FeatureGate';
 
 const CrepeMarkdownReader = dynamic(() => import('./PaperMarkdownReaderImpl'), {
     ssr: false,
@@ -33,12 +35,15 @@ interface PaperMarkdownReaderProps {
     onChangeDisplayed?: (paperId: string) => void;
 }
 
-function resolveMarkdownImageUrls(markdown: string, paperId: string) {
+// `figuresVersion` (the figures stage's finish time) busts the browser's copy
+// of an image that 404'd before the figures were rendered.
+function resolveMarkdownImageUrls(markdown: string, paperId: string, figuresVersion: string) {
     if (!paperId) return markdown;
 
+    const query = figuresVersion ? `?v=${encodeURIComponent(figuresVersion)}` : '';
     return markdown.replace(/!\[([^\]]*)\]\(([^)\s]+)(\s+"[^"]*")?\)/g, (match, alt, src, title = '') => {
         if (src.startsWith('http') || src.startsWith('/') || src.startsWith('data:')) return match;
-        const figureUrl = `/api/paper/${encodeURIComponent(paperId)}/figure/${encodeURIComponent(src)}`;
+        const figureUrl = `/api/paper/${encodeURIComponent(paperId)}/figure/${encodeURIComponent(src)}${query}`;
         return `![${alt}](${figureUrl}${title})`;
     });
 }
@@ -55,8 +60,12 @@ export function PaperMarkdownReader({
     const isMobile = useIsMobile();
     const [switcherOpen, setSwitcherOpen] = useState(false);
 
+    // The markdown is OCR repair's output; figures are rendered by their own
+    // stage. Re-read / re-resolve when either finishes while this is open.
+    const markdownRefreshKey = useStageRefreshKey(paperId, ['ocr_repair']);
+    const figuresRefreshKey = useStageRefreshKey(paperId, ['figures']);
     const { data, isLoading: loading, error: fetchError } = useSWR(
-        ["/api/paper/markdown", paperId],
+        ["/api/paper/markdown", paperId, markdownRefreshKey],
         () => unwrap(api.GET("/api/paper/markdown", { params: { query: { id: paperId } } })),
     );
     const error = fetchError
@@ -64,8 +73,8 @@ export function PaperMarkdownReader({
         : null;
 
     const renderedMarkdown = useMemo(
-        () => resolveMarkdownImageUrls(data?.markdown || '', paperId),
-        [data?.markdown, paperId]
+        () => resolveMarkdownImageUrls(data?.markdown || '', paperId, figuresRefreshKey),
+        [data?.markdown, paperId, figuresRefreshKey]
     );
 
     const showSwitcher = Boolean(parentPaperId);
@@ -170,6 +179,7 @@ export function PaperMarkdownReader({
     return (
         <div className="flex flex-col h-full">
             {header}
+            <FeatureGate paperId={paperId} feature="figures" variant="inline" className="border-b" />
             <div className={`flex-1 overflow-y-auto ${isMobile ? 'pb-24' : ''}`}>
                 {loading ? (
                     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
