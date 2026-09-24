@@ -1,7 +1,10 @@
 # Paper ingest v2 (rev 5)
 
-Status: DRAFT rev 5 (2026-09-24). Replaces the `jobs/` PDF pipeline (Celery +
-RabbitMQ + Redis + jobs-api + webhook). Personal single-user deployment: **one**
+Status: implemented (rev 5, 2026-09-24); code contracts in
+`server/app/ingest/README.md`. It replaced the `jobs/` PDF pipeline (Celery +
+RabbitMQ + Redis + jobs-api + webhook), which has since been deleted; the
+sections below keep the design and migration record as written. Personal
+single-user deployment: **one**
 ingest worker process, one user; designed for readability, not multi-tenant scale.
 
 ## 1. Requirements (owner)

@@ -15,7 +15,7 @@ Full per-highlight results, PDF SHA-256 hashes and the Next log go into
 git-ignored. Do not add PDFs or private annotation content to version control.
 
 The exporter only issues SELECTs to Postgres and GETs to local MinIO. It uses
-PyMuPDF already installed in the jobs worker through stdin; it does not write
+PyMuPDF already installed in the server container (`openpaper-server-1`) through stdin; it does not write
 container files, modify the DB, or restart containers. The runner starts its
 own Next dev server on an OS-assigned loopback port. Each run copies the client
 sources into a temporary `.data/app-*` directory, so concurrent edits and hot reload
