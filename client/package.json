@@ -10,7 +10,7 @@
     "start": "next start",
     "lint": "next lint",
     "go": "yarn install && yarn build && yarn start",
-    "gen:api": "cd ../server && uv run --frozen python -m app.scripts.export_openapi ../client/src/lib/api/openapi.json && cd ../client && openapi-typescript src/lib/api/openapi.json -o src/lib/api/schema.d.ts"
+    "gen:api": "cd ../server && uv run --frozen python -m app.scripts.export_openapi ../client/src/lib/api/openapi.json && cd ../client && openapi-typescript src/lib/api/openapi.json -o src/lib/api/schema.d.ts --default-non-nullable=false"
   },
   "dependencies": {
     "@ai-sdk/react": "3.0.273",

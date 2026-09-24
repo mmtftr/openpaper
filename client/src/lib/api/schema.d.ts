@@ -1436,12 +1436,12 @@ export interface components {
              * Needs Name
              * @default false
              */
-            needs_name: boolean;
+            needs_name?: boolean;
             /**
              * Newly Created
              * @default false
              */
-            newly_created: boolean;
+            newly_created?: boolean;
             /** Success */
             success: boolean;
             user?: components["schemas"]["CurrentUser"] | null;
@@ -1675,12 +1675,12 @@ export interface components {
              * Is Admin
              * @default false
              */
-            is_admin: boolean;
+            is_admin?: boolean;
             /**
              * Is Email Verified
              * @default false
              */
-            is_email_verified: boolean;
+            is_email_verified?: boolean;
             /** Name */
             name?: string | null;
             /** Picture */
@@ -1756,7 +1756,7 @@ export interface components {
              * Only Open Access
              * @default false
              */
-            only_open_access: boolean;
+            only_open_access?: boolean;
             /** Question */
             question: string;
             /** Sort */
@@ -1842,7 +1842,7 @@ export interface components {
              * @default approval-requested
              * @constant
              */
-            state: "approval-requested";
+            state?: "approval-requested";
             /** Title */
             title?: string | null;
             /** Toolcallid */
@@ -1854,7 +1854,7 @@ export interface components {
              * @default dynamic-tool
              * @constant
              */
-            type: "dynamic-tool";
+            type?: "dynamic-tool";
         };
         /**
          * DynamicToolApprovalRespondedPart
@@ -1878,7 +1878,7 @@ export interface components {
              * @default approval-responded
              * @constant
              */
-            state: "approval-responded";
+            state?: "approval-responded";
             /** Title */
             title?: string | null;
             /** Toolcallid */
@@ -1890,7 +1890,7 @@ export interface components {
              * @default dynamic-tool
              * @constant
              */
-            type: "dynamic-tool";
+            type?: "dynamic-tool";
         };
         /**
          * DynamicToolInputAvailablePart
@@ -1914,7 +1914,7 @@ export interface components {
              * @default input-available
              * @constant
              */
-            state: "input-available";
+            state?: "input-available";
             /** Title */
             title?: string | null;
             /** Toolcallid */
@@ -1926,7 +1926,7 @@ export interface components {
              * @default dynamic-tool
              * @constant
              */
-            type: "dynamic-tool";
+            type?: "dynamic-tool";
         };
         /**
          * DynamicToolInputStreamingPart
@@ -1950,7 +1950,7 @@ export interface components {
              * @default input-streaming
              * @constant
              */
-            state: "input-streaming";
+            state?: "input-streaming";
             /** Title */
             title?: string | null;
             /** Toolcallid */
@@ -1962,7 +1962,7 @@ export interface components {
              * @default dynamic-tool
              * @constant
              */
-            type: "dynamic-tool";
+            type?: "dynamic-tool";
         };
         /**
          * DynamicToolOutputAvailablePart
@@ -1990,7 +1990,7 @@ export interface components {
              * @default output-available
              * @constant
              */
-            state: "output-available";
+            state?: "output-available";
             /** Title */
             title?: string | null;
             /** Toolcallid */
@@ -2002,7 +2002,7 @@ export interface components {
              * @default dynamic-tool
              * @constant
              */
-            type: "dynamic-tool";
+            type?: "dynamic-tool";
         };
         /**
          * DynamicToolOutputDeniedPart
@@ -2026,7 +2026,7 @@ export interface components {
              * @default output-denied
              * @constant
              */
-            state: "output-denied";
+            state?: "output-denied";
             /** Title */
             title?: string | null;
             /** Toolcallid */
@@ -2038,7 +2038,7 @@ export interface components {
              * @default dynamic-tool
              * @constant
              */
-            type: "dynamic-tool";
+            type?: "dynamic-tool";
         };
         /**
          * DynamicToolOutputErrorPart
@@ -2064,7 +2064,7 @@ export interface components {
              * @default output-error
              * @constant
              */
-            state: "output-error";
+            state?: "output-error";
             /** Title */
             title?: string | null;
             /** Toolcallid */
@@ -2076,7 +2076,7 @@ export interface components {
              * @default dynamic-tool
              * @constant
              */
-            type: "dynamic-tool";
+            type?: "dynamic-tool";
         };
         /**
          * EmailSetNameRequest
@@ -2138,7 +2138,7 @@ export interface components {
              * @default file
              * @constant
              */
-            type: "file";
+            type?: "file";
             /** Url */
             url: string;
         };
@@ -2281,7 +2281,7 @@ export interface components {
              * Tags
              * @default []
              */
-            tags: components["schemas"]["PaperTagResponse"][];
+            tags?: components["schemas"]["PaperTagResponse"][];
             /** Title */
             title?: string | null;
         };
@@ -2361,7 +2361,7 @@ export interface components {
              * Only Oa
              * @default false
              */
-            only_oa: boolean;
+            only_oa?: boolean;
         };
         /** OpenAlexResponse */
         OpenAlexResponse: {
@@ -2496,7 +2496,7 @@ export interface components {
              * @default submit-message
              * @enum {string}
              */
-            trigger: "submit-message" | "regenerate-message";
+            trigger?: "submit-message" | "regenerate-message";
             /** User References */
             user_references?: string[] | null;
         };
@@ -2563,7 +2563,7 @@ export interface components {
              * Tags
              * @default []
              */
-            tags: components["schemas"]["PaperTagResponse"][];
+            tags?: components["schemas"]["PaperTagResponse"][];
             /** Title */
             title?: string | null;
             /** Updated At */
@@ -2599,31 +2599,31 @@ export interface components {
              * @description Abstract of the paper
              * @default
              */
-            abstract: string;
+            abstract?: string;
             /**
              * Authors
              * @description List of authors
              * @default []
              */
-            authors: string[];
+            authors?: string[];
             /**
              * Highlights
              * @description List of key highlights from the paper. These should be significant quotes that are must-reads of the paper's findings and contributions. Each highlight should include the text of the highlight and an annotation explaining its significance or relevance to the paper's content. Particularly drill into interesting, novel findings, methodologies, or implications that are worth noting. Pay special attention to tables, figures, and diagrams that may contain important information.
              * @default []
              */
-            highlights: components["schemas"]["AIHighlight"][];
+            highlights?: components["schemas"]["AIHighlight"][];
             /**
              * Institutions
              * @description List of institutions involved in the publication.
              * @default []
              */
-            institutions: string[];
+            institutions?: string[];
             /**
              * Keywords
              * @description List of keywords
              * @default []
              */
-            keywords: string[];
+            keywords?: string[];
             /**
              * Publish Date
              * @description Publishing date of the paper in YYYY-MM-DD format
@@ -2921,7 +2921,7 @@ export interface components {
              * @default reasoning
              * @constant
              */
-            type: "reasoning";
+            type?: "reasoning";
         };
         /**
          * RelevantPaper
@@ -3073,7 +3073,7 @@ export interface components {
              * @default revision_mismatch
              * @constant
              */
-            error: "revision_mismatch";
+            error?: "revision_mismatch";
         };
         /** ScaledPosition */
         ScaledPosition: {
@@ -3177,7 +3177,7 @@ export interface components {
              * @default source-document
              * @constant
              */
-            type: "source-document";
+            type?: "source-document";
         };
         /**
          * SourceUrlUIPart
@@ -3199,7 +3199,7 @@ export interface components {
              * @default source-url
              * @constant
              */
-            type: "source-url";
+            type?: "source-url";
             /** Url */
             url: string;
         };
@@ -3213,7 +3213,7 @@ export interface components {
              * @default step-start
              * @constant
              */
-            type: "step-start";
+            type?: "step-start";
         };
         /** SubTopic */
         SubTopic: {
@@ -3276,7 +3276,7 @@ export interface components {
              * @default text
              * @constant
              */
-            type: "text";
+            type?: "text";
         };
         /**
          * ToolApprovalRequested
@@ -3308,7 +3308,7 @@ export interface components {
              * @default approval-requested
              * @constant
              */
-            state: "approval-requested";
+            state?: "approval-requested";
             /** Title */
             title?: string | null;
             /** Toolcallid */
@@ -3350,7 +3350,7 @@ export interface components {
              * @default approval-responded
              * @constant
              */
-            state: "approval-responded";
+            state?: "approval-responded";
             /** Title */
             title?: string | null;
             /** Toolcallid */
@@ -3380,7 +3380,7 @@ export interface components {
              * @default input-available
              * @constant
              */
-            state: "input-available";
+            state?: "input-available";
             /** Title */
             title?: string | null;
             /** Toolcallid */
@@ -3410,7 +3410,7 @@ export interface components {
              * @default input-streaming
              * @constant
              */
-            state: "input-streaming";
+            state?: "input-streaming";
             /** Title */
             title?: string | null;
             /** Toolcallid */
@@ -3444,7 +3444,7 @@ export interface components {
              * @default output-available
              * @constant
              */
-            state: "output-available";
+            state?: "output-available";
             /** Title */
             title?: string | null;
             /** Toolcallid */
@@ -3474,7 +3474,7 @@ export interface components {
              * @default output-denied
              * @constant
              */
-            state: "output-denied";
+            state?: "output-denied";
             /** Title */
             title?: string | null;
             /** Toolcallid */
@@ -3508,7 +3508,7 @@ export interface components {
              * @default output-error
              * @constant
              */
-            state: "output-error";
+            state?: "output-error";
             /** Title */
             title?: string | null;
             /** Toolcallid */
