@@ -16,32 +16,6 @@ services:
       timeout: 5s
       retries: 20
 
-  rabbitmq:
-    image: rabbitmq:3.13-management
-    # Pin hostname so RabbitMQ's Mnesia path (rabbit@<hostname>) is stable
-    # across container recreates. Without this, every recreate rolls a new
-    # hostname → new empty Mnesia subdir → corrupted half-initialized broker.
-    hostname: rabbitmq
-    # No host publish: only used by openpaper containers.
-    volumes:
-      - rabbitmq-data:/var/lib/rabbitmq
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
-  redis:
-    image: redis:7-bookworm
-    # No host publish: only used by openpaper containers.
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
   minio:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
@@ -72,15 +46,11 @@ services:
       dockerfile: Dockerfile
     env_file:
       - ./server/.env
-    environment:
+    environment: &server-env
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/openpaper
       PORT: "8000"
       CLIENT_DOMAIN: http://${BASE_HOSTNAME:-localhost}:12000
       API_DOMAIN: http://${BASE_HOSTNAME:-localhost}:12001
-      WEBHOOK_BASE_URL: http://server:8000
-      CELERY_BROKER_URL: pyamqp://guest:guest@rabbitmq:5672//
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
-      CELERY_API_URL: http://jobs-api:8001
       AWS_ACCESS_KEY_ID: openpaper
       AWS_SECRET_ACCESS_KEY: openpaper-local
       AWS_REGION: us-east-1
@@ -98,12 +68,12 @@ services:
       REPO_STORAGE_DIR: /var/lib/openpaper/repos
     # When BASE_HOSTNAME is the host's LAN/Tailscale name (anything other
     # than `localhost`), containers can't resolve it on their own — map it
-    # to the docker host gateway so callbacks/webhooks issued from inside
-    # containers can still reach the browser-visible URL. Harmless when
+    # to the docker host gateway so requests issued from inside containers
+    # can still reach the browser-visible URL. Harmless when
     # BASE_HOSTNAME=localhost (existing /etc/hosts entry takes precedence).
-    extra_hosts:
+    extra_hosts: &server-hosts
       - "${BASE_HOSTNAME:-localhost}:host-gateway"
-    volumes:
+    volumes: &server-volumes
       - repo-snapshots:/var/lib/openpaper/repos
     command: >
       /bin/sh -c "python app/scripts/run_migrations.py &&
@@ -112,10 +82,6 @@ services:
       - "127.0.0.1:12001:8000"
     depends_on:
       postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      redis:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
@@ -129,78 +95,29 @@ services:
       timeout: 5s
       retries: 20
 
-  jobs-api:
+  # Processes uploaded papers stage by stage (docs/INGEST_DESIGN.md): OCR,
+  # metadata, figures, outline, AI highlights. One per deployment. Same
+  # image, env and volumes as the server; starts once the server is healthy,
+  # i.e. after it has run the migrations.
+  ingest-worker:
     build:
-      context: ./jobs
+      context: ./server
       dockerfile: Dockerfile
     env_file:
-      - ./jobs/.env
-    environment:
-      CELERY_BROKER_URL: pyamqp://guest:guest@rabbitmq:5672//
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
-      AWS_ACCESS_KEY_ID: openpaper
-      AWS_SECRET_ACCESS_KEY: openpaper-local
-      AWS_REGION: us-east-1
-      S3_BUCKET_NAME: openpaper-local
-      CLOUDFLARE_BUCKET_NAME: ${BASE_HOSTNAME:-localhost}:12010/openpaper-local
-      S3_ENDPOINT_URL: http://minio:9000
-      S3_PUBLIC_BASE_URL: http://${BASE_HOSTNAME:-localhost}:12010/openpaper-local
-    extra_hosts:
-      - "${BASE_HOSTNAME:-localhost}:host-gateway"
-    command: .venv/bin/python -m uvicorn src.app:app --host 0.0.0.0 --port 8001 --log-level info
-    ports:
-      - "127.0.0.1:12002:8001"
+      - ./server/.env
+    environment: *server-env
+    extra_hosts: *server-hosts
+    volumes: *server-volumes
+    command: python -m app.ingest.worker
+    # SIGTERM: running stages get 10 s to finish, the rest are requeued.
+    stop_grace_period: 20s
     depends_on:
-      rabbitmq:
-        condition: service_healthy
-      redis:
+      postgres:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)\"",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-
-  jobs-worker:
-    build:
-      context: ./jobs
-      dockerfile: Dockerfile
-    env_file:
-      - ./jobs/.env
-    environment:
-      CELERY_BROKER_URL: pyamqp://guest:guest@rabbitmq:5672//
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
-      AWS_ACCESS_KEY_ID: openpaper
-      AWS_SECRET_ACCESS_KEY: openpaper-local
-      AWS_REGION: us-east-1
-      S3_BUCKET_NAME: openpaper-local
-      CLOUDFLARE_BUCKET_NAME: ${BASE_HOSTNAME:-localhost}:12010/openpaper-local
-      S3_ENDPOINT_URL: http://minio:9000
-      S3_PUBLIC_BASE_URL: http://${BASE_HOSTNAME:-localhost}:12010/openpaper-local
-    extra_hosts:
-      - "${BASE_HOSTNAME:-localhost}:host-gateway"
-    command: >
-      .venv/bin/python -m celery --app src.celery_app worker
-      --loglevel=info
-      --concurrency=2
-      --max-tasks-per-child=1000
-      --time-limit=300
-      --soft-time-limit=240
-    healthcheck:
-      disable: true
-    depends_on:
-      rabbitmq:
+      server:
         condition: service_healthy
-      redis:
-        condition: service_healthy
-      minio-init:
-        condition: service_completed_successfully
 
   client:
     build:
@@ -220,7 +137,5 @@ services:
 
 volumes:
   postgres-data:
-  rabbitmq-data:
-  redis-data:
   minio-data:
   repo-snapshots:

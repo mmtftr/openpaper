@@ -1,18 +1,17 @@
 # Development Setup
 
-This project consists of three main components: a `server`, a `client`, and a `jobs` service.
+This project consists of two components: a `server` (FastAPI, plus the ingest worker that processes uploaded papers — same code and image) and a `client` (Next.js).
 
 ## Docker Compose Quick Start
 
 Use Docker Compose for local development instead of tmux or separately managed service processes.
 
-1. Copy and fill the service env files:
+1. Copy and fill the env file:
    ```bash
    cp server/.env.example server/.env
-   cp jobs/.env.example jobs/.env
    ```
 
-2. Set `OPENAI_API_KEY` in both env files. For Azure OpenAI, additionally set `AZURE_OPENAI=true` and `AZURE_OPENAI_ENDPOINT` in both files; `OPENAI_API_KEY` is treated as the Azure key in that mode and structured outputs are auto-patched for Azure's strict JSON-schema rules.
+2. Set `OPENAI_API_KEY` and `MISTRAL_API_KEY` (OCR) in `server/.env`. For Azure OpenAI, additionally set `AZURE_OPENAI=true` and `AZURE_OPENAI_ENDPOINT`; `OPENAI_API_KEY` is treated as the Azure key in that mode and structured outputs are auto-patched for Azure's strict JSON-schema rules.
 
 3. Start the stack:
    ```bash
@@ -20,15 +19,13 @@ Use Docker Compose for local development instead of tmux or separately managed s
    ```
 
 4. Open:
-   - Client: `http://localhost:9002`
-   - API docs: `http://localhost:9003/docs`
-   - Jobs API health: `http://localhost:9004/health`
-   - RabbitMQ console: `http://localhost:15672` (`guest` / `guest`)
-   - MinIO console: `http://localhost:9001` (`openpaper` / `openpaper-local`)
+   - Client: `http://localhost:12000`
+   - API docs: `http://localhost:12001/docs`
+   - MinIO console: `http://localhost:12011` (`openpaper` / `openpaper-local`)
 
-The compose stack includes Postgres, RabbitMQ, Redis, and MinIO. It runs database migrations before the server starts and uses MinIO as local S3-compatible object storage.
+The compose stack includes Postgres and MinIO (local S3-compatible object storage). The server runs database migrations before it starts; the `ingest-worker` service (`python -m app.ingest.worker`, same image as the server) starts once the server is healthy and processes uploaded papers stage by stage (`docs/INGEST_DESIGN.md`). Its progress is in the `ingest_stages` table and in the paper header's status popover.
 
-The compose HTTP ports stay in the `900x` range: MinIO on `9000`, MinIO console on `9001`, client on `9002`, server API on `9003`, and jobs API on `9004`.
+Host ports (bound to `127.0.0.1`): client `12000`, server API `12001`, MinIO `12010`, MinIO console `12011`.
 
 ## Reaching the stack from another machine
 
@@ -90,19 +87,13 @@ Detailed instructions can be found in the [client/README.md](./client/README.md)
 2.  Install dependencies: `yarn`
 3.  Run the development server: `yarn dev`
 
-## 4. Set Up the Asynchronous Jobs Service
+## 4. Run the Ingest Worker
 
-The jobs service handles long-running tasks like PDF processing.
+Uploaded papers are processed (OCR, metadata, figures, outline, AI highlights) by the ingest worker, a second process from the server's code base. With the server's `.env` in place:
 
-Detailed instructions can be found in the [jobs/README.md](./jobs/README.md).
+```bash
+cd server
+uv run python -m app.ingest.worker
+```
 
-**Quick Start:**
-1.  Navigate to the `jobs` directory: `cd jobs`
-2.  Create and activate virtual environment:
-    ```bash
-    uv venv
-    source .venv/bin/activate
-    ```
-3.  Install dependencies: `uv install`
-3.  Start RabbitMQ and Redis (e.g., using Docker).
-4.  Start the Celery worker: `./scripts/start_worker.sh`
+One worker per deployment. It polls `ingest_stages` for queued work and writes a heartbeat to `ingest_worker` (the paper UI says "worker offline" when it's stale).

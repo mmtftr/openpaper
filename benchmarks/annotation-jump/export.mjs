@@ -37,9 +37,9 @@ export async function exportFixtures(dir, refresh = false) {
     const pdf = Buffer.from(await response.arrayBuffer());
     paper.sha256 = createHash('sha256').update(pdf).digest('hex');
     await writeFile(`${dir}/${paper.id}.pdf`, pdf);
-    // Existing jobs image supplies an independent PDF engine. stdin only, no
-    // container files, database writes, or changes to the deployment.
-    const oracle = execFileSync('docker', ['exec', '-i', 'openpaper-jobs-worker-1', '/app/.venv/bin/python', '-c',
+    // The server image supplies an independent PDF engine (pymupdf). stdin
+    // only, no container files, database writes, or changes to the deployment.
+    const oracle = execFileSync('docker', ['exec', '-i', 'openpaper-server-1', 'python', '-c',
       `import sys,json,pymupdf\ndoc=pymupdf.open(stream=sys.stdin.buffer.read(),filetype='pdf')\nprint(json.dumps([{'width':p.rect.width,'height':p.rect.height,'words':p.get_text('words')} for p in doc]))`], { input: pdf, maxBuffer: 128e6 });
     await writeFile(`${dir}/${paper.id}.words.json`, oracle);
     delete paper.s3_object_key;

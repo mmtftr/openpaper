@@ -8,14 +8,19 @@ cookies, S3 served behind Caddy at `/s3/...`). Compose merges them
 automatically — `docker compose up` brings up the production-ish setup.
 
 Containers and roles:
-- `client` (Next.js) → `server` (FastAPI/gunicorn) → `postgres`
-- `jobs-api` + `jobs-worker` (Celery) talk to `rabbitmq` (broker) + `redis`
-  (result backend); the worker writes papers/figures to `minio` (local S3)
+- `client` (Next.js) → `server` (FastAPI/gunicorn) → `postgres`; PDFs,
+  previews and figure images live in `minio` (local S3) under `papers/{id}/`
+- `ingest-worker` (`python -m app.ingest.worker`, same image/env as `server`)
+  processes uploads stage by stage (`docs/INGEST_DESIGN.md`); the queue and
+  progress are the `ingest_stages` rows, its heartbeat is `ingest_worker`.
+  The upload request itself stores the PDF and queues the stages, so the
+  reader works before the worker picks anything up.
 
-Postgres / RabbitMQ / Redis are not host-published — only reachable from the
-docker network. Migrations run on every `server` start (its command chains
-`run_migrations.py` before gunicorn). Public URLs come from `BASE_HOSTNAME`
-(top-level `.env`); a Caddy on the host fronts client / API / S3.
+Postgres is not host-published — only reachable from the docker network.
+Migrations run on every `server` start (its command chains
+`run_migrations.py` before gunicorn); `ingest-worker` waits for the server
+to be healthy. Public URLs come from `BASE_HOSTNAME` (top-level `.env`); a
+Caddy on the host fronts client / API / S3.
 
 For specifics — port bindings, env vars, exact images — read `compose.yaml`
 and `compose.override.yaml` directly. To poke at the running stack:
@@ -24,6 +29,7 @@ and `compose.override.yaml` directly. To poke at the running stack:
 docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 docker exec openpaper-server-1 alembic current   # or upgrade head, etc.
 docker exec openpaper-postgres-1 psql -U postgres -d openpaper -c '\d <table>'
+docker logs -f openpaper-ingest-worker-1          # stage runs, retries, errors
 ```
 
 `server/.env` changes require recreating the container, not just restarting
@@ -31,7 +37,7 @@ it — `docker compose restart server` reuses the env baked in at container
 creation, so it silently keeps the old values:
 
 ```bash
-docker compose up -d --force-recreate server
+docker compose up -d --force-recreate server ingest-worker
 ```
 
 The server image installs exactly what `server/uv.lock` pins (`uv export
@@ -106,5 +112,6 @@ it. Non-obvious facts about that proxy:
   `ingest.outline`) is pinned to the Azure/OpenAI provider.
 
 `DEFAULT_LLM_PROVIDER` is read by the `ModelRegistry`; slots without a
-pinned provider (`chat.default`, `quick_question`) follow it. `jobs/.env` is separate and stays
-on Azure.
+pinned provider (`chat.default`, `quick_question`) follow it. The ingest
+worker's slots (`ingest.*`) are pinned to Azure/OpenAI, as the old jobs
+service was, unless Settings → Models overrides them.

@@ -117,18 +117,21 @@ def upload_roundtrip(api: httpx.Client, pdf_path: str) -> None:
     """Upload a PDF, wait for ingest to finish, check the result, delete it."""
     t0 = step("upload + ingest")
     with open(pdf_path, "rb") as fh:
-        job = expect(api.post("/api/paper/upload", files={"file": ("smoke.pdf", fh, "application/pdf")}), 200, 201, 202).json()
-    deadline = time.monotonic() + 300
-    status = {}
-    while time.monotonic() < deadline:
-        status = expect(api.get(f"/api/paper/upload/status/{job['job_id']}"), 200).json()
-        if status.get("status") in ("completed", "failed"):
-            break
-        time.sleep(1)
-    paper_id = status.get("paper_id")
+        paper_id = expect(api.post("/api/paper/upload", files={"file": ("smoke.pdf", fh, "application/pdf")}), 201).json()["paper_id"]
     try:
-        if status.get("status") != "completed" or not paper_id:
-            fail(f"ingest did not complete: {status}")
+        # The PDF is readable as soon as the upload returns.
+        expect(api.get("/api/paper", params={"id": paper_id}), 200)
+        deadline = time.monotonic() + 300
+        status: dict = {}
+        while time.monotonic() < deadline:
+            status = expect(api.get(f"/api/paper/{paper_id}/ingest"), 200).json()
+            if not status.get("active"):
+                break
+            time.sleep(1)
+        stages = {s["name"]: s["status"] for s in status.get("stages", [])}
+        bad = {n: s for n, s in stages.items() if s not in ("succeeded", "skipped")}
+        if bad or status.get("active"):
+            fail(f"ingest did not finish: {bad or stages}")
         paper = expect(api.get("/api/paper", params={"id": paper_id}), 200).json()
         if not paper.get("title"):
             fail("ingested paper has no title")
@@ -136,8 +139,7 @@ def upload_roundtrip(api: httpx.Client, pdf_path: str) -> None:
         figures = expect(api.get(f"/api/paper/{paper_id}/figures"), 200).json()
         ok(t0, f"{paper['title'][:50]!r}, {len(figures)} figures, {len(highlights)} highlights")
     finally:
-        if paper_id:
-            expect(api.delete("/api/paper", params={"id": paper_id}), 200, 204)
+        expect(api.delete("/api/paper", params={"id": paper_id}), 200, 204)
 
 
 def main() -> None:
