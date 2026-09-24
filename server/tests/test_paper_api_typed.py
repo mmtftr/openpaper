@@ -64,3 +64,68 @@ def test_revision_conflict_keeps_the_fields_the_editor_reads(monkeypatch):
     assert body["error"] == "revision_mismatch"
     assert body["current_revision"] == 7
     assert body["current_content"] == "server copy"
+
+
+class _FakeDb:
+    def __init__(self, paper):
+        self.paper = paper
+
+    def add(self, obj):
+        pass
+
+    def commit(self):
+        pass
+
+    def refresh(self, obj):
+        pass
+
+    def get(self, model, id):
+        return self.paper if id == self.paper.id else None
+
+
+def test_edited_fields_are_protected_from_metadata_lookups(monkeypatch):
+    from app.database.models import Paper, PaperStatus
+    from app.ingest.metadata_lookup import write_fields
+    from app.ingest.models import MetadataSource
+
+    paper = Paper(
+        id=uuid.uuid4(),
+        user_id=USER.id,
+        file_url="https://files.test/x.pdf",
+        status=PaperStatus.todo,
+        title="Crossref Title",
+        metadata_source={"title": "crossref", "doi": "crossref"},
+    )
+    before = paper.metadata_source
+    fake_db = _FakeDb(paper)
+    monkeypatch.setattr(paper_api.paper_crud, "get", lambda *a, **k: paper)
+    monkeypatch.setattr(paper_api, "track_event", lambda *a, **k: None)
+    app = FastAPI()
+    app.include_router(paper_api.paper_router, prefix="/api/paper")
+    app.dependency_overrides[get_required_user] = lambda: USER
+    app.dependency_overrides[get_db] = lambda: fake_db
+
+    response = TestClient(app).patch(
+        f"/api/paper?paper_id={paper.id}",
+        json={"title": "My Title", "authors": ["Ada Lovelace"]},
+    )
+    assert response.status_code == 200, response.text
+    assert paper.metadata_source is not before  # reassigned: SQLAlchemy sees it
+    assert paper.metadata_source == {
+        "title": "user",
+        "authors": "user",
+        "doi": "crossref",
+    }
+
+    crossref = MetadataSource.CROSSREF
+    written = write_fields(
+        fake_db,  # type: ignore[arg-type]
+        paper.id,
+        {
+            "title": ("Crossref Title", crossref),
+            "authors": (["A. Lovelace"], crossref),
+            "journal": ("Nature", crossref),
+        },
+    )
+    assert written == ["journal"]
+    assert (paper.title, paper.authors) == ("My Title", ["Ada Lovelace"])

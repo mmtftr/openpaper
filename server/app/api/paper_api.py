@@ -18,7 +18,7 @@ from app.database.models import Paper, PaperStatus
 from app.database.telemetry import track_event
 from app.helpers.s3 import s3_service
 from app.ingest import content, storage
-from app.ingest.models import IngestStage, StageStatus
+from app.ingest.models import METADATA_FIELDS, IngestStage, MetadataSource, StageStatus
 from app.llm.paper_outline import OutlineEntry
 from app.schemas.paper import (
     ActivePaper,
@@ -233,8 +233,18 @@ def update_paper_fields(
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
 
+    # Owner edits win over later metadata lookups (reprocess, fallback).
+    # A new dict, so SQLAlchemy sees the JSONB change.
+    sources: dict[str, str] = dict(target_paper.metadata_source or {})  # type: ignore[arg-type]
+    for name in update_data:
+        if name in METADATA_FIELDS:
+            sources[name] = MetadataSource.USER.value
+
     updated_paper = paper_crud.update(
-        db=db, db_obj=target_paper, obj_in=update_data, user=current_user
+        db=db,
+        db_obj=target_paper,
+        obj_in={**update_data, "metadata_source": sources},
+        user=current_user,
     )
 
     if not updated_paper:
