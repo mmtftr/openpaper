@@ -80,6 +80,7 @@ export function InlineAnnotationCard({
     const replySectionRef = useRef<HTMLDivElement>(null);
 
     const displayName = user?.name || "Anonymous";
+    // A Tailwind class (`bg-blue-500`), not a CSS colour.
     const avatarBg = user?.name ? getAlphaHashToBackgroundColor(user.name) : "bg-muted";
 
     const sortedThread = useMemo(
@@ -309,10 +310,7 @@ export function InlineAnnotationCard({
                     <div className="flex items-center gap-3">
                         <Avatar className="h-9 w-9 flex-shrink-0">
                             {user?.picture && <AvatarImage src={user.picture} alt={displayName} />}
-                            <AvatarFallback
-                                className="text-xs text-white font-medium"
-                                style={{ backgroundColor: avatarBg }}
-                            >
+                            <AvatarFallback className={cn("text-xs text-white font-medium", avatarBg)}>
                                 {getInitials(displayName)}
                             </AvatarFallback>
                         </Avatar>
@@ -401,10 +399,7 @@ export function InlineAnnotationCard({
                                     ) : (
                                         <Avatar className="h-7 w-7 flex-shrink-0">
                                             {user?.picture && <AvatarImage src={user.picture} alt={displayName} />}
-                                            <AvatarFallback
-                                                className="text-[10px] text-white font-medium"
-                                                style={{ backgroundColor: avatarBg }}
-                                            >
+                                            <AvatarFallback className={cn("text-[10px] text-white font-medium", avatarBg)}>
                                                 {getInitials(displayName)}
                                             </AvatarFallback>
                                         </Avatar>
