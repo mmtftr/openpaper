@@ -426,6 +426,10 @@ async def _run_repo_tool(deps: PaperAgentDeps, code: str) -> Dict[str, Any]:
             "output": "[error] No code repository is connected to this paper.",
         }
 
+    # This call's ordinal, read BEFORE the await: parallel calls are all
+    # charged before the first run returns, so the counter afterwards is the
+    # batch total, not this call's index.
+    call_index = deps.tool_budget.calls_by_tool["run_python"]
     started = time.time()
     result = await sandbox.run(code)
     track_event(
@@ -436,7 +440,7 @@ async def _run_repo_tool(deps: PaperAgentDeps, code: str) -> Dict[str, Any]:
             "context_mode": deps.context_mode,
             "runtime": "pydantic_ai",
             "files_touched": len(result.get("files") or []),
-            "call_index": deps.tool_budget.calls_by_tool["run_python"],
+            "call_index": call_index,
         },
         user_id=str(deps.current_user.id),
     )
