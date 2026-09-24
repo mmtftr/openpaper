@@ -111,7 +111,12 @@ def _check_golden(name: str, observed: Dict[str, Any]) -> None:
         path.write_text(json.dumps(normalized, indent=1, sort_keys=True) + "\n")
         return
     expected = json.loads(path.read_text())
-    assert normalized == expected
+    if normalized != expected:
+        # Same layout as the golden, for a plain `diff`.
+        observed_path = Path("/tmp/chat_golden_observed") / path.name
+        observed_path.parent.mkdir(parents=True, exist_ok=True)
+        observed_path.write_text(json.dumps(normalized, indent=1, sort_keys=True) + "\n")
+        pytest.fail(f"{name} differs from its golden: diff {path} {observed_path}")
 
 
 def _patch_everywhere(monkeypatch, name: str, value: Any) -> None:
@@ -132,6 +137,32 @@ def _parse_sse(encoded: List[str]) -> List[Any]:
         assert raw.startswith("data: ") and raw.endswith("\n\n"), raw
         body = raw[len("data: ") : -2]
         out.append("[DONE]" if body == "[DONE]" else json.loads(body))
+    return _sort_parallel_outputs(out)
+
+
+def _sort_parallel_outputs(chunks: List[Any]) -> List[Any]:
+    """Order each consecutive run of `tool-output-available` by call id.
+
+    Parallel tool calls report their results in COMPLETION order, which
+    pydantic-ai takes from `asyncio.wait` sets — it varies from run to run on
+    any runtime. Which call got which output is what the golden pins.
+    """
+
+    def is_output(chunk: Any) -> bool:
+        return isinstance(chunk, dict) and chunk.get("type") == "tool-output-available"
+
+    out: List[Any] = []
+    index = 0
+    while index < len(chunks):
+        if not is_output(chunks[index]):
+            out.append(chunks[index])
+            index += 1
+            continue
+        end = index
+        while end < len(chunks) and is_output(chunks[end]):
+            end += 1
+        out.extend(sorted(chunks[index:end], key=lambda c: c["toolCallId"]))
+        index = end
     return out
 
 

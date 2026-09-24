@@ -168,28 +168,13 @@
    "type": "tool-input-available"
   },
   {
-   "output": "read_file: path is required, e.g. '/repo/pkg/module.py'.",
-   "toolCallId": "q-3",
-   "type": "tool-output-available"
-  },
-  {
-   "output": "grep_repo: pattern is required.",
-   "toolCallId": "q-6",
-   "type": "tool-output-available"
-  },
-  {
-   "output": "[budget] This question has used all 4 repo lookups. Do not call another tool \u2014 answer from the file, the selection and what you have already read, and say plainly what you could not check.",
-   "toolCallId": "q-8",
-   "type": "tool-output-available"
-  },
-  {
-   "output": "[budget] This question has used all 4 repo lookups. Do not call another tool \u2014 answer from the file, the selection and what you have already read, and say plainly what you could not check.",
-   "toolCallId": "q-7",
-   "type": "tool-output-available"
-  },
-  {
    "output": "/repo/pkg/mod.py (lines 1-3 of 20)\n1| line 1\n2| line 2\n3| line 3\n... [17 more lines; call read('/repo/pkg/mod.py', start=4)]",
    "toolCallId": "q-2",
+   "type": "tool-output-available"
+  },
+  {
+   "output": "read_file: path is required, e.g. '/repo/pkg/module.py'.",
+   "toolCallId": "q-3",
    "type": "tool-output-available"
   },
   {
@@ -200,6 +185,21 @@
   {
    "output": "/repo/pkg/mod.py (lines 1-3 of 20)\n1| line 1\n2| line 2\n3| line 3\n... [17 more lines; call read('/repo/pkg/mod.py', start=4)]",
    "toolCallId": "q-5",
+   "type": "tool-output-available"
+  },
+  {
+   "output": "grep_repo: pattern is required.",
+   "toolCallId": "q-6",
+   "type": "tool-output-available"
+  },
+  {
+   "output": "[budget] This question has used all 4 repo lookups. Do not call another tool \u2014 answer from the file, the selection and what you have already read, and say plainly what you could not check.",
+   "toolCallId": "q-7",
+   "type": "tool-output-available"
+  },
+  {
+   "output": "[budget] This question has used all 4 repo lookups. Do not call another tool \u2014 answer from the file, the selection and what you have already read, and say plainly what you could not check.",
+   "toolCallId": "q-8",
    "type": "tool-output-available"
   },
   {
