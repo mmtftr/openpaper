@@ -1,17 +1,17 @@
 import logging
-from enum import Enum
-from typing import Optional, cast
+from typing import Optional
 
 from app.auth.dependencies import get_current_user
 from app.database.database import get_db
 from app.database.telemetry import track_event
 from app.helpers.paper_search import (
     OpenAlexFilter,
+    OpenAlexResponse,
     PaperSort,
     search_open_alex,
 )
 from app.schemas.user import CurrentUser
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ paper_search_router = APIRouter()
 
 
 @paper_search_router.post("/search")
-async def search_papers(
+def search_papers(
     query: str,
     page: int = 1,
     # Accept filter in the body for more complex queries
@@ -30,7 +30,7 @@ async def search_papers(
     sort: Optional[PaperSort] = None,
     db: Session = Depends(get_db),
     current_user: Optional[CurrentUser] = Depends(get_current_user),
-):
+) -> OpenAlexResponse:
     """
     Search for papers based on the provided query.
     """
@@ -49,9 +49,7 @@ async def search_papers(
                 "results_count": len(results.results),
             },
         )
-        return Response(
-            content=results.model_dump_json(), media_type="application/json"
-        )
+        return results
     except Exception as e:
         logger.error(f"Error searching papers: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

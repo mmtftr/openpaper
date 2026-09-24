@@ -6,7 +6,6 @@ tests (no DB, no network) while still exercising the real path validation.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -21,6 +20,7 @@ from app.database.crud.paper_repo_crud import is_stale_ingest
 from app.llm.repo import storage
 
 PAPER_ID = "77777777-7777-7777-7777-777777777777"
+PAPER_UUID = uuid.UUID(PAPER_ID)
 SHA = "a" * 40
 
 FILES = [
@@ -63,10 +63,6 @@ def published(monkeypatch, tmp_path: Path):
 USER = SimpleNamespace(id=uuid.uuid4())
 
 
-def _call(coro):
-    return asyncio.run(coro)
-
-
 # -- file endpoint traversal ----------------------------------------------
 
 
@@ -87,53 +83,51 @@ def _call(coro):
 )
 def test_file_endpoint_refuses_anything_outside_the_manifest(published, path):
     with pytest.raises(HTTPException) as excinfo:
-        _call(repo_api.get_repo_file(PAPER_ID, path, db=None, current_user=USER))
+        repo_api.get_repo_file(PAPER_UUID, path, db=None, current_user=USER)
     assert excinfo.value.status_code == 404
 
 
 def test_file_endpoint_serves_a_manifest_file_with_a_permalink(published):
-    result = _call(
-        repo_api.get_repo_file(PAPER_ID, "pipeline/run.py", db=None, current_user=USER)
+    result = repo_api.get_repo_file(
+        PAPER_UUID, "pipeline/run.py", db=None, current_user=USER
     )
-    assert result["path"] == "pipeline/run.py"
-    assert "def go():" in result["content"]
-    assert result["size"] == len("def go():\n    return 1\n")
-    assert result["github_url"] == (
+    assert result.path == "pipeline/run.py"
+    assert "def go():" in result.content
+    assert result.size == len("def go():\n    return 1\n")
+    assert result.github_url == (
         f"https://github.com/andyrdt/refusal_direction/blob/{SHA}/pipeline/run.py"
     )
 
 
 def test_file_endpoint_tolerates_a_leading_slash(published):
-    result = _call(
-        repo_api.get_repo_file(PAPER_ID, "/README.md", db=None, current_user=USER)
-    )
-    assert result["path"] == "README.md"
+    result = repo_api.get_repo_file(PAPER_UUID, "/README.md", db=None, current_user=USER)
+    assert result.path == "README.md"
 
 
 def test_file_endpoint_truncates_huge_files(published, monkeypatch):
     monkeypatch.setattr(repo_api, "MAX_FILE_RESPONSE_BYTES", 5)
-    result = _call(
-        repo_api.get_repo_file(PAPER_ID, "pipeline/run.py", db=None, current_user=USER)
+    result = repo_api.get_repo_file(
+        PAPER_UUID, "pipeline/run.py", db=None, current_user=USER
     )
-    assert "file truncated for display" in result["content"]
-    assert result["size"] == len("def go():\n    return 1\n")
+    assert "file truncated for display" in result.content
+    assert result.size == len("def go():\n    return 1\n")
 
 
 # -- tree / status shapes -------------------------------------------------
 
 
 def test_tree_endpoint_returns_the_manifest(published):
-    result = _call(repo_api.get_repo_tree(PAPER_ID, db=None, current_user=USER))
-    assert result["owner"] == "andyrdt"
-    assert result["repo"] == "refusal_direction"
-    assert result["ref"] == "main"
-    assert result["commit_sha"] == SHA
-    assert result["files"] == FILES
+    result = repo_api.get_repo_tree(PAPER_UUID, db=None, current_user=USER)
+    assert result.owner == "andyrdt"
+    assert result.repo == "refusal_direction"
+    assert result.ref == "main"
+    assert result.commit_sha == SHA
+    assert [f.model_dump() for f in result.files] == FILES
 
 
 def test_status_endpoint_shape(published):
-    result = _call(repo_api.get_repo(PAPER_ID, db=None, current_user=USER))
-    payload = result.model_dump()
+    result = repo_api.get_repo(PAPER_UUID, db=None, current_user=USER)
+    payload = result.model_dump(mode="json")
     assert set(payload) == {
         "status", "owner", "repo", "ref", "commit_sha", "error",
         "file_count", "total_bytes", "updated_at",
@@ -148,19 +142,19 @@ def test_status_404s_when_nothing_is_connected(monkeypatch):
     )
     monkeypatch.setattr(repo_api.paper_repo_crud, "get_by_paper_id", lambda *a, **k: None)
     with pytest.raises(HTTPException) as excinfo:
-        _call(repo_api.get_repo(PAPER_ID, db=None, current_user=USER))
+        repo_api.get_repo(PAPER_UUID, db=None, current_user=USER)
     assert excinfo.value.status_code == 404
 
 
 def test_endpoints_404_for_a_paper_the_user_does_not_own(monkeypatch):
     monkeypatch.setattr(repo_api.paper_crud, "get", lambda *a, **k: None)
-    for coro in (
-        repo_api.get_repo(PAPER_ID, db=None, current_user=USER),
-        repo_api.get_repo_tree(PAPER_ID, db=None, current_user=USER),
-        repo_api.get_repo_file(PAPER_ID, "README.md", db=None, current_user=USER),
+    for call in (
+        lambda: repo_api.get_repo(PAPER_UUID, db=None, current_user=USER),
+        lambda: repo_api.get_repo_tree(PAPER_UUID, db=None, current_user=USER),
+        lambda: repo_api.get_repo_file(PAPER_UUID, "README.md", db=None, current_user=USER),
     ):
         with pytest.raises(HTTPException) as excinfo:
-            _call(coro)
+            call()
         assert excinfo.value.status_code == 404
 
 
@@ -174,7 +168,7 @@ def test_tree_409s_while_the_repo_is_not_ready(monkeypatch):
         lambda *a, **k: SimpleNamespace(status="ingesting", commit_sha=None),
     )
     with pytest.raises(HTTPException) as excinfo:
-        _call(repo_api.get_repo_tree(PAPER_ID, db=None, current_user=USER))
+        repo_api.get_repo_tree(PAPER_UUID, db=None, current_user=USER)
     assert excinfo.value.status_code == 409
 
 

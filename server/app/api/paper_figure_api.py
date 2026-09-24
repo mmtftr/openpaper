@@ -10,14 +10,16 @@ to the s3_key and streams the PNG.
 import logging
 import re
 from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 from app.auth.dependencies import get_required_user
 from app.database.crud.paper_crud import paper_crud
 from app.database.database import get_db
 from app.helpers.s3 import s3_service
+from app.schemas.paper import PaperFigureSummary
 from app.schemas.user import CurrentUser
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -85,9 +87,19 @@ def resolve_figure(
     return None
 
 
-@paper_figure_router.get("/{paper_id}/figure/{label_or_id}")
-async def get_paper_figure(
-    paper_id: str,
+@paper_figure_router.get(
+    "/{paper_id}/figure/{label_or_id}",
+    response_class=Response,
+    responses={
+        200: {
+            "content": {"image/png": {"schema": {"type": "string", "format": "binary"}}},
+            "description": "The figure bitmap. `X-Figure-Label` / `X-Figure-Page` "
+            "headers carry its label and page when known.",
+        }
+    },
+)
+def get_paper_figure(
+    paper_id: UUID,
     label_or_id: str,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
@@ -134,11 +146,11 @@ async def get_paper_figure(
 
 
 @paper_figure_router.get("/{paper_id}/figures")
-async def list_paper_figures(
-    paper_id: str,
+def list_paper_figures(
+    paper_id: UUID,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-) -> JSONResponse:
+) -> List[PaperFigureSummary]:
     """List all figures for a paper with their labels, captions and pages.
 
     Used by the client to render a figure index in the chat UI without
@@ -149,15 +161,13 @@ async def list_paper_figures(
         raise HTTPException(status_code=404, detail="Paper not found")
 
     figures = _figures_from_ocr(getattr(paper, "ocr", None))
-    return JSONResponse(
-        content=[
-            {
-                "id": fig.get("id"),
-                "label": fig.get("label"),
-                "caption": fig.get("caption"),
-                "page": fig.get("page"),
-                "available": bool(fig.get("s3_key")),
-            }
-            for fig in figures
-        ]
-    )
+    return [
+        PaperFigureSummary(
+            id=fig.get("id"),
+            label=fig.get("label"),
+            caption=fig.get("caption"),
+            page=fig.get("page"),
+            available=bool(fig.get("s3_key")),
+        )
+        for fig in figures
+    ]

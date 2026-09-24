@@ -16,7 +16,7 @@ The client can poll the job status using the same job_id throughout the process.
 
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Dict, Optional
 from uuid import UUID
 
 from app.api.webhook_api import handle_failed_upload
@@ -32,11 +32,22 @@ from app.database.models import JobStatus, PaperUploadJob
 from app.database.telemetry import track_event
 from app.helpers.parser import validate_pdf_content, validate_url_and_fetch_pdf
 from app.helpers.pdf_jobs import jobs_client
+from app.schemas.paper import (
+    UploadFromUrlRequest,
+    UploadJobStatusResponse,
+    UploadStartedResponse,
+)
 from app.schemas.user import CurrentUser
 from dotenv import load_dotenv
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Request, UploadFile
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, HttpUrl
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 from sqlalchemy.orm import Session
 
 load_dotenv()
@@ -47,23 +58,24 @@ logger = logging.getLogger(__name__)
 paper_upload_router = APIRouter()
 
 
-class UploadFromUrlSchema(BaseModel):
-    url: HttpUrl
-
-
-@paper_upload_router.get("/status/{job_id}")
-async def get_upload_status(
-    job_id: str,
+@paper_upload_router.get(
+    "/status/{job_id}",
+    response_model=UploadJobStatusResponse,
+    # The celery_* keys are only sent while a Celery task is being tracked.
+    response_model_exclude_unset=True,
+)
+def get_upload_status(
+    job_id: UUID,
     current_user: CurrentUser = Depends(get_required_user),
     db: Session = Depends(get_db),
-):
+) -> UploadJobStatusResponse:
     """
     Get the status of a paper upload job, including real-time Celery task status.
     """
     paper_upload_job = paper_upload_job_crud.get(db=db, id=job_id, user=current_user)
 
     if not paper_upload_job:
-        return JSONResponse(status_code=404, content={"message": "Job not found"})
+        raise HTTPException(status_code=404, detail="Job not found")
 
     paper = paper_crud.get_by_upload_job_id(
         db=db, upload_job_id=str(paper_upload_job.id), user=current_user
@@ -72,7 +84,7 @@ async def get_upload_status(
     if paper_upload_job.status == JobStatus.COMPLETED:
         # Verify the paper exists
         if not paper:
-            return JSONResponse(status_code=404, content={"message": "Paper not found"})
+            raise HTTPException(status_code=404, detail="Paper not found")
 
     # Get real-time Celery task status if we have a task_id and job is still in progress
     # (completed/failed jobs no longer have active Celery tasks)
@@ -103,19 +115,15 @@ async def get_upload_status(
         )
 
     # Build response with both job status and task status
-    response_content = {
-        "job_id": str(paper_upload_job.id),
+    response_content: Dict[str, Any] = {
+        "job_id": paper_upload_job.id,
         "status": paper_upload_job.status,
         "task_id": paper_upload_job.task_id,
-        "started_at": paper_upload_job.started_at.isoformat(),
-        "completed_at": (
-            paper_upload_job.completed_at.isoformat()
-            if paper_upload_job.completed_at
-            else None
-        ),
+        "started_at": paper_upload_job.started_at,
+        "completed_at": paper_upload_job.completed_at,
         "has_file_url": bool(paper.file_url) if paper else False,
         "has_metadata": bool(paper.abstract) if paper else False,
-        "paper_id": str(paper.id) if paper else None,
+        "paper_id": paper.id if paper else None,
     }
 
     # Add Celery task information if available
@@ -128,45 +136,39 @@ async def get_upload_status(
             }
         )
 
-    return JSONResponse(status_code=200, content=response_content)
+    return UploadJobStatusResponse(**response_content)
 
 
-@paper_upload_router.post("/from-url")
+@paper_upload_router.post("/from-url", status_code=202)
 async def upload_pdf_from_url(
-    request: UploadFromUrlSchema,
+    request: UploadFromUrlRequest,
     background_tasks: BackgroundTasks,
     current_user: CurrentUser = Depends(get_required_user),
     db: Session = Depends(get_db),
-    project_id: Optional[str] = None,
-    supplementary_of: Optional[str] = None,
-):
+    project_id: Optional[UUID] = None,
+    supplementary_of: Optional[UUID] = None,
+) -> UploadStartedResponse:
     """
     Upload a document from a given URL, rather than the raw file.
     """
 
     # If this is a supplementary upload, verify the parent paper belongs to
     # the user.
-    supplementary_parent_id: Optional[UUID] = None
     if supplementary_of:
-        supplementary_parent_id = UUID(supplementary_of)
-        parent_paper = paper_crud.get(
-            db, id=supplementary_parent_id, user=current_user
-        )
+        parent_paper = paper_crud.get(db, id=supplementary_of, user=current_user)
         if not parent_paper:
-            return JSONResponse(
-                status_code=404, content={"message": "Parent paper not found"}
-            )
+            raise HTTPException(status_code=404, detail="Parent paper not found")
 
     # Validate the URL and fetch PDF content
     url = str(request.url)
     is_valid, pdf_bytes, error_message = await validate_url_and_fetch_pdf(url)
     if not is_valid:
-        return JSONResponse(status_code=400, content={"message": error_message})
+        raise HTTPException(status_code=400, detail=error_message)
 
     # Create the paper upload job
     paper_upload_job_obj = PaperUploadJobCreate(
         started_at=datetime.now(timezone.utc),
-        supplementary_of_paper_id=supplementary_parent_id,
+        supplementary_of_paper_id=supplementary_of,
     )
 
     paper_upload_job: PaperUploadJob = paper_upload_job_crud.create(
@@ -176,12 +178,9 @@ async def upload_pdf_from_url(
     )
 
     if not paper_upload_job:
-        return JSONResponse(
-            status_code=500,
-            content={"message": "Failed to create paper upload job"},
+        raise HTTPException(
+            status_code=500, detail="Failed to create paper upload job"
         )
-
-    casted_project_id = UUID(str(project_id)) if project_id else None
 
     # Get filename from URL
     filename = url.split("/")[-1]
@@ -194,43 +193,34 @@ async def upload_pdf_from_url(
         paper_upload_job=paper_upload_job,
         current_user=current_user,
         db=db,
-        project_id=casted_project_id,
+        project_id=project_id,
     )
 
-    return JSONResponse(
-        status_code=202,
-        content={
-            "message": "File upload started",
-            "job_id": str(paper_upload_job.id),
-        },
+    return UploadStartedResponse(
+        message="File upload started",
+        job_id=paper_upload_job.id,  # type: ignore[arg-type]
     )
 
 
-@paper_upload_router.post("")
+@paper_upload_router.post("", status_code=202)
 async def upload_pdf(
     request: Request,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     current_user: CurrentUser = Depends(get_required_user),
     db: Session = Depends(get_db),
-    project_id: Optional[str] = None,
-    supplementary_of: Optional[str] = None,
-):
+    project_id: Optional[UUID] = None,
+    supplementary_of: Optional[UUID] = None,
+) -> UploadStartedResponse:
     """
     Upload a PDF file
     """
     # If this is a supplementary upload, verify the parent paper belongs to
     # the user.
-    supplementary_parent_id: Optional[UUID] = None
     if supplementary_of:
-        supplementary_parent_id = UUID(supplementary_of)
-        parent_paper = paper_crud.get(
-            db, id=supplementary_parent_id, user=current_user
-        )
+        parent_paper = paper_crud.get(db, id=supplementary_of, user=current_user)
         if not parent_paper:
-            return JSONResponse(
-                status_code=404, content={"message": "Parent paper not found"}
-            )
+            raise HTTPException(status_code=404, detail="Parent paper not found")
 
     # Read the file contents BEFORE adding to background task. We need this because the UploadFile object becomes inaccessible after the request is processed.
     try:
@@ -238,19 +228,17 @@ async def upload_pdf(
         filename = file.filename
     except Exception as e:
         logger.error(f"Error reading uploaded file: {str(e)}", exc_info=True)
-        return JSONResponse(
-            status_code=400, content={"message": "Error reading uploaded file"}
-        )
+        raise HTTPException(status_code=400, detail="Error reading uploaded file")
 
     # Validate PDF content
     is_valid, error_message = await validate_pdf_content(file_contents, source="upload")
     if not is_valid:
-        return JSONResponse(status_code=400, content={"message": error_message})
+        raise HTTPException(status_code=400, detail=error_message)
 
     # Create the paper upload job
     paper_upload_job_obj = PaperUploadJobCreate(
         started_at=datetime.now(timezone.utc),
-        supplementary_of_paper_id=supplementary_parent_id,
+        supplementary_of_paper_id=supplementary_of,
     )
 
     paper_upload_job: PaperUploadJob = paper_upload_job_crud.create(
@@ -260,12 +248,9 @@ async def upload_pdf(
     )
 
     if not paper_upload_job:
-        return JSONResponse(
-            status_code=500,
-            content={"message": "Failed to create paper upload job"},
+        raise HTTPException(
+            status_code=500, detail="Failed to create paper upload job"
         )
-
-    casted_project_id = UUID(str(project_id)) if project_id else None
 
     # Pass file contents and filename instead of the UploadFile object
     background_tasks.add_task(
@@ -275,15 +260,12 @@ async def upload_pdf(
         paper_upload_job=paper_upload_job,
         current_user=current_user,
         db=db,
-        project_id=casted_project_id,
+        project_id=project_id,
     )
 
-    return JSONResponse(
-        status_code=202,
-        content={
-            "message": "File upload started",
-            "job_id": str(paper_upload_job.id),
-        },
+    return UploadStartedResponse(
+        message="File upload started",
+        job_id=paper_upload_job.id,  # type: ignore[arg-type]
     )
 
 

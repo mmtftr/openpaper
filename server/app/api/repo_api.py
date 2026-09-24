@@ -15,7 +15,7 @@ exact bytes the agent read, and private-repo support stays possible later.
 import logging
 import threading
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from app.auth.dependencies import get_required_user
 from app.database.crud.paper_crud import paper_crud
@@ -34,8 +34,9 @@ from app.llm.repo.ingest import (
     ingest_repo,
     parse_repo_url,
 )
+from app.schemas.json_datetime import IsoDatetime
 from app.schemas.user import CurrentUser
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -58,7 +59,7 @@ class ConnectRepoRequest(BaseModel):
 
 
 class RepoStatusResponse(BaseModel):
-    status: str
+    status: RepoStatus
     owner: str
     repo: str
     ref: str
@@ -66,7 +67,27 @@ class RepoStatusResponse(BaseModel):
     error: Optional[str] = None
     file_count: Optional[int] = None
     total_bytes: Optional[int] = None
-    updated_at: Optional[str] = None
+    updated_at: Optional[IsoDatetime] = None
+
+
+class RepoTreeFile(BaseModel):
+    path: str
+    size: int
+
+
+class RepoTreeResponse(BaseModel):
+    owner: str
+    repo: str
+    ref: str
+    commit_sha: str
+    files: List[RepoTreeFile]
+
+
+class RepoFileResponse(BaseModel):
+    path: str
+    content: str
+    size: int
+    github_url: str
 
 
 def _serialize(row: PaperRepo) -> RepoStatusResponse:
@@ -79,18 +100,15 @@ def _serialize(row: PaperRepo) -> RepoStatusResponse:
         error=str(row.error) if row.error else None,
         file_count=int(row.file_count) if row.file_count is not None else None,
         total_bytes=int(row.total_bytes) if row.total_bytes is not None else None,
-        updated_at=row.updated_at.isoformat() if row.updated_at else None,
+        updated_at=row.updated_at,  # type: ignore[arg-type]
     )
 
 
-def _require_paper(db: Session, paper_id: str, current_user: CurrentUser):
+def _require_paper(db: Session, paper_id: uuid.UUID, current_user: CurrentUser):
     paper = paper_crud.get(db, id=paper_id, user=current_user)
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
-    try:
-        return paper, uuid.UUID(paper_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid paper_id")
+    return paper, paper_id
 
 
 def _require_ready_repo(db: Session, paper_uuid: uuid.UUID) -> PaperRepo:
@@ -230,8 +248,8 @@ def run_ingestion(paper_id: str, url: str) -> None:
 
 
 @repo_router.get("/{paper_id}/repo")
-async def get_repo(
-    paper_id: str,
+def get_repo(
+    paper_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
 ) -> RepoStatusResponse:
@@ -244,8 +262,8 @@ async def get_repo(
 
 
 @repo_router.post("/{paper_id}/repo", status_code=202)
-async def connect_repo(
-    paper_id: str,
+def connect_repo(
+    paper_id: uuid.UUID,
     body: ConnectRepoRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
@@ -318,11 +336,11 @@ async def connect_repo(
 
 
 @repo_router.delete("/{paper_id}/repo", status_code=204)
-async def disconnect_repo(
-    paper_id: str,
+def disconnect_repo(
+    paper_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-) -> Response:
+) -> None:
     """Drop the row and every snapshot on disk for this paper."""
     _, paper_uuid = _require_paper(db, paper_id, current_user)
     row = paper_repo_crud.get_by_paper_id(db, paper_id=paper_uuid)
@@ -345,42 +363,42 @@ async def disconnect_repo(
         properties={"paper_id": str(paper_uuid)},
         user_id=str(current_user.id),
     )
-    return Response(status_code=204)
+    return None
 
 
 @repo_router.get("/{paper_id}/repo/tree")
-async def get_repo_tree(
-    paper_id: str,
+def get_repo_tree(
+    paper_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-) -> Dict[str, Any]:
+) -> RepoTreeResponse:
     """The snapshot manifest: every ingested path with its size."""
     _, paper_uuid = _require_paper(db, paper_id, current_user)
     row = _require_ready_repo(db, paper_uuid)
     manifest = storage.load_manifest(str(paper_uuid), str(row.commit_sha))
     if not manifest:
         raise HTTPException(status_code=404, detail="Repository snapshot is missing")
-    files: List[Dict[str, Any]] = [
-        {"path": str(entry.get("path")), "size": int(entry.get("size") or 0)}
+    files = [
+        RepoTreeFile(path=str(entry.get("path")), size=int(entry.get("size") or 0))
         for entry in manifest.get("files") or []
         if isinstance(entry, dict) and entry.get("path")
     ]
-    return {
-        "owner": str(row.owner or ""),
-        "repo": str(row.repo or ""),
-        "ref": str(row.ref or ""),
-        "commit_sha": str(row.commit_sha or ""),
-        "files": files,
-    }
+    return RepoTreeResponse(
+        owner=str(row.owner or ""),
+        repo=str(row.repo or ""),
+        ref=str(row.ref or ""),
+        commit_sha=str(row.commit_sha or ""),
+        files=files,
+    )
 
 
 @repo_router.get("/{paper_id}/repo/file")
-async def get_repo_file(
-    paper_id: str,
+def get_repo_file(
+    paper_id: uuid.UUID,
     path: str,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_required_user),
-) -> Dict[str, Any]:
+) -> RepoFileResponse:
     """One file's contents from the snapshot.
 
     Traversal defense is two-layered: the resolved path must stay inside the
@@ -413,12 +431,12 @@ async def get_repo_file(
     if size > MAX_FILE_RESPONSE_BYTES:
         content += "\n… [file truncated for display]"
 
-    return {
-        "path": requested,
-        "content": content,
-        "size": size,
-        "github_url": github_blob_url(
+    return RepoFileResponse(
+        path=requested,
+        content=content,
+        size=size,
+        github_url=github_blob_url(
             str(row.owner or ""), str(row.repo or ""), str(row.commit_sha or ""),
             requested,
         ),
-    }
+    )
