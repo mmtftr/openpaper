@@ -1,29 +1,17 @@
 # Client
 
-This server manages the frontend for the Open Paper project, which allows users to upload, chat with, annotate, and manage research papers in one place.
+Next.js 15 (App Router) front end: the paper reader, chat, notes, library,
+projects, discover and Settings. See [DEVELOPMENT.md](../DEVELOPMENT.md) for
+the whole stack.
 
-First, ensure you've started the backend server. See `/server` for details.
-
-For the full local Docker stack, run this from the repo root:
-
-```bash
-docker compose up --build client
-```
-
-For a fresh setup, run:
-
-```bash
-yarn go
-```
-
-Open [http://localhost:9002](http://localhost:9002) with your browser to use the Docker Compose app.
-
-## Development
-To run the development server, use:
-
-```bash
-yarn dev
-```
+- In compose: the `client` service, built with `output: "standalone"` and run
+  as `node server.js` on `127.0.0.1:12000`. `NEXT_PUBLIC_*` values are build
+  args and are baked into the bundle.
+- On the host: `yarn && yarn dev -p 8002`, with `NEXT_PUBLIC_API_URL` in
+  `.env.local` (see `.env.example`).
+- API types: `yarn gen:api` regenerates `src/lib/api/openapi.json` and
+  `schema.d.ts` from the server; `yarn check:api` checks they agree.
+- Checks: `npx tsc --noEmit -p .`, `yarn lint`, `yarn check:api`, `yarn build`.
 
 ### pdf.js runtime assets
 

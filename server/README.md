@@ -1,139 +1,32 @@
 # Server
 
-This server manages the backend for the Open Paper project, which allows users to upload, chat with, annotate, and manage research papers in one place.
+FastAPI API and the ingest worker (`python -m app.ingest.worker`). Same
+code, same Docker image. Python 3.12, managed with uv. See
+[DEVELOPMENT.md](../DEVELOPMENT.md) for the stack, host dev servers, checks and
+migrations.
 
-## Prerequisites
-- Python 3.12 or higher
-- [Uv](https://docs.astral.sh/uv/getting-started/installation/)
-- [PostgreSQL database](http://postgresql.org/download/) (Make sure it's running with a user postgres)
+- Configuration: `app/settings.py` (pydantic-settings) reads the environment
+  and `server/.env`. `.env.example` lists every setting.
+- In compose, the `server` command runs `app/scripts/run_migrations.py` (Alembic
+  `upgrade head`), then `gunicorn -c gunicorn.config.py app.main:app`.
+- Host dev: `uv run uvicorn app.main:app --reload --reload-exclude '.repo_snapshots/*' --port 8003`.
+- Checks: `sh scripts/check.sh` (pytest, ruff, ruff format, pyright).
+- OpenAPI: `uv run python -m app.scripts.export_openapi <file>` (the client's
+  `yarn gen:api` calls this). `tests/test_openapi_snapshot.py` keeps the
+  client's copy current.
+- Swagger UI: `/docs` (compose: `http://localhost:12001/docs`).
 
-## Setup
+## Layout
 
-For the full local stack, prefer the root Docker Compose workflow:
-```bash
-cd ..
-docker compose up --build
-```
-
-Compose provides Postgres, MinIO, the server, the ingest worker and the client. It also runs migrations before starting the server.
-
-1. Install dependencies
-```bash
-uv sync
-source .venv/bin/activate
-```
-
-2. Set up environment variables. Check `.env.example` for required and optional variables
-```bash
-touch .env
-```
-
-For an OpenAI-compatible setup:
-```bash
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/annotated-paper
-OPENAI_API_KEY="your_api_key"
-OPENAI_BASE_URL=""           # optional, for OpenAI-compatible providers
-OPENAI_MODEL="gpt-4.1"
-OPENAI_FAST_MODEL="gpt-4.1-mini"
-```
-
-For Azure OpenAI, set `AZURE_OPENAI=true` — `OPENAI_API_KEY` is treated as the Azure key, and structured outputs are automatically patched for Azure's strict JSON-schema rules:
-```bash
-OPENAI_API_KEY="your_azure_key"
-OPENAI_MODEL="your-chat-deployment-name"
-OPENAI_FAST_MODEL="your-fast-chat-deployment-name"
-AZURE_OPENAI=true
-AZURE_OPENAI_ENDPOINT="https://your-resource.openai.azure.com/"
-AZURE_OPENAI_API_VERSION="2025-04-01-preview"
-```
-
-For local S3-compatible storage outside compose, set:
-```bash
-S3_ENDPOINT_URL="http://localhost:9000"
-S3_PUBLIC_BASE_URL="http://localhost:9000/openpaper-local"
-S3_BUCKET_NAME="openpaper-local"
-AWS_ACCESS_KEY_ID="openpaper"
-AWS_SECRET_ACCESS_KEY="openpaper-local"
-```
-
-For Gemini instead:
-```bash
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/annotated-paper
-DEFAULT_LLM_PROVIDER=gemini
-GEMINI_API_KEY="your_gemini_api_key"
-```
-
-## Start the Application
-
-Run the command below to install dependencies, run db migrations and start the app:
-```bash
-uv run start
-```
-
-Uploaded papers are processed by the ingest worker (OCR, metadata, figures,
-outline, AI highlights — `docs/INGEST_DESIGN.md`). Run it next to the server,
-against the same database and S3:
-```bash
-uv run python -m app.ingest.worker
-```
-
-## API Documentation
-
-FastAPI automatically generates API documentation. Once the application is running, you can access:
-
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
-
-# Migrations
-
-This project uses Alembic for database migrations. To create a new migration, run:
-
-```bash
-alembic revision --autogenerate -m "migration message"
-```
-To apply the migration, run:
-
-```bash
-alembic upgrade head
-```
-To downgrade the migration, run:
-
-```bash
-alembic downgrade -1
-```
-
-## Chat with Knowledge Base
-
-We have an `Ask` page, which allows you to ask questions across your entire knowledge base. AI-generated responses come with inline citations which will link to the original papers and show the text citation. Deep-linking is not yet available, but is planned.
-
-The response agent works by sending off an agent with access to a series of research tools:
-- `read_file`
-- `search_file`
-- `view_file`
-- `read_abstract`
-- `search_all_files`
-
-
-Multi-paper chat workflow:
-
-```
-+----------------+      +-------------------------------------------------+    +-------------------+
-|      User      |----->|             FastAPI Server                    |----->|        LLM        |
-+----------------+      |       (multi_paper_operations.py)             |      +-------------------+
-        ^             |                                                 |              ^
-        |             |  1. gather_evidence(question)                   |              |
-        |             |     - Iteratively calls LLM with tools:         |              |
-        |             |       - search_all_files(query)                 |--------------+
-        |             |       - read_file(paper_id, query)              |
-        |             |       - ...                                     |
-        |             |     - Compacts evidence if it gets too large    |
-        |             |                                                 |
-        |             |  2. chat_with_papers(question, evidence)        |
-        |             |     - Sends evidence and question to LLM        |--------------+
-        |             |     - Streams response back to user             |              |
-        |             |     - Parses citations from response            |              |
-        |             +-------------------------------------------------+              |
-        |                           |                                                  |
-        +---------------------------+--------------------------------------------------+
-                              (Streamed response with citations)
-```
+| Path | What |
+|---|---|
+| `app/main.py` | app, CORS, routers under `/api/...` |
+| `app/api/` | HTTP routes (`paper/` package, uploads, highlights, notes documents, chat messages, projects, discover, settings, ...) |
+| `app/database/` | SQLAlchemy 2.0 models (`models/`, one module per domain), CRUD (`crud/`), read queries (`queries/`) |
+| `app/ingest/` | ingest v2: stage graph, stages, worker, service; contracts in `app/ingest/README.md` |
+| `app/llm/` | model registry and slots, one-shot calls, paper chat and quick question (`chat/`), agent tools (`tools/`), companion-repo sandbox (`repo/`) |
+| `app/references/` | bibliography entry resolution for the reader's citation hover cards |
+| `app/auth/` | email-code sign-in, sessions |
+| `app/core/` | shared error classification, retry/backoff, deadlines, HTTP client |
+| `migrations/` | Alembic; squashed baseline `baseline_20260924` + later revisions |
+| `tests/` | pytest; Postgres-backed tests use a throwaway `postgres:17` container |
