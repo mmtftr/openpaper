@@ -115,7 +115,9 @@ def _check_golden(name: str, observed: Dict[str, Any]) -> None:
         # Same layout as the golden, for a plain `diff`.
         observed_path = Path("/tmp/chat_golden_observed") / path.name
         observed_path.parent.mkdir(parents=True, exist_ok=True)
-        observed_path.write_text(json.dumps(normalized, indent=1, sort_keys=True) + "\n")
+        observed_path.write_text(
+            json.dumps(normalized, indent=1, sort_keys=True) + "\n"
+        )
         pytest.fail(f"{name} differs from its golden: diff {path} {observed_path}")
 
 

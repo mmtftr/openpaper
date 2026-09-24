@@ -979,7 +979,7 @@ class TestVisionAwareReplay:
         ]
 
     def _patch_s3(self, monkeypatch, fetched: List[str]):
-        from app.llm.chat import history as history_module
+        from app.llm.chat.history import figures as history_module
 
         def fake_get(key: str) -> bytes:
             fetched.append(key)
@@ -1314,7 +1314,7 @@ class TestFigureBudgetAccounting:
         ]
 
     def _patch_sizes(self, monkeypatch, size_kb):
-        from app.llm.chat import history as history_module
+        from app.llm.chat.history import figures as history_module
 
         monkeypatch.setattr(
             history_module.s3_service,
@@ -1347,7 +1347,7 @@ class TestFigureBudgetAccounting:
         )
 
     def test_unknown_size_uses_the_fallback_estimate(self, monkeypatch):
-        from app.llm.chat import history as history_module
+        from app.llm.chat.history import figures as history_module
 
         self._patch_sizes(monkeypatch, None)
         rows = self._figure_rows()
@@ -1366,7 +1366,7 @@ class TestFigureBudgetAccounting:
         )
 
     def test_no_size_lookup_for_a_vision_less_model(self, monkeypatch):
-        from app.llm.chat import history as history_module
+        from app.llm.chat.history import figures as history_module
 
         looked_up = []
         monkeypatch.setattr(
