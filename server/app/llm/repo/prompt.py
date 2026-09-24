@@ -4,7 +4,8 @@ The sandbox is NOT introspectable from the inside — Monty has no `dir()` and
 `getattr()` on a method raises — so the model cannot discover the API by
 poking at it. This text is its ONLY source of truth, which is why the
 supported/unsupported lists are spelled out explicitly and kept in sync with
-what was measured (see spikes/monty-deepseek/REPORT.md §1.2).
+what was measured (see REPORT.md §1.2 of the Monty spike:
+`git show 0977058:spikes/monty-deepseek/REPORT.md`).
 
 The preloaded tree summary is repo content, i.e. untrusted input. It is
 sanitized (control chars stripped, per-line and total caps) and wrapped in

@@ -1,8 +1,8 @@
 # Repo Inspection (Monty sandbox) — design notes
 
 Status: **implemented and deployed** (2026-08-27, uncommitted on
-`pdf-reader-swap`). Feasibility trials live in `spikes/monty-deepseek/`
-(see its `REPORT.md`); the plan below was cross-reviewed (codex + Opus)
+`pdf-reader-swap`). Feasibility trials lived in `spikes/monty-deepseek/`
+(removed; see `git show 0977058:spikes/monty-deepseek/REPORT.md`); the plan below was cross-reviewed (codex + Opus)
 pre-build, implemented per the binding revisions, and both sides were
 cross-reviewed again post-build. Delete this doc when the branch lands.
 
@@ -153,7 +153,7 @@ paper metadata/user input; exact UX TBD).
 - Write access / running the repo's own code (Monty can't import
   third-party libs anyway — this is *reading* infrastructure).
 
-## Trial results (spikes/monty-deepseek/, answered)
+## Trial results (spike commit 0977058, answered)
 
 **VERDICT: GO.** DeepSeek-V4-Flash-0731 completed all four nanoGPT tasks
 with ZERO sandbox errors across every run (4–19 tool calls each); it
@@ -162,7 +162,7 @@ pydantic-ai repo under the spike's 300s cap, with the model still
 progressing error-free — scale/latency, not capability. Prelude's
 clearest win: cross-file trace T3, 92s/16 calls bare → 29s/8 calls.
 
-Facts settled by the spike (details in spikes/monty-deepseek/REPORT.md):
+Facts settled by the spike (details in `git show 0977058:spikes/monty-deepseek/REPORT.md`):
 
 - Python `pydantic-monty` (0.0.21) **supports directory mounts**
   (`MountDir`, keyword-only, read-only mode enforced). Gotcha: the
@@ -185,7 +185,7 @@ Facts settled by the spike (details in spikes/monty-deepseek/REPORT.md):
   the real per-call deadline (~25s), poison detection (limit error in
   ~0ms) + transparent session rebuild with an explicit "session RESET,
   redefine your variables" notice in the tool output. Implemented and
-  verified in spikes/monty-deepseek/sandbox.py.
+  verified in the spike's sandbox.py (commit 0977058).
 - Error messages are CPython-quality tracebacks with carets — models
   iterate on them well (zero unrecovered errors observed).
 - Ingestion: file-size cap must be ~1 MB, not 200 KB (200 KB silently
