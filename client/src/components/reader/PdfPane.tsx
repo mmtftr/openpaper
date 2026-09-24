@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useEffect } from "react";
 import { ArrowLeft } from "lucide-react";
 import { useAtomValue, useSetAtom } from "jotai";
 import {

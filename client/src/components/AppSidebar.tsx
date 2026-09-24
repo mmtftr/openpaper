@@ -11,7 +11,6 @@ import {
     Moon,
     Settings,
     Sun,
-    TelescopeIcon,
     User as UserIcon,
 } from "lucide-react";
 

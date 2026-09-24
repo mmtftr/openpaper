@@ -1,7 +1,6 @@
 "use client";
 import { useEffect, useState, Suspense, useMemo } from "react";
 import useSWR from "swr";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ProjectCard } from "@/components/ProjectCard";
 import { Button } from "@/components/ui/button";

@@ -1,8 +1,8 @@
 "use client";
 
 import { ArrowLeft, ArrowRight, BookOpen, Library, Loader2, Pencil, PlusCircle, Search, Sparkles, UploadCloud } from "lucide-react";
-import { useEffect, useState, useCallback, useMemo } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useState, useCallback, useMemo } from "react";
+import { useParams } from "next/navigation";
 import { API_BASE_URL, api, errorDetail, unwrap, type Schemas } from "@/lib/api/client";
 import { PdfDropzone } from "@/components/PdfDropzone";
 import PaperCard from "@/components/PaperCard";
@@ -61,11 +61,10 @@ import { PaperListSkeleton } from "@/components/PaperListSkeleton";
 
 export default function ProjectPage() {
 	const params = useParams();
-	const router = useRouter();
 	const projectId = params.projectId as string;
 	const { project, isLoading, error: projectError, refetch: refetchProject } = useProject(projectId);
 	const { papers, isLoading: isPapersLoading, refetch: refetchPapers } = useProjectPapers(projectId);
-	const [error, setError] = useState<string | null>(null);
+	const [error] = useState<string | null>(null);
 	const [uploadError, setUploadError] = useState<string | null>(null);
 	const [initialJobs, setInitialJobs] = useState<MinimalJob[]>([]);
 	const [isUrlDialogOpen, setIsUrlDialogOpen] = useState(false);

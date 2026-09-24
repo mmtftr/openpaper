@@ -32,7 +32,7 @@ interface PaperPreviewProps {
 function EditableField({
     value,
     onSave,
-    multiline = false,
+    multiline: _multiline = false,
     className = "",
     placeholder = "",
 }: {

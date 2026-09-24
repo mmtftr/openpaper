@@ -149,9 +149,7 @@ After Phase 5, merge into `master`.
   instead of swallowing; `pydantic-settings`; split `paper_api.py` / `paper_crud.py`.
 - **Client:** decompose `PaperChatPanel` and `paper/[id]/page.tsx`; paper-level
   jotai store; shared note-thread component.
-- **Ops/docs:** fix ESLint (the `minimatch ^9` security resolution in
-  `client/package.json` breaks eslint's minimatch 3 import, so `next lint` has not
-  run); client standalone output; rewrite `README.md`, `DEVELOPMENT.md`,
+- **Ops/docs:** client standalone output; rewrite `README.md`, `DEVELOPMENT.md`,
   `CLAUDE.md`.
 
 ## Phase 6 — Codex-proxy fast model (after the refactor is otherwise done)
