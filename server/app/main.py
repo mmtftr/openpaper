@@ -27,6 +27,7 @@ from app.api.repo_api import repo_router
 from app.api.search_api import search_router
 from app.api.settings_api import settings_router
 from app.ingest.api import ingest_router
+from app.references.api import reference_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -106,6 +107,7 @@ app.include_router(paper_tag_router, prefix="/api/paper/tag")
 app.include_router(discover_router, prefix="/api/discover")
 app.include_router(document_router, prefix="/api/document")
 app.include_router(settings_router, prefix="/api/settings")
+app.include_router(reference_router, prefix="/api/references")
 
 
 if __name__ == "__main__":

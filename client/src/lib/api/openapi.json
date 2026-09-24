@@ -4903,6 +4903,28 @@
         "title": "ReasoningUIPart",
         "type": "object"
       },
+      "ReferenceEntry": {
+        "properties": {
+          "key": {
+            "description": "Caller's id for this entry",
+            "maxLength": 200,
+            "title": "Key",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 5000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "text"
+        ],
+        "title": "ReferenceEntry",
+        "type": "object"
+      },
       "RelevantPaper": {
         "description": "Item of `GET /api/paper/relevant`.",
         "properties": {
@@ -5235,6 +5257,225 @@
           "files"
         ],
         "title": "RepoTreeResponse",
+        "type": "object"
+      },
+      "ResolveReferencesRequest": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/ReferenceEntry"
+            },
+            "maxItems": 500,
+            "title": "Entries",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "title": "ResolveReferencesRequest",
+        "type": "object"
+      },
+      "ResolveReferencesResponse": {
+        "properties": {
+          "pending": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Pending",
+            "type": "array"
+          },
+          "results": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ResolvedReference"
+            },
+            "title": "Results",
+            "type": "object"
+          }
+        },
+        "required": [
+          "results",
+          "pending"
+        ],
+        "title": "ResolveReferencesResponse",
+        "type": "object"
+      },
+      "ResolvedReference": {
+        "properties": {
+          "abstract": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abstract"
+          },
+          "arxiv_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arxiv Id"
+          },
+          "authors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "doi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doi"
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          },
+          "kind": {
+            "enum": [
+              "library",
+              "paper",
+              "web",
+              "unresolved"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "library_paper_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Library Paper Id"
+          },
+          "pdf_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pdf Url"
+          },
+          "preview_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview Url"
+          },
+          "site_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Name"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "library",
+                  "crossref",
+                  "openalex",
+                  "arxiv",
+                  "citation_meta",
+                  "og"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "venue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Venue"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "ResolvedReference",
         "type": "object"
       },
       "RetryStatusData": {
@@ -11247,6 +11488,74 @@
           }
         ],
         "summary": "Update Project"
+      }
+    },
+    "/api/references/resolve": {
+      "post": {
+        "description": "Resolve bibliography entries to papers / web pages, by the caller's keys.\n\nCached results come back immediately; misses are looked up concurrently\nwithin a time budget. Keys in `pending` were not resolved in time or hit\na temporary failure \u2014 ask again later.",
+        "operationId": "resolve_references_api_references_resolve_post",
+        "parameters": [
+          {
+            "description": "Ignore the cache and look the (single) entry up again",
+            "in": "query",
+            "name": "refresh",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Ignore the cache and look the (single) entry up again",
+              "title": "Refresh",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveReferencesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolveReferencesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Client error"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Server error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Resolve References"
       }
     },
     "/api/search/global/search": {

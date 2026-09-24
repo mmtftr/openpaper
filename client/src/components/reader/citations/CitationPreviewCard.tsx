@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useState } from "react";
-import type { CSSProperties, RefObject } from "react";
+import type { CSSProperties, ReactNode, RefObject } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useAtomValue, useSetAtom } from "jotai";
@@ -12,12 +12,16 @@ import {
 	Check,
 	ExternalLink,
 	FileText,
+	Globe,
 	Library,
 	Loader2,
 	Plus,
+	RefreshCw,
 } from "lucide-react";
+import { CollapsibleNoteText } from "@/components/CollapsibleNoteText";
 import { uploadFromUrlWithFallback } from "@/lib/uploadUtils";
 import { citationPreviewAtom } from "../atoms";
+import { refreshReference, useResolvedReference, type ResolvedReference } from "./resolve";
 
 const CARD_WIDTH = 540;
 const GAP = 12;
@@ -52,10 +56,20 @@ function computePosition(
 		maxHeight: Math.max(80, (flip ? anchorRect.top - scrollRect.top : spaceBelow) - GAP - VIEWPORT_MARGIN) };
 }
 
-function formatYear(date: string | null): string | null {
-	if (!date) return null;
-	const match = date.match(/(19|20)\d{2}/);
-	return match ? match[0] : null;
+const ABSTRACT_CLASS = "mt-1 text-xs leading-relaxed text-muted-foreground break-words";
+const URL_RE = /(?:https?:\/\/|www\.)[^\s<>"]+/gi;
+
+function hostOf(url: string): string {
+	try {
+		return new URL(url).hostname.replace(/^www\./, "");
+	} catch {
+		return url;
+	}
+}
+
+function authorLine(authors: string[] | undefined): string | null {
+	if (!authors?.length) return null;
+	return authors.slice(0, 6).join(", ") + (authors.length > 6 ? " et al." : "");
 }
 
 /** Rendered first page for library papers; a typographic stand-in otherwise. */
@@ -90,12 +104,199 @@ function Thumbnail({
 	);
 }
 
+/** DOI / arXiv / landing page / PDF links for a resolved paper. */
+function PaperLinks({ reference }: { reference: ResolvedReference }) {
+	const links: { label: string; href: string }[] = [];
+	const doiHref = reference.doi ? `https://doi.org/${reference.doi}` : null;
+	const arxivHref = reference.arxiv_id ? `https://arxiv.org/abs/${reference.arxiv_id}` : null;
+	if (doiHref) links.push({ label: `DOI ${reference.doi}`, href: doiHref });
+	if (arxivHref) links.push({ label: `arXiv:${reference.arxiv_id}`, href: arxivHref });
+	if (reference.url && reference.url !== doiHref && reference.url !== arxivHref) {
+		links.push({ label: hostOf(reference.url), href: reference.url });
+	}
+	if (reference.pdf_url) links.push({ label: "PDF", href: reference.pdf_url });
+	if (!links.length) return null;
+	return (
+		<div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
+			{links.map((link) => (
+				<a
+					key={link.href}
+					href={link.href}
+					target="_blank"
+					rel="noopener noreferrer"
+					className="max-w-full truncate text-blue-500 hover:underline"
+				>
+					{link.label}
+				</a>
+			))}
+		</div>
+	);
+}
+
+function PaperBody({ reference }: { reference: ResolvedReference }) {
+	const libraryId = reference.kind === "library" ? reference.library_paper_id : null;
+	const meta = [reference.venue, reference.year].filter(Boolean).join(" · ");
+	const authors = authorLine(reference.authors);
+	return (
+		<div className="flex gap-4 p-4">
+			<Thumbnail previewUrl={reference.preview_url} inLibrary={Boolean(libraryId)} />
+			<div className="min-w-0 flex-1">
+				{libraryId && (
+					<Link
+						href={`/paper/${libraryId}`}
+						className="mb-1 flex w-fit items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-blue-500 hover:underline"
+					>
+						<Library className="size-3" /> In your library
+					</Link>
+				)}
+				<p className="line-clamp-2 text-sm font-semibold leading-snug">
+					{reference.title}
+				</p>
+				{authors && <p className="mt-0.5 truncate text-xs text-muted-foreground">{authors}</p>}
+				{meta && <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{meta}</p>}
+				{reference.abstract && (
+					<CollapsibleNoteText
+						key={reference.abstract}
+						content={reference.abstract}
+						paragraphClassName={ABSTRACT_CLASS}
+					/>
+				)}
+				<PaperLinks reference={reference} />
+			</div>
+		</div>
+	);
+}
+
+function WebBody({ reference }: { reference: ResolvedReference }) {
+	const [imageFailed, setImageFailed] = useState(false);
+	const byline = [authorLine(reference.authors), reference.year].filter(Boolean).join(" · ");
+	const showImage = reference.image_url && !imageFailed;
+	return (
+		<div className="flex gap-4 p-4">
+			{showImage ? (
+				<div className="h-[68px] w-[120px] shrink-0 overflow-hidden rounded-lg border border-border bg-muted">
+					{/* eslint-disable-next-line @next/next/no-img-element */}
+					<img
+						src={reference.image_url!}
+						alt=""
+						className="h-full w-full object-cover"
+						loading="lazy"
+						referrerPolicy="no-referrer"
+						onError={() => setImageFailed(true)}
+					/>
+				</div>
+			) : (
+				<div className="flex size-[68px] shrink-0 items-center justify-center rounded-lg border border-border bg-muted">
+					<Globe className="size-7 text-muted-foreground" />
+				</div>
+			)}
+			<div className="min-w-0 flex-1">
+				<p className="mb-1 flex items-center gap-1.5 truncate text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+					<Globe className="size-3 shrink-0" /> {reference.site_name ?? (reference.url ? hostOf(reference.url) : "Web page")}
+				</p>
+				<p className="line-clamp-2 text-sm font-semibold leading-snug">{reference.title}</p>
+				{byline && <p className="mt-0.5 truncate text-xs text-muted-foreground">{byline}</p>}
+				{reference.abstract && (
+					<CollapsibleNoteText
+						key={reference.abstract}
+						content={reference.abstract}
+						paragraphClassName={ABSTRACT_CLASS}
+					/>
+				)}
+				{reference.url && (
+					<a
+						href={reference.url}
+						target="_blank"
+						rel="noopener noreferrer"
+						className="mt-1.5 block truncate text-[11px] text-blue-500 hover:underline"
+					>
+						{reference.url.replace(/^https?:\/\//, "")}
+					</a>
+				)}
+			</div>
+		</div>
+	);
+}
+
+/** Reference text with its URLs clickable. */
+function Linkified({ text }: { text: string }) {
+	const parts: ReactNode[] = [];
+	let last = 0;
+	for (const match of text.matchAll(URL_RE)) {
+		const url = match[0].replace(/[.,;:)\]]+$/, "");
+		const start = match.index ?? 0;
+		parts.push(text.slice(last, start));
+		parts.push(
+			<a
+				key={start}
+				href={url.startsWith("www.") ? `https://${url}` : url}
+				target="_blank"
+				rel="noopener noreferrer"
+				className="text-blue-500 hover:underline"
+			>
+				{url}
+			</a>
+		);
+		last = start + url.length;
+	}
+	parts.push(text.slice(last));
+	return <>{parts}</>;
+}
+
+function RawBody({
+	referenceText,
+	status,
+	repairedUrl,
+	onRetry,
+}: {
+	referenceText: string;
+	status: ReactNode;
+	repairedUrl?: string | null;
+	onRetry?: () => void;
+}) {
+	// The server may have repaired a URL the PDF broke across lines.
+	const showRepaired = repairedUrl && !referenceText.includes(repairedUrl);
+	return (
+		<div className="p-4">
+			<p className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+				<BookOpen className="size-3" /> Reference
+			</p>
+			<p className="text-xs leading-relaxed text-foreground break-words">
+				<Linkified text={referenceText} />
+			</p>
+			{showRepaired && (
+				<a
+					href={repairedUrl}
+					target="_blank"
+					rel="noopener noreferrer"
+					className="mt-1.5 block truncate text-[11px] text-blue-500 hover:underline"
+				>
+					{repairedUrl}
+				</a>
+			)}
+			{(status || onRetry) && (
+				<div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground" role="status">
+					{status}
+					{onRetry && (
+						<button
+							onClick={onRetry}
+							className="flex items-center gap-1 font-medium hover:text-foreground"
+						>
+							<RefreshCw className="size-3" /> Look up again
+						</button>
+					)}
+				</div>
+			)}
+		</div>
+	);
+}
+
 /**
  * Hover/click preview for a citation.
  *
- * Four states, matching what resolution can actually tell apart: still loading,
- * matched to a paper, extracted reference text (with lookup status), and
- * unavailable reference text. Extraction failure never starts a paper lookup.
+ * States: still extracting the entry (skeleton), extracted entry (resolved on
+ * the server and shown as a paper, a web page or the raw reference text), and
+ * no readable entry. Extraction failure never starts a lookup.
  */
 export default function CitationPreviewCard({
 	scrollerRef,
@@ -115,6 +316,9 @@ export default function CitationPreviewCard({
 	} | null>(null);
 	const [importing, setImporting] = useState(false);
 	const [imported, setImported] = useState(false);
+	const [refreshing, setRefreshing] = useState(false);
+	const referenceText = preview?.state === "entry" ? preview.referenceText : null;
+	const { data: reference, error: lookupError } = useResolvedReference(referenceText);
 
 	useLayoutEffect(() => {
 		if (!preview || !scrollerRef.current) {
@@ -171,8 +375,14 @@ export default function CitationPreviewCard({
 		</button>
 	) : null;
 
-	const paper = preview.state === "paper" ? preview.paper : null;
-	const importUrl = paper && !paper.paperId ? paper.pdfUrl : null;
+	const resolved = preview.state === "entry" ? reference : undefined;
+	const importUrl = resolved?.kind === "paper" ? resolved.pdf_url : null;
+	const libraryId = resolved?.kind === "library" ? resolved.library_paper_id : null;
+	const openTarget = libraryId
+		? `/paper/${libraryId}`
+		: resolved && resolved.kind !== "unresolved"
+			? resolved.url
+			: null;
 
 	const addToLibrary = async () => {
 		if (!importUrl || importing) return;
@@ -196,7 +406,18 @@ export default function CitationPreviewCard({
 		}
 	};
 
-	let body: React.ReactNode = null;
+	const lookUpAgain = async (text: string) => {
+		setRefreshing(true);
+		try {
+			await refreshReference(text);
+		} catch {
+			toast.error("Reference lookup unavailable right now.");
+		} finally {
+			setRefreshing(false);
+		}
+	};
+
+	let body: ReactNode = null;
 	switch (preview.state) {
 		case "skeleton":
 			body = (
@@ -211,70 +432,26 @@ export default function CitationPreviewCard({
 				</div>
 			);
 			break;
-		case "paper": {
-			const year = formatYear(paper!.publicationDate);
-			const meta = [paper!.venue, year].filter(Boolean).join(" · ");
-			body = (
-				<div className="flex gap-4 p-4">
-					<Thumbnail
-						previewUrl={paper!.previewUrl}
-						inLibrary={Boolean(paper!.paperId)}
+		case "entry":
+			if (resolved?.kind === "library" || resolved?.kind === "paper") {
+				body = <PaperBody reference={resolved} />;
+			} else if (resolved?.kind === "web") {
+				body = <WebBody key={resolved.url ?? resolved.title} reference={resolved} />;
+			} else {
+				const status = refreshing || (!resolved && !lookupError)
+					? "Looking up reference…"
+					: lookupError
+						? "Reference lookup unavailable. The reference is still available above."
+						: null;
+				body = (
+					<RawBody
+						referenceText={preview.referenceText}
+						status={status}
+						repairedUrl={resolved?.url}
+						onRetry={resolved && !refreshing ? () => void lookUpAgain(preview.referenceText) : undefined}
 					/>
-					<div className="min-w-0 flex-1">
-						{paper!.paperId && (
-							<p className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-blue-500">
-								<Library className="size-3" /> In your library
-							</p>
-						)}
-						<p className="line-clamp-2 text-sm font-semibold leading-snug">
-							{paper!.title}
-						</p>
-						{paper!.authors.length > 0 && (
-							<p className="mt-0.5 truncate text-xs text-muted-foreground">
-								{paper!.authors.slice(0, 6).join(", ")}
-								{paper!.authors.length > 6 ? " et al." : ""}
-							</p>
-						)}
-						{meta && (
-							<p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-								{meta}
-							</p>
-						)}
-						{paper!.abstract && (
-							<p className="mt-1 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
-								{paper!.abstract}
-							</p>
-						)}
-						{paper!.topics.length > 0 && (
-							<div className="mt-1.5 flex flex-wrap gap-1">
-								{paper!.topics.slice(0, 4).map((t) => (
-									<span
-										key={t}
-										className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] text-blue-500"
-									>
-										#{t}
-									</span>
-								))}
-							</div>
-						)}
-					</div>
-				</div>
-			);
-			break;
-		}
-		case "raw":
-			body = (
-				<div className="p-4">
-					<p className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-						<BookOpen className="size-3" /> Reference
-					</p>
-					<p className="text-xs leading-relaxed text-foreground break-words">
-						{preview.referenceText}
-					</p>
-					{preview.resolving && <p className="mt-2 text-xs text-muted-foreground" role="status">Looking up paper…</p>}
-					{preview.lookupUnavailable && <p className="mt-2 text-xs text-muted-foreground" role="status">Paper lookup unavailable. The reference is still available above.</p>}
-				</div>
-			);
+				);
+			}
 			break;
 		case "unavailable":
 			body = (
@@ -288,18 +465,12 @@ export default function CitationPreviewCard({
 			break;
 	}
 
-	const openTarget = paper
-		? paper.paperId
-			? `/paper/${paper.paperId}`
-			: paper.externalUrl
-		: null;
-
 	const hasFooter = Boolean(jumpButton || openTarget || importUrl);
 
 	return createPortal(
 		<div
 			data-citation-preview
-			data-citation-state={preview.state}
+			data-citation-state={resolved ? resolved.kind : preview.state}
 			role="region"
 			aria-label="Citation preview"
 			style={style}
@@ -330,7 +501,7 @@ export default function CitationPreviewCard({
 								</button>
 							))}
 						{openTarget &&
-							(paper?.paperId ? (
+							(libraryId ? (
 								<Link
 									href={openTarget}
 									className="flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90"

@@ -38,6 +38,8 @@ class WorkRecord:
     institutions: list[str] = field(default_factory=list)
     # The source's own record type ("journal-article", "preprint", ...).
     work_type: Optional[str] = None
+    # An open-access PDF, when the source knows one (OpenAlex only).
+    pdf_url: Optional[str] = None
 
 
 _TAG = re.compile(r"<[^>]+>")

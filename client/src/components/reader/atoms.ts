@@ -44,17 +44,11 @@ export interface CitationPreviewBase {
 export interface CitationPreviewSkeleton extends CitationPreviewBase {
 	state: "skeleton";
 }
-export interface CitationPreviewResolved extends CitationPreviewBase {
-	state: "paper";
-	paper: import("./citations/resolve").PaperInfo;
-	destinationPage: number | null;
-}
-export interface CitationPreviewRaw extends CitationPreviewBase {
-	state: "raw";
+/** The bibliography entry was extracted; the card resolves it (SWR). */
+export interface CitationPreviewEntry extends CitationPreviewBase {
+	state: "entry";
 	referenceText: string;
 	destinationPage: number | null;
-	resolving?: boolean;
-	lookupUnavailable?: boolean;
 }
 export interface CitationPreviewUnavailable extends CitationPreviewBase {
 	state: "unavailable";
@@ -63,8 +57,7 @@ export interface CitationPreviewUnavailable extends CitationPreviewBase {
 
 export type CitationPreviewState =
 	| CitationPreviewSkeleton
-	| CitationPreviewResolved
-	| CitationPreviewRaw
+	| CitationPreviewEntry
 	| CitationPreviewUnavailable;
 
 export const citationPreviewAtom = atom<CitationPreviewState | null>(null);
