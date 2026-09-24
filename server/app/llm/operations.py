@@ -1,11 +1,9 @@
 from app.llm.citation_handler import CitationHandler
 from app.llm.conversation_operations import ConversationOperations, DataTableOperations
 from app.llm.json_parser import JSONParser
-from app.llm.paper_operations import PaperOperations
 
 
 class Operations(
-    PaperOperations,
     ConversationOperations,
     DataTableOperations,
 ):
@@ -21,7 +19,6 @@ class Operations(
 
 __all__ = [
     "Operations",
-    "PaperOperations",
     "ConversationOperations",
     "CitationHandler",
     "JSONParser",

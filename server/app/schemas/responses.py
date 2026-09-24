@@ -39,17 +39,6 @@ class ResponseCitation(BaseModel):
     )
 
 
-class AudioOverviewForLLM(BaseModel):
-    summary: str = Field(
-        description="The helpful summary of the research. This should include key findings, contributions, and implications of the paper. Include inline citations, which are to be documented separately in the citations field, which directly back up your claims. The format should include the citation index (e.g., [^1], [^2]) in the summary."
-    )
-    citations: List[ResponseCitation] = Field(
-        default=[],
-        description="List of the raw text citations from the paper that are relevant to the summary. These should be direct quotes or paraphrases from the paper(s) that support the summary provided. These should not be extracted references from the references of the paper. Rather, they are references from the raw documents relevant to your summary.",
-    )
-    title: str = Field(description="The title of the narrative overview.")
-
-
 class PaperMetadataExtraction(BaseModel):
     title: str = Field(description="Title of the paper in normal case")
     authors: List[str] = Field(default=[], description="List of authors")

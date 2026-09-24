@@ -8,7 +8,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 
 import {
-    AudioLines,
     FileText,
     Highlighter,
     Lightbulb,
@@ -57,12 +56,6 @@ const AnnotationsTool = {
     icon: Highlighter,
 }
 
-const AudioTool = {
-    name: "Audio",
-    label: "Audio",
-    icon: AudioLines,
-}
-
 const DocTool = {
     name: "Doc",
     label: "Notes",
@@ -74,7 +67,6 @@ const PaperToolset = {
         ChatTool,
         OverviewTool,
         AnnotationsTool,
-        AudioTool,
         DocTool,
     ],
 }

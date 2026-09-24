@@ -6,7 +6,7 @@ import { ProjectCard } from "@/components/ProjectCard";
 import { Button } from "@/components/ui/button";
 import { Project } from "@/lib/schema";
 import { fetchFromApi } from "@/lib/api";
-import { PlusCircle, Target, BookOpen, FileText, Info, Search, Headphones, MessageCircle, Table, Users, X, Plus } from "lucide-react";
+import { PlusCircle, Target, BookOpen, FileText, Info, Search, MessageCircle, Table, Users, X, Plus } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useSubscription, isProjectNearLimit, isProjectAtLimit, getProjectUsagePercentage } from "@/hooks/useSubscription";
@@ -17,10 +17,9 @@ import { Progress } from "@/components/ui/progress";
 import LoadingIndicator from "@/components/utils/Loading";
 import { ProjectInvitations } from "@/components/ProjectInvitations";
 
-type ProjectFilter = "hasAudio" | "hasChats" | "hasDataTables" | "shared";
+type ProjectFilter = "hasChats" | "hasDataTables" | "shared";
 
 const FILTER_CONFIG: Record<ProjectFilter, { label: string; icon: React.ElementType; check: (p: Project) => boolean }> = {
-	hasAudio: { label: "Audio Overviews", icon: Headphones, check: (p) => (p.num_audio_overviews ?? 0) > 0 },
 	hasChats: { label: "Chats", icon: MessageCircle, check: (p) => (p.num_conversations ?? 0) > 0 },
 	hasDataTables: { label: "Data Tables", icon: Table, check: (p) => (p.num_data_tables ?? 0) > 0 },
 	shared: { label: "Shared", icon: Users, check: (p) => (p.num_roles ?? 1) > 1 },
