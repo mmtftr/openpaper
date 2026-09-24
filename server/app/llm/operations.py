@@ -1,13 +1,12 @@
 from app.llm.citation_handler import CitationHandler
-from app.llm.conversation_operations import ConversationOperations, DataTableOperations
+from app.llm.conversation_operations import ConversationOperations
 from app.llm.json_parser import JSONParser
 
 
 class Operations(
     ConversationOperations,
-    DataTableOperations,
 ):
-    """Unified non-chat LLM operations (summaries, titles, data tables).
+    """Unified non-chat LLM operations (summaries, titles).
 
     Chat itself lives in app/llm/chat/ on the pydantic-ai runtime and does
     not go through this class — except citation reconciliation, which uses
@@ -22,7 +21,6 @@ __all__ = [
     "ConversationOperations",
     "CitationHandler",
     "JSONParser",
-    "DataTableOperations",
 ]
 
 operations = Operations()

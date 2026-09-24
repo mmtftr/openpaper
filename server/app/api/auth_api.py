@@ -1,14 +1,12 @@
 import json
 import logging
 import os
-import secrets
 import uuid
 from datetime import datetime
 from typing import Optional
 
-from app.auth.dependencies import get_admin_user, get_current_user, get_required_user
+from app.auth.dependencies import get_current_user, get_required_user
 from app.auth.email import email_auth_client
-from app.auth.google import google_auth_client
 from app.auth.utils import (
     clear_session_cookie,
     is_verification_code_valid,
@@ -17,24 +15,18 @@ from app.auth.utils import (
 from app.database.crud.annotation_crud import annotation_crud
 from app.database.crud.highlight_crud import highlight_crud
 from app.database.crud.message_crud import message_crud
-from app.database.crud.projects.project_role_invitation_crud import (
-    project_role_invitation_crud,
-)
 from app.database.crud.subscription_crud import subscription_crud
 from app.database.crud.user_crud import user as user_crud
 from app.database.database import get_db
-from app.database.models import PaperStatus, Project, User
+from app.database.models import PaperStatus, User
 from app.database.telemetry import track_event
 from app.helpers.abuse_detection import check_signup_abuse, send_abuse_alert
 from app.helpers.email import (
-    CLIENT_DOMAIN,
     add_to_default_audience,
     send_onboarding_email,
-    send_project_invite_email,
 )
-from app.schemas.user import CurrentUser, UserCreateWithProvider, UserUpdate
+from app.schemas.user import CurrentUser, UserUpdate
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -109,7 +101,6 @@ async def update_profile(
         picture=str(db_user.picture) if db_user.picture else None,
         is_email_verified=bool(db_user.is_email_verified),
         is_active=is_user_active,
-        is_blocked=bool(db_user.is_blocked),
     )
 
     return AuthResponse(
@@ -143,133 +134,6 @@ async def logout(
     return AuthResponse(success=True, message="Logged out successfully")
 
 
-@auth_router.get("/google/login")
-async def google_login():
-    """Start Google OAuth flow."""
-    # Generate a random state for security
-    state = secrets.token_urlsafe(32)
-
-    # Get the authorization URL
-    auth_url = google_auth_client.get_auth_url(state=state)
-
-    return {"auth_url": auth_url}
-
-
-@auth_router.get("/google/callback", response_class=RedirectResponse)
-async def google_callback(
-    request: Request,
-    code: str = Query(...),
-    db: Session = Depends(get_db),
-):
-    """Handle Google OAuth callback."""
-    try:
-        # Exchange the code for a token
-        token_data = google_auth_client.get_token(code)
-        if not token_data or "access_token" not in token_data:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Failed to get access token",
-            )
-
-        # Get user info from Google
-        user_info = google_auth_client.get_user_info(token_data["access_token"])
-        if not user_info:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Failed to get user info",
-            )
-
-        # Check if user exists with a different provider
-        existing_user = user_crud.get_by_email_and_provider(
-            db, email=user_info.email, provider="google"
-        )
-        user_with_different_provider = user_crud.get_by_email(db, email=user_info.email)
-
-        if user_with_different_provider and not existing_user:
-            # User exists but with a different provider - redirect with specific error
-            redirect_url = f"{client_domain}/login?error=different_provider"
-            return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
-
-        # Create or update user
-        user_data = UserCreateWithProvider(
-            email=user_info.email,
-            name=user_info.name,
-            picture=user_info.picture,
-            locale=user_info.locale,
-            auth_provider="google",
-            provider_user_id=user_info.id,
-        )
-
-        db_user, newly_created = user_crud.upsert_with_provider(db=db, obj_in=user_data)
-
-        # Track user signup event
-        if newly_created:
-            add_to_default_audience(
-                email=str(db_user.email), name=str(db_user.name) or None
-            )
-            send_onboarding_email(
-                email=str(db_user.email), name=str(db_user.name) or None
-            )
-            track_event(
-                "user_signup",
-                properties={"auth_provider": "google"},
-                user_id=str(db_user.id),
-            )
-
-            # Check for suspected signup abuse
-            try:
-                abuse_matches = check_signup_abuse(db, db_user)
-                if abuse_matches:
-                    send_abuse_alert(db_user, abuse_matches)
-            except Exception as e:
-                logger.error(f"Error during abuse check: {e}", exc_info=True)
-
-        # Create a new session
-        user_agent = request.headers.get("user-agent")
-        client_host = request.client.host if request.client else None
-
-        if not db_user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found after creation",
-            )
-
-        session = user_crud.create_session(
-            db=db,
-            user_id=db_user.id,  # type: ignore
-            user_agent=user_agent,
-            ip_address=client_host,
-        )
-
-        # Create redirect response
-        redirect_url = f"{client_domain}/auth/callback?success=true"
-
-        if newly_created:
-            redirect_url += "&welcome=true"
-
-        redirect_response = RedirectResponse(
-            url=redirect_url, status_code=status.HTTP_302_FOUND
-        )
-
-        # Set the session cookie on the redirect response
-        set_session_cookie(
-            redirect_response, token=session.token, expires_at=session.expires_at  # type: ignore
-        )
-
-        # Set a header that the frontend can use to detect successful auth
-        redirect_response.headers["X-Auth-Success"] = "true"
-
-        return redirect_response
-    except Exception as e:
-        logger.error(f"Error during Google OAuth callback: {e}")
-        # Redirect to frontend with failure status
-        redirect_url = f"{client_domain}/auth/callback?success=false"
-        redirect_response = RedirectResponse(
-            url=redirect_url, status_code=status.HTTP_302_FOUND
-        )
-        return redirect_response
-
-
 # Email Authentication Models
 class EmailSignInRequest(BaseModel):
     """Request model for email sign-in."""
@@ -282,13 +146,6 @@ class EmailSetNameRequest(BaseModel):
 
     email: str
     name: str
-
-
-class BlockUserRequest(BaseModel):
-    """Request model for blocking/unblocking a user."""
-
-    user_id: str
-    blocked: bool
 
 
 class EmailVerifyRequest(BaseModel):
@@ -472,26 +329,6 @@ async def email_verify(
                 email=str(db_user.email), name=str(db_user.name) or None
             )
 
-            # Check if newly created user has any pending project invitations. If so, send out the invitations.
-            pending_invitations = (
-                project_role_invitation_crud.get_pending_invitations_for_email(
-                    db, email=email
-                )
-            )
-            for invitation in pending_invitations:
-                project: Project | None = (
-                    db.query(Project)
-                    .filter(Project.id == invitation.project_id)
-                    .first()
-                )
-                if project and invitation.inviter:
-                    invite_link = f"{CLIENT_DOMAIN}/project/{project.id}/accept-invite"
-                    send_project_invite_email(
-                        to_email=email,
-                        project_title=str(project.title),
-                        from_name=str(invitation.inviter.name),
-                    )
-
         # Create JSON response with redirect info
         response_data = {
             "success": True,
@@ -521,28 +358,3 @@ async def email_verify(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error during verification",
         )
-
-
-@auth_router.post("/admin/block", response_model=AuthResponse)
-async def block_user(
-    request: BlockUserRequest,
-    admin_user: CurrentUser = Depends(get_admin_user),
-    db: Session = Depends(get_db),
-):
-    """Block or unblock a user. Admin only."""
-    target_user = user_crud.get(db=db, id=uuid.UUID(request.user_id))
-    if not target_user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
-
-    user_crud.set_blocked(db, user=target_user, blocked=request.blocked)
-
-    action = "blocked" if request.blocked else "unblocked"
-    logger.info(f"User {target_user.email} {action} by admin {admin_user.email}")
-
-    return AuthResponse(
-        success=True,
-        message=f"User {action} successfully",
-    )

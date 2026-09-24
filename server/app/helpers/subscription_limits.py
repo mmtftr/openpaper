@@ -14,7 +14,6 @@ from app.database.crud.discover_crud import discover_search_crud
 from app.database.crud.message_crud import message_crud
 from app.database.crud.paper_crud import paper_crud
 from app.database.crud.projects.project_crud import project_crud
-from app.database.crud.projects.project_data_table_crud import data_table_job_crud
 from app.database.crud.subscription_crud import subscription_crud
 from app.database.models import SubscriptionPlan, SubscriptionStatus
 from app.database.telemetry import track_event
@@ -26,7 +25,6 @@ logger = logging.getLogger(__name__)
 PAPER_UPLOAD_KEY = "paper_uploads"
 KB_SIZE_KEY = "knowledge_base_size"
 CHAT_CREDITS_KEY = "chat_credits_weekly"
-DATA_TABLES_KEY = "data_tables_weekly"
 PROJECTS_KEY = "projects"
 DISCOVER_SEARCHES_KEY = "discover_searches_weekly"
 
@@ -37,7 +35,6 @@ SUBSCRIPTION_LIMITS = {
         KB_SIZE_KEY: 200 * 1024,  # 200 MB in KB
         CHAT_CREDITS_KEY: 5000,
         PROJECTS_KEY: 2,
-        DATA_TABLES_KEY: 2,
         DISCOVER_SEARCHES_KEY: 10,
     },
     SubscriptionPlan.RESEARCHER: {
@@ -45,7 +42,6 @@ SUBSCRIPTION_LIMITS = {
         KB_SIZE_KEY: 3 * 1024 * 1024,  # 3 GB in KB
         CHAT_CREDITS_KEY: 150000,
         PROJECTS_KEY: 100,
-        DATA_TABLES_KEY: 50,
         DISCOVER_SEARCHES_KEY: 100,
     },
 }
@@ -58,7 +54,6 @@ UNLIMITED_LIMITS = {
     KB_SIZE_KEY: 1_000_000_000,  # ~1 TB in KB
     CHAT_CREDITS_KEY: 1_000_000_000,
     PROJECTS_KEY: 1_000_000,
-    DATA_TABLES_KEY: 1_000_000,
     DISCOVER_SEARCHES_KEY: 1_000_000,
 }
 
@@ -241,51 +236,6 @@ def can_user_access_knowledge_base(
     return True, None
 
 
-def can_user_create_data_table_job(
-    db: Session, user: CurrentUser
-) -> tuple[bool, Optional[str]]:
-    """
-    Check if a user can create a new data table extraction job based on their subscription limits.
-
-    Returns:
-        tuple: (can_create: bool, error_message: Optional[str])
-    """
-    plan = get_user_subscription_plan(db, user)
-    limits = get_effective_limits(db, user)
-
-    current_data_tables_used = data_table_job_crud.get_data_table_jobs_used_this_week(
-        db, user=user
-    )
-    data_table_limit = limits[DATA_TABLES_KEY]
-
-    # Handle unlimited plans
-    if data_table_limit == float("inf"):
-        return True, None
-
-    # If the user has reached their data table extraction job limit
-    if current_data_tables_used >= data_table_limit:
-        track_event(
-            "action_blocked_limit_reached",
-            user_id=str(user.id),
-            properties={
-                "current_data_tables_used": current_data_tables_used,
-                "data_table_limit": data_table_limit,
-                "type": "data_tables",
-                "plan": plan.value,
-            },
-        )
-        plan_name = {
-            SubscriptionPlan.BASIC: "Basic",
-            SubscriptionPlan.RESEARCHER: "Researcher",
-        }.get(plan, "Basic")
-        return (
-            False,
-            f"You have reached your data table extraction job limit ({int(data_table_limit)} jobs per week) for the {plan_name} plan. Please upgrade your subscription to create more data table extraction jobs.",
-        )
-
-    return True, None
-
-
 def can_user_run_discover_search(
     db: Session, user: CurrentUser
 ) -> tuple[bool, Optional[str]]:
@@ -388,11 +338,6 @@ def get_user_usage_info(db: Session, user: CurrentUser) -> Dict:
     chat_credits_allowed = limits[CHAT_CREDITS_KEY]
     chat_credits_used = get_user_chat_credits_used_this_week(db, user)
 
-    data_tables_allowed = limits[DATA_TABLES_KEY]
-    data_tables_used_this_week = data_table_job_crud.get_data_table_jobs_used_this_week(
-        db, user=user
-    )
-
     discover_searches_allowed = limits[DISCOVER_SEARCHES_KEY]
     discover_searches_used = discover_search_crud.get_searches_this_week(db, user=user)
 
@@ -418,11 +363,6 @@ def get_user_usage_info(db: Session, user: CurrentUser) -> Dict:
     project_usage_percentage = (
         (current_project_count / project_limit) * 100
         if project_limit != float("inf")
-        else 0
-    )
-    data_table_usage_percentage = (
-        (data_tables_used_this_week / data_tables_allowed) * 100
-        if data_tables_allowed != float("inf")
         else 0
     )
     discover_usage_percentage = (
@@ -491,18 +431,6 @@ def get_user_usage_info(db: Session, user: CurrentUser) -> Dict:
             },
         )
 
-    if data_table_usage_percentage > HIGH_USAGE_THRESHOLD:
-        track_event(
-            "high_usage_limit",
-            user_id=str(user.id),
-            properties={
-                "metric": "data_tables",
-                "usage": data_tables_used_this_week,
-                "limit": data_tables_allowed,
-                "plan": plan.value,
-            },
-        )
-
     chat_credits_remaining = (
         None
         if chat_credits_allowed == float("inf")
@@ -528,12 +456,6 @@ def get_user_usage_info(db: Session, user: CurrentUser) -> Dict:
         else max(0, int(project_limit) - current_project_count)
     )
 
-    data_tables_remaining = (
-        None
-        if data_tables_allowed == float("inf")
-        else max(0, int(data_tables_allowed) - data_tables_used_this_week)
-    )
-
     discover_searches_remaining = (
         None
         if discover_searches_allowed == float("inf")
@@ -554,8 +476,6 @@ def get_user_usage_info(db: Session, user: CurrentUser) -> Dict:
             "chat_credits_remaining": chat_credits_remaining,
             "projects": current_project_count,
             "projects_remaining": projects_remaining,
-            "data_tables_used": data_tables_used_this_week,
-            "data_tables_remaining": data_tables_remaining,
             "discover_searches_used": discover_searches_used,
             "discover_searches_remaining": discover_searches_remaining,
         },

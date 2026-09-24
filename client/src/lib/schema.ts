@@ -1,5 +1,4 @@
 import { PaperStatus } from "@/components/utils/PdfStatus";
-import { BasicUser } from "./auth";
 
 export type HighlightType = 'topic' | 'motivation' | 'method' | 'evidence' | 'result' | 'impact' | 'general';
 
@@ -18,8 +17,6 @@ export interface PaperData {
     publish_date: string;
     institutions: string[];
     keywords: string[];
-    is_public: boolean;
-    share_id: string;
     status: PaperStatus;
     journal?: string;
     doi?: string;
@@ -39,13 +36,6 @@ export interface SupplementaryMaterialSummary {
     page_count: number | null;
     created_at: string;
     status: 'pending' | 'running' | 'completed' | 'failed' | string;
-}
-
-export interface SharedPaper {
-    paper: PaperData;
-    highlights: PaperHighlight[];
-    annotations: PaperHighlightAnnotation[];
-    owner: BasicUser;
 }
 
 export interface ChatMessage {
@@ -126,9 +116,6 @@ export interface Conversation {
     id: string;
     title: string;
     updated_at: string;
-    is_owner?: boolean;
-    owner_picture?: string;
-    owner_name?: string;
 }
 
 
@@ -259,7 +246,6 @@ export interface PaperItem {
     file_url?: string
     size_in_kb?: number
     tags?: PaperTag[]
-    is_owner?: boolean
     journal?: string
     doi?: string
     publisher?: string
@@ -300,12 +286,8 @@ export interface Project {
     title: string;
     description: string;
     num_papers?: number;
-    num_conversations?: number;
-    num_data_tables?: number;
     created_at: string;
     updated_at: string;
-    role?: ProjectRole;
-    num_roles?: number;
 }
 
 export interface PdfUploadResponse {
@@ -319,91 +301,11 @@ export interface MinimalJob {
     fileName: string;
 }
 
-export enum ProjectRole {
-    Admin = 'admin',
-    Editor = 'editor',
-    Viewer = 'viewer',
-}
-
-export interface Collaborator {
-    id: string;
-    name: string;
-    picture: string;
-    email: string;
-    role: ProjectRole;
-}
-
-export interface PendingInvite {
-    id?: string;
-    email: string;
-    role: ProjectRole;
-    invited_at: string;
-}
-
-export interface ProjectInvitation {
-    id: string;
-    project_id: string;
-    project_name: string;
-    invited_by: string;
-    email: string;
-    role: string;
-    accepted_at?: string;
-    invited_at: string;
-}
-
-export interface DataTableJob {
-    id: string;
-    project_id: string | null;
-    columns: string[] | null;
-    task_id: string | null;
-    title: string | null;
-    status: JobStatusType;
-    started_at: string | null;
-    completed_at: string | null;
-    created_at: string | null;
-    updated_at: string | null;
-    error_message: string | null;
-    result_id: string | null;
-}
-
-// Response from /api/projects/tables/{job_id} status endpoint
-export interface DataTableJobStatusResponse extends JobStatusResponse {
-    columns: string[] | null;
-    task_id: string | null;
-    error_message: string | null;
-    celery_status: string | null;
-    celery_progress_message: string | null;
-    celery_error: string | null;
-}
-
-export interface DataTableCellValue {
-    value: string;
-    citations: ReferenceCitation[];
-}
-
-export interface DataTableRow {
-    id: string;
-    paper_id: string;
-    values: {
-        [columnName: string]: DataTableCellValue;
-    };
-}
-
-export interface DataTableResult {
-    success: boolean;
-    title: string;
-    columns: string[];
-    rows: DataTableRow[];
-    row_failures: string[] | null;
-    created_at: string | null;
-}
-
 export interface SubscriptionLimits {
     paper_uploads: number;
     knowledge_base_size: number;
     chat_credits_weekly: number;
     audio_overviews_weekly: number;
-    data_tables_weekly: number;
     discover_searches_weekly: number;
     projects: number;
     model: string[];
@@ -420,8 +322,6 @@ export interface SubscriptionUsage {
     audio_overviews_remaining: number;
     projects: number;
     projects_remaining: number;
-    data_tables_used: number;
-    data_tables_remaining: number;
     discover_searches_used: number;
     discover_searches_remaining: number;
 }

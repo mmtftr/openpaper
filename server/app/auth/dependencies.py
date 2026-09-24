@@ -69,7 +69,6 @@ def get_current_user(
         picture=db_user.picture,  # type: ignore
         is_email_verified=bool(db_user.is_email_verified),
         is_active=is_user_active,
-        is_blocked=bool(db_user.is_blocked),
     )
 
 
@@ -85,20 +84,5 @@ async def get_required_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
-        )
-    return current_user
-
-
-async def get_admin_user(
-    current_user: Annotated[CurrentUser, Depends(get_required_user)]
-) -> CurrentUser:
-    """
-    Require an admin user for admin-only routes.
-    Raises 403 Forbidden if user is not admin.
-    """
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not enough permissions",
         )
     return current_user

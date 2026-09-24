@@ -11,19 +11,16 @@ import logging
 import os
 import random
 import re
-from typing import Any, Callable, Dict, List, Optional, Type, TypeVar, Union
+from typing import Any, Callable, Dict, Optional, Type, TypeVar, Union
 
 import httpx
 import openai
-from pydantic import BaseModel, ConfigDict, Field, create_model
+from pydantic import BaseModel
 
 from src.prompts import (
-    EXTRACT_COLS_INSTRUCTION,
     EXTRACT_METADATA_PROMPT_TEMPLATE,
 )
 from src.schemas import (
-    DataTableCellValue,
-    DataTableRow,
     Highlights,
     InstitutionsKeywords,
     PaperMetadataExtraction,
@@ -444,56 +441,6 @@ class PaperOperations(AsyncLLMClient):
                 if status_callback:
                     status_callback(f"Error during metadata extraction: {e}")
                 raise ValueError(f"Failed to extract metadata: {str(e)}")
-
-    async def extract_data_table(
-        self,
-        columns: List[str],
-        paper_content: str,
-        paper_id: str,
-    ) -> DataTableRow:
-        """Extract structured data table values for the given columns."""
-        client = self._create_client()
-        try:
-            cols_str = "\n".join(f"- {col}" for col in columns)
-            prompt = EXTRACT_COLS_INSTRUCTION.format(
-                cols_str=cols_str, n_cols=len(columns)
-            )
-            prompt = f"Paper Content:\n\n{paper_content}\n\n{prompt}"
-
-            field_definitions: Dict[str, Any] = {
-                col: (
-                    DataTableCellValue,
-                    Field(description=f"Value and citations for column '{col}'"),
-                )
-                for col in columns
-            }
-
-            ValuesModel = create_model(
-                "ValuesModel",
-                __config__=ConfigDict(),
-                **field_definitions,
-            )
-
-            response = await self.generate_content(
-                prompt,
-                model=self.default_model,
-                schema=ValuesModel,
-                client=client,
-            )
-
-            response_json = JSONParser.validate_and_extract_json(response)
-            values_instance = ValuesModel.model_validate(response_json)
-
-            values_dict: Dict[str, DataTableCellValue] = {
-                col: getattr(values_instance, col) for col in columns
-            }
-
-            return DataTableRow(paper_id=paper_id, values=values_dict)
-        except Exception as e:
-            logger.error(f"Error extracting data table: {str(e)}", exc_info=True)
-            raise ValueError(
-                f"Failed to extract DT for paper {paper_id}: {str(e)}"
-            )
 
 
 def _resolve_model(env_var: str, fallback: str) -> str:

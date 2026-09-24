@@ -9,7 +9,7 @@ from uuid import UUID
 from app.database.crud.base_crud import CRUDBase
 from app.database.models import Session as DBSession
 from app.database.models import SubscriptionPlan, SubscriptionStatus, User
-from app.schemas.user import UserCreate, UserCreateWithProvider, UserUpdate
+from app.schemas.user import UserCreate, UserUpdate
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -59,92 +59,6 @@ class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
     def get_by_email(self, db: Session, *, email: str) -> Optional[User]:
         """Get a user by email."""
         return db.query(User).filter(User.email == email).first()
-
-    def get_by_provider_id(
-        self, db: Session, *, provider: str, provider_user_id: str
-    ) -> Optional[User]:
-        """Get a user by provider and provider's user ID."""
-        return (
-            db.query(User)
-            .filter(
-                User.auth_provider == provider,
-                User.provider_user_id == provider_user_id,
-            )
-            .first()
-        )
-
-    def create_with_provider(
-        self, db: Session, *, obj_in: UserCreateWithProvider
-    ) -> User:
-        """Create a new user from OAuth provider data."""
-        db_obj = User(
-            email=obj_in.email,
-            name=obj_in.name,
-            picture=obj_in.picture,
-            auth_provider=obj_in.auth_provider,
-            provider_user_id=obj_in.provider_user_id,
-            locale=obj_in.locale,
-            is_email_verified=obj_in.is_email_verified,
-            is_active=True,
-            is_admin=False,
-        )
-        db.add(db_obj)
-        db.commit()
-        db.refresh(db_obj)
-        return _bootstrap_user_account(db, user=db_obj)
-
-    def upsert_with_provider(
-        self, db: Session, *, obj_in: UserCreateWithProvider
-    ) -> tuple[User, bool]:
-        """
-        Create or update a user from OAuth provider data.
-        If user exists (by provider ID), update their info.
-        If not, create new user.
-        """
-        # First try to find by provider ID
-        db_user = self.get_by_provider_id(
-            db, provider=obj_in.auth_provider, provider_user_id=obj_in.provider_user_id
-        )
-
-        # Since OAuth providers verify email, we can mark email as verified
-        obj_in.is_email_verified = True
-
-        # If exists, update info
-        if db_user:
-            update_data = obj_in.model_dump(
-                exclude={"auth_provider", "provider_user_id"}
-            )
-            for field, value in update_data.items():
-                setattr(db_user, field, value)
-            db.add(db_user)
-            db.commit()
-            db.refresh(db_user)
-            return db_user, False
-
-        # If not found by provider ID, check email (might have registered with another provider)
-        db_user = self.get_by_email(db, email=obj_in.email)
-        if db_user:
-            # User exists with this email but different provider
-            # Here you could implement a linking strategy for multiple providers
-            # For now, we'll just log and use the existing account
-            logger.info(
-                f"User with email {obj_in.email} already exists with provider {db_user.auth_provider}, "
-                f"but is now authenticating with {obj_in.auth_provider}"
-            )
-            # Update user with new provider info
-            db_user.auth_provider = obj_in.auth_provider  # type: ignore
-            db_user.provider_user_id = obj_in.provider_user_id  # type: ignore
-            db_user.name = obj_in.name or db_user.name  # type: ignore
-            db_user.picture = obj_in.picture or db_user.picture  # type: ignore
-            db_user.locale = obj_in.locale or db_user.locale  # type: ignore
-            db.add(db_user)
-            db.commit()
-            db.refresh(db_user)
-            return db_user, False
-
-        # Create new user if not found
-        db_user = self.create_with_provider(db, obj_in=obj_in)
-        return db_user, True
 
     def create_session(
         self,
@@ -248,48 +162,6 @@ class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
             .filter(User.email == email, User.auth_provider == provider)
             .first()
         )
-
-    def send_block_notification(self, user: User) -> None:
-        """Send suspension notification email to a blocked user."""
-        from app.helpers.email import send_email
-
-        user_email = str(user.email)
-        user_name = str(user.name) if user.name else ""
-        greeting = f"Hello {user_name}," if user_name else "Hello,"
-        try:
-            send_email(
-                to_email=user_email,
-                subject="Your Open Paper account has been suspended",
-                html_content=(
-                    f"<p>{greeting}</p>"
-                    "<p>Your Open Paper account has been flagged and suspended "
-                    "for suspected misconduct of the platform.</p>"
-                    "<p>If you believe this is an error, please contact us at "
-                    '<a href="mailto:team@khoj.dev">team@khoj.dev</a> '
-                    "and we will review your account.</p>"
-                    "<p>- The Open Paper Team</p>"
-                ),
-                from_name="Open Paper",
-                from_address="support@updates.openpaper.ai",
-            )
-            logger.info(f"Blocked notification email sent to {user_email}")
-        except Exception as e:
-            logger.error(
-                f"Failed to send block notification to {user_email}: {e}",
-                exc_info=True,
-            )
-
-    def set_blocked(self, db: Session, *, user: User, blocked: bool) -> User:
-        """Block or unblock a user. Sends a notification email when blocking."""
-        user.is_blocked = blocked  # type: ignore
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-
-        if blocked:
-            self.send_block_notification(user)
-
-        return user
 
 
 user = CRUDUser(User)

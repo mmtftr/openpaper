@@ -12,7 +12,6 @@ import {
 } from '@/components/ui/sheet';
 import { CitePaperButton } from '@/components/CitePaperButton';
 import { ManageProjectsButton } from '@/components/ManageProjectsButton';
-import { ImportPaperButton } from '@/components/ImportPaperButton';
 
 export function MobilePaperMenu() {
     const [isOpen, setIsOpen] = useState(false);
@@ -32,9 +31,6 @@ export function MobilePaperMenu() {
                     </SheetHeader>
                     <div className="m-0">
                         {/* Mobile-styled buttons that take full width and are left-aligned */}
-                        <div className="w-full [&>*]:w-full [&>*>button]:w-full [&>*>button]:justify-start [&>*>button]:text-left [&>*>button]:px-4 [&>*>button]:py-3 [&>*>button]:h-auto [&>*>button]:flex [&>*>button]:items-center">
-                            <ImportPaperButton />
-                        </div>
                         <div className="w-full [&>*]:w-full [&>*>button]:w-full [&>*>button]:justify-start [&>*>button]:text-left [&>*>button]:px-4 [&>*>button]:py-3 [&>*>button]:h-auto [&>*>button]:flex [&>*>button]:items-center">
                             <CitePaperButton />
                         </div>

@@ -7,7 +7,7 @@ from app.database.crud.base_crud import (
     ModelType,
     UpdateSchemaType,
 )
-from app.database.models import Project, ProjectPaper, ProjectRole, ProjectRoles
+from app.database.models import Project, ProjectPaper
 from app.schemas.user import CurrentUser
 from sqlalchemy.orm import Query, Session
 
@@ -25,20 +25,14 @@ class ProjectBaseCRUD(CRUDBase[ModelType, CreateSchemaType, UpdateSchemaType]):
 
     def get(self, db: Session, id: Any, *, user: CurrentUser) -> Optional[ModelType]:  # type: ignore
         query = self._get_base_query(db)
-        return (
-            query.join(ProjectRole, Project.id == ProjectRole.project_id)
-            .filter(self.model.id == id, ProjectRole.user_id == user.id)
-            .first()
-        )
+        return query.filter(self.model.id == id, Project.owner_id == user.id).first()
 
     def get_multi_by_user(
         self, db: Session, *, user: CurrentUser, skip: int = 0, limit: int = 100
     ) -> List[ModelType]:
         query = self._get_base_query(db)
-        join_on = Project.id if self.model == Project else self.model.project_id
         return (
-            query.join(ProjectRole, join_on == ProjectRole.project_id)
-            .filter(ProjectRole.user_id == user.id)
+            query.filter(Project.owner_id == user.id)
             .order_by(self.model.created_at.desc())
             .offset(skip)
             .limit(limit)
@@ -55,15 +49,9 @@ class ProjectBaseCRUD(CRUDBase[ModelType, CreateSchemaType, UpdateSchemaType]):
     ) -> Optional[ModelType]:
         try:
             query = self._get_base_query(db)
-            db_obj = (
-                query.join(ProjectRole, Project.id == ProjectRole.project_id)
-                .filter(
-                    self.model.id == id,
-                    ProjectRole.user_id == user.id,
-                    ProjectRole.role.in_([ProjectRoles.ADMIN]),
-                )
-                .first()
-            )
+            db_obj = query.filter(
+                self.model.id == id, Project.owner_id == user.id
+            ).first()
 
             if not db_obj:
                 return None
@@ -91,15 +79,7 @@ class ProjectBaseCRUD(CRUDBase[ModelType, CreateSchemaType, UpdateSchemaType]):
     def remove(self, db: Session, *, id: Any, user: CurrentUser) -> Optional[ModelType]:  # type: ignore
         try:
             query = self._get_base_query(db)
-            obj = (
-                query.join(ProjectRole, Project.id == ProjectRole.project_id)
-                .filter(
-                    self.model.id == id,
-                    ProjectRole.user_id == user.id,
-                    ProjectRole.role.in_([ProjectRoles.ADMIN]),
-                )
-                .first()
-            )
+            obj = query.filter(self.model.id == id, Project.owner_id == user.id).first()
 
             if obj:
                 if self.model == Project:
@@ -107,10 +87,6 @@ class ProjectBaseCRUD(CRUDBase[ModelType, CreateSchemaType, UpdateSchemaType]):
 
                     db.query(ProjectPaper).filter(
                         ProjectPaper.project_id == project_id
-                    ).delete(synchronize_session=False)
-
-                    db.query(ProjectRole).filter(
-                        ProjectRole.project_id == project_id
                     ).delete(synchronize_session=False)
 
                 db.delete(obj)

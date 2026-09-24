@@ -22,9 +22,6 @@ class UserCreate(UserBase):
 
 
 # Schema for creating a user from OAuth
-class UserCreateWithProvider(UserBase):
-    auth_provider: str
-    provider_user_id: str
 
 
 # Schema for updating a user
@@ -85,12 +82,6 @@ class TokenPayload(BaseModel):
 
 
 # OAuth response
-class OAuthUserInfo(BaseModel):
-    id: str
-    email: EmailStr
-    name: Optional[str] = None
-    picture: Optional[str] = None
-    locale: Optional[str] = None
 
 
 # Current user with scopes/permissions
@@ -104,7 +95,6 @@ class CurrentUser(BaseModel):
 
     # is_active describes if the user account is on the RESEARCHER or BASIC plan
     is_active: bool = False
-    is_blocked: bool = False
 
     class ConfigDict:
         from_attributes = True

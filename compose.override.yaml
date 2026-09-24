@@ -5,7 +5,6 @@ services:
       API_DOMAIN: https://paper.example.com
       S3_PUBLIC_BASE_URL: https://paper.example.com/s3/openpaper-local
       CLOUDFLARE_BUCKET_NAME: paper.example.com/s3/openpaper-local
-      GOOGLE_REDIRECT_URI: https://paper.example.com/api/auth/google/callback
       SECURE_COOKIES: "true"
       SESSION_COOKIE_DOMAIN: paper.example.com
 

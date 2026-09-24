@@ -2,7 +2,7 @@ from typing import Optional
 from uuid import UUID
 
 from app.database.crud.base_crud import CRUDBase
-from app.database.models import ConversableType, Conversation, Message, Paper
+from app.database.models import ConversableType, Conversation
 from app.schemas.user import CurrentUser
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -47,34 +47,6 @@ class ConversationCRUD(CRUDBase[Conversation, ConversationCreate, ConversationUp
         return (
             db.query(Conversation)
             .filter(Conversation.id == conversation_id, Conversation.user_id == user_id)
-            .first()
-        )
-
-    def get_by_share_paper_id(
-        self, db: Session, *, share_paper_id: str
-    ) -> Optional[Conversation]:
-        """Get a conversation by share paper ID"""
-        paper = (
-            db.query(Paper)
-            .filter(
-                Paper.share_id == share_paper_id,
-                Paper.is_public == True,
-            )
-            .first()
-        )
-
-        if not paper:
-            return None
-
-        # Get the first conversation for that shared paper that has any associated `Message` objects
-        return (
-            db.query(Conversation)
-            .join(Message)
-            .filter(
-                Conversation.conversable_id == paper.id,
-                Conversation.conversable_type == ConversableType.PAPER,
-            )
-            .order_by(Conversation.created_at.desc())
             .first()
         )
 

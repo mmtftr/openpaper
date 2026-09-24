@@ -1,12 +1,12 @@
 "use client";
 import { useEffect, useState, Suspense, useMemo } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { ProjectCard } from "@/components/ProjectCard";
 import { Button } from "@/components/ui/button";
 import { Project } from "@/lib/schema";
 import { fetchFromApi } from "@/lib/api";
-import { PlusCircle, Target, BookOpen, FileText, Info, Search, MessageCircle, Table, Users, X, Plus } from "lucide-react";
+import { PlusCircle, Target, BookOpen, FileText, Info, Search, X, Plus } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useSubscription, isProjectNearLimit, isProjectAtLimit, getProjectUsagePercentage } from "@/hooks/useSubscription";
@@ -15,15 +15,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { Progress } from "@/components/ui/progress";
 import LoadingIndicator from "@/components/utils/Loading";
-import { ProjectInvitations } from "@/components/ProjectInvitations";
-
-type ProjectFilter = "hasChats" | "hasDataTables" | "shared";
-
-const FILTER_CONFIG: Record<ProjectFilter, { label: string; icon: React.ElementType; check: (p: Project) => boolean }> = {
-	hasChats: { label: "Chats", icon: MessageCircle, check: (p) => (p.num_conversations ?? 0) > 0 },
-	hasDataTables: { label: "Data Tables", icon: Table, check: (p) => (p.num_data_tables ?? 0) > 0 },
-	shared: { label: "Shared", icon: Users, check: (p) => (p.num_roles ?? 1) > 1 },
-};
+import { CreateProjectDialog } from "@/components/CreateProjectDialog";
 
 function ProjectsPage() {
 	const [projects, setProjects] = useState<Project[]>([]);
@@ -32,31 +24,16 @@ function ProjectsPage() {
 	const [error, setError] = useState<string | null>(null);
 	const { subscription } = useSubscription();
 	const router = useRouter();
-	const searchParams = useSearchParams();
+	const [isCreateProjectOpen, setCreateProjectOpen] = useState(false);
 
 	const [showUsageAlert, setShowUsageAlert] = useState(true);
 	const [searchQuery, setSearchQuery] = useState("");
-	const [activeFilters, setActiveFilters] = useState<Set<ProjectFilter>>(new Set());
 
 	const atProjectLimit = subscription ? isProjectAtLimit(subscription) : false;
 	const nearProjectLimit = subscription ? isProjectNearLimit(subscription) : false;
-	const openInvites = searchParams.get("openInvites") !== null;
-
-	const toggleFilter = (filter: ProjectFilter) => {
-		setActiveFilters((prev) => {
-			const next = new Set(prev);
-			if (next.has(filter)) {
-				next.delete(filter);
-			} else {
-				next.add(filter);
-			}
-			return next;
-		});
-	};
 
 	const clearAllFilters = () => {
 		setSearchQuery("");
-		setActiveFilters(new Set());
 	};
 
 	const filteredProjects = useMemo(() => {
@@ -69,16 +46,11 @@ function ProjectsPage() {
 				if (!matchesTitle && !matchesDescription) return false;
 			}
 
-			// Quick filters - all active filters must match
-			for (const filter of activeFilters) {
-				if (!FILTER_CONFIG[filter].check(project)) return false;
-			}
-
 			return true;
 		});
-	}, [projects, searchQuery, activeFilters]);
+	}, [projects, searchQuery]);
 
-	const hasActiveFilters = searchQuery.trim() !== "" || activeFilters.size > 0;
+	const hasActiveFilters = searchQuery.trim() !== "";
 
 	const getProjects = async () => {
 		try {
@@ -89,6 +61,20 @@ function ProjectsPage() {
 			console.error(err);
 		} finally {
 			setIsLoading(false);
+		}
+	};
+
+	const handleCreateProject = async (title: string, description: string) => {
+		try {
+			const project = await fetchFromApi("/api/projects", {
+				method: "POST",
+				body: JSON.stringify({ title, description }),
+			});
+			setCreateProjectOpen(false);
+			router.push(`/projects/${project.id}`);
+		} catch (err) {
+			console.error(err);
+			toast.error("Failed to create project. Please try again.");
 		}
 	};
 
@@ -162,14 +148,12 @@ function ProjectsPage() {
 					</Button>
 				) : (
 					<Button
-						asChild
 						size="lg"
 						className="bg-primary hover:bg-primary/90"
+						onClick={() => setCreateProjectOpen(true)}
 					>
-						<Link href="/projects/create">
-							<PlusCircle className="mr-2 h-4 w-4" />
-							Create your first project
-						</Link>
+						<PlusCircle className="mr-2 h-4 w-4" />
+						Create your first project
 					</Button>
 				)}
 				<Button variant="outline" size="lg" asChild>
@@ -240,7 +224,6 @@ function ProjectsPage() {
 			<div className="flex justify-between items-center mb-4">
 				<h1 className="text-2xl font-bold">Projects</h1>
 				<div className="flex gap-2">
-					<ProjectInvitations onInvitationAccepted={getProjects} defaultOpen={openInvites} />
 					{projects.length > 0 && (
 						atProjectLimit ? (
 							<Button className="bg-blue-500 dark:text-card-foreground hover:bg-blue-600 dark:hover:bg-blue-400" disabled>
@@ -248,11 +231,9 @@ function ProjectsPage() {
 								New Project
 							</Button>
 						) : (
-							<Button asChild className="bg-blue-500 dark:text-card-foreground hover:bg-blue-600 dark:hover:bg-blue-400">
-								<Link href="/projects/create">
-									<PlusCircle className="mr-2" />
-									New Project
-								</Link>
+							<Button className="bg-blue-500 dark:text-card-foreground hover:bg-blue-600 dark:hover:bg-blue-400" onClick={() => setCreateProjectOpen(true)}>
+								<PlusCircle className="mr-2" />
+								New Project
 							</Button>
 						)
 					)}
@@ -274,28 +255,7 @@ function ProjectsPage() {
 						/>
 					</div>
 
-					{/* Quick Filters */}
 					<div className="flex flex-wrap items-center gap-2">
-						<span className="text-sm text-muted-foreground mr-1">Filter:</span>
-						{(Object.keys(FILTER_CONFIG) as ProjectFilter[]).map((filterKey) => {
-							const config = FILTER_CONFIG[filterKey];
-							const Icon = config.icon;
-							const isActive = activeFilters.has(filterKey);
-							return (
-								<button
-									key={filterKey}
-									onClick={() => toggleFilter(filterKey)}
-									className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-										isActive
-											? "bg-primary text-primary-foreground"
-											: "bg-secondary text-secondary-foreground hover:bg-secondary/80"
-									}`}
-								>
-									<Icon className="h-3.5 w-3.5" />
-									{config.label}
-								</button>
-							);
-						})}
 						{hasActiveFilters && (
 							<>
 								<button
@@ -356,15 +316,13 @@ function ProjectsPage() {
 								<span className="text-xs mt-1">Upgrade to create more</span>
 							</Card>
 						) : (
-							<Link href="/projects/create">
-								<Card className="h-64 border-2 border-dashed border-border/50 hover:border-primary/50 bg-secondary/30 hover:bg-secondary/50 flex flex-col items-center justify-center text-muted-foreground hover:text-foreground transition-all duration-300 cursor-pointer group">
-									<div className="w-12 h-12 rounded-full bg-muted group-hover:bg-primary/10 flex items-center justify-center mb-3 transition-colors">
-										<Plus className="w-6 h-6 group-hover:text-primary transition-colors" />
-									</div>
-									<span className="font-medium">New Project</span>
-									<span className="text-xs mt-1 text-muted-foreground">Create a new research project</span>
-								</Card>
-							</Link>
+							<Card onClick={() => setCreateProjectOpen(true)} className="h-64 border-2 border-dashed border-border/50 hover:border-primary/50 bg-secondary/30 hover:bg-secondary/50 flex flex-col items-center justify-center text-muted-foreground hover:text-foreground transition-all duration-300 cursor-pointer group">
+								<div className="w-12 h-12 rounded-full bg-muted group-hover:bg-primary/10 flex items-center justify-center mb-3 transition-colors">
+									<Plus className="w-6 h-6 group-hover:text-primary transition-colors" />
+								</div>
+								<span className="font-medium">New Project</span>
+								<span className="text-xs mt-1 text-muted-foreground">Create a new research project</span>
+							</Card>
 						)
 					)}
 					{filteredProjects.map((project) => (
@@ -372,6 +330,12 @@ function ProjectsPage() {
 					))}
 				</div>
 			)}
+
+			<CreateProjectDialog
+				open={isCreateProjectOpen}
+				onOpenChange={setCreateProjectOpen}
+				onSubmit={handleCreateProject}
+			/>
 		</div>
 	);
 }

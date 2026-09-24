@@ -19,10 +19,6 @@ from app.api.paper_tag_api import paper_tag_router
 from app.api.paper_upload_api import paper_upload_router
 from app.api.projects.project_papers_api import project_papers_router
 from app.api.projects.projects_api import projects_router
-from app.api.projects.projects_data_table_api import projects_data_table_router
-from app.api.projects.projects_invitation_api import (
-    router as projects_invitation_router,
-)
 from app.api.repo_api import repo_router
 from app.api.search_api import search_router
 from app.api.subscription import subscription_router
@@ -95,12 +91,10 @@ app.include_router(highlight_router, prefix="/api/highlight")
 app.include_router(annotation_router, prefix="/api/annotation")
 app.include_router(projects_router, prefix="/api/projects")
 app.include_router(project_papers_router, prefix="/api/projects/papers")
-app.include_router(projects_invitation_router, prefix="/api/projects/invitations")
 app.include_router(paper_search_router, prefix="/api/search/global")
 app.include_router(search_router, prefix="/api/search/local")
 app.include_router(paper_figure_router, prefix="/api/paper")
 app.include_router(repo_router, prefix="/api/paper")
-app.include_router(projects_data_table_router, prefix="/api/projects/tables")
 app.include_router(paper_upload_router, prefix="/api/paper/upload")
 app.include_router(paper_tag_router, prefix="/api/paper/tag")
 app.include_router(

@@ -8,14 +8,13 @@ import { Suspense, useEffect, useState } from "react";
 import { AlertCircle, ArrowLeft, Loader2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import Link from "next/link";
-import Image from "next/image";
 import { Input } from "@/components/ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { fetchFromApi } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 
 function LoginContent() {
-	const { user, loading, error: authError, login } = useAuth();
+	const { user, loading, error: authError } = useAuth();
 	const [error, setError] = useState<string | null>(null);
 	const router = useRouter();
 	const searchParams = useSearchParams();
@@ -67,12 +66,6 @@ function LoginContent() {
 			router.push(returnTo);
 		}
 	}, [user, loading, router, returnTo]);
-
-	const handleLogin = async () => {
-		setError(null);
-		localStorage.setItem('signin-provider', 'google');
-		await login();
-	};
 
 	const handleBackToStart = () => {
 		setShowNameInput(false);
@@ -221,37 +214,6 @@ function LoginContent() {
 									{error || authError}
 								</AlertDescription>
 							</Alert>
-						)}
-
-						{!showNameInput && !showOtp && (
-							<>
-								<Button
-									onClick={handleLogin}
-									className="w-full"
-									size="lg"
-								>
-									<Image
-										src="/logos/g_logo.webp"
-										alt="Google"
-										width={20}
-										height={20}
-										className="mr-2"
-									/>
-									Continue with Google
-									{lastUsedProvider === 'google' && <Badge variant="secondary" className="ml-auto">Last Used</Badge>}
-								</Button>
-
-								<div className="relative my-4">
-									<div className="absolute inset-0 flex items-center">
-										<span className="w-full border-t" />
-									</div>
-									<div className="relative flex justify-center text-xs uppercase">
-										<span className="bg-card px-2 text-muted-foreground">
-											Or
-										</span>
-									</div>
-								</div>
-							</>
 						)}
 
 						{showOtp ? (

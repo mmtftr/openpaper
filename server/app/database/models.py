@@ -74,7 +74,6 @@ class Base(DeclarativeBase):
 
 
 class AuthProvider(str, Enum):
-    GOOGLE = "google"
     EMAIL = "email"  # For email-based authentication with passcode
     # Add more providers as needed
     # GITHUB = "github"
@@ -99,12 +98,6 @@ class SubscriptionStatus(str, Enum):
     UNPAID = "unpaid"
 
 
-class ProjectRoles(str, Enum):
-    ADMIN = "admin"
-    EDITOR = "editor"
-    VIEWER = "viewer"
-
-
 class User(Base):
     __tablename__ = "users"
 
@@ -114,7 +107,6 @@ class User(Base):
     picture = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
-    is_blocked = Column(Boolean, default=False, nullable=False)
 
     # OAuth related fields
     auth_provider = Column(String, nullable=False)
@@ -167,12 +159,8 @@ class User(Base):
         cascade="all, delete-orphan",
     )
 
-    project_roles = relationship("ProjectRole", back_populates="user")
     paper_tags = relationship(
         "PaperTag", back_populates="user", cascade="all, delete-orphan"
-    )
-    invitations = relationship(
-        "ProjectRoleInvitation", back_populates="inviter", cascade="all, delete-orphan"
     )
 
 
@@ -279,9 +267,6 @@ class ChatUsageEvent(Base):
 class ConversableType(str, Enum):
     PAPER = "paper"
     PROJECT = "project"
-    EVERYTHING = (
-        "everything"  # For conversations that are across the user's entire library
-    )
 
 
 def generic_relationship(type_col_name, id_col_name):
@@ -350,9 +335,8 @@ class Conversation(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "(conversable_type = 'paper' AND conversable_id IS NOT NULL) OR "
-            "(conversable_type = 'everything' AND conversable_id IS NULL)",
-            name="check_conversable_consistency",
+            "conversable_type = 'paper' AND conversable_id IS NOT NULL",
+            name="check_conversable_paper",
         ),
     )
 
@@ -429,10 +413,6 @@ class Paper(Base):
     cached_presigned_url = Column(String, nullable=True)
     presigned_url_expires_at = Column(DateTime(timezone=True), nullable=True)
 
-    # Optional fields for sharing
-    is_public = Column(Boolean, default=False)
-    share_id = Column(String, unique=True, nullable=True, index=True)
-
     # Additional metadata
     doi = Column(String, nullable=True)  # Digital Object Identifier
     journal = Column(String, nullable=True)
@@ -450,17 +430,9 @@ class Paper(Base):
     figure_count = Column(Integer, nullable=True)
     page_count = Column(Integer, nullable=True)
 
-    # Some papers can be forked/duplicated from other papers (across users). To handle this, we store the parent paper ID of the original paper.
-    parent_paper_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("papers.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-
     # Supplementary materials are themselves Paper rows that point back to
-    # their parent paper. Distinct from parent_paper_id (forks). Library
-    # listings filter rows where this is non-null so supplementaries don't
-    # surface as standalone library items.
+    # their parent paper. Library listings filter rows where this is non-null
+    # so supplementaries don't surface as standalone library items.
     supplementary_of_paper_id = Column(
         UUID(as_uuid=True),
         ForeignKey("papers.id", ondelete="CASCADE"),
@@ -487,8 +459,7 @@ class Paper(Base):
         back_populates="papers",
     )
 
-    # Self-referential link for supplementary materials. Disambiguated from
-    # the existing parent_paper_id (fork) link via foreign_keys=. The
+    # Self-referential link for supplementary materials. The
     # backref's remote_side wires up the parent_supplementary accessor on
     # the supplementary side back to the parent Paper row.
     supplementary_materials = relationship(
@@ -506,49 +477,9 @@ class Project(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title = Column(String, nullable=True)
     description = Column(Text, nullable=True)
-    admin_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
 
-    project_roles = relationship("ProjectRole", back_populates="project")
     project_papers = relationship("ProjectPaper", back_populates="project")
-    invitations = relationship(
-        "ProjectRoleInvitation", back_populates="project", cascade="all, delete-orphan"
-    )
-
-
-class ProjectRoleInvitation(Base):
-    __tablename__ = "project_role_invitations"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project_id = Column(
-        UUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), nullable=False
-    )
-    email = Column(String, nullable=False)
-    invited_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    role = Column(String, nullable=False)
-    invited_at = Column(DateTime(timezone=True), server_default=func.now())
-    accepted_at = Column(DateTime(timezone=True), nullable=True)
-
-    # Relationships
-    inviter = relationship(
-        "User", foreign_keys=[invited_by], back_populates="invitations"
-    )
-    project = relationship(
-        "Project", back_populates="invitations", foreign_keys=[project_id]
-    )
-
-
-class ProjectRole(Base):
-    __tablename__ = "project_role"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project_id = Column(
-        UUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), nullable=False
-    )
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    role = Column(String, nullable=False, default=ProjectRoles.ADMIN)
-
-    project = relationship("Project", back_populates="project_roles")
-    user = relationship("User", back_populates="project_roles")
 
 
 class ProjectPaper(Base):
@@ -816,104 +747,3 @@ class DiscoverSearch(Base):
     results = Column(JSONB, nullable=True)
 
     user = relationship("User")
-
-
-class DataTableExtractionJob(Base):
-    __tablename__ = "data_table_extraction_jobs"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-
-    project_id = Column(
-        UUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), nullable=True
-    )
-
-    columns = Column(ARRAY(String), nullable=True)  # Columns to extract
-
-    task_id = Column(String, nullable=True)  # For tracking task in Celery
-
-    status = Column(String, nullable=False, default=JobStatus.PENDING)
-    started_at = Column(DateTime(timezone=True), nullable=True)
-    completed_at = Column(DateTime(timezone=True), nullable=True)
-
-    error_message = Column(Text, nullable=True)
-
-    user = relationship("User")
-    project = relationship("Project")
-
-    # Relationship to results
-    result = relationship(
-        "DataTableExtractionResult",
-        back_populates="job",
-        uselist=False,
-        cascade="all, delete-orphan",
-    )
-
-
-class DataTableExtractionResult(Base):
-    """
-    Stores the result of a data table extraction job.
-    Contains the columns extracted and links to individual row results.
-    """
-
-    __tablename__ = "data_table_extraction_results"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    title = Column(String, nullable=True)
-    job_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("data_table_extraction_jobs.id", ondelete="CASCADE"),
-        nullable=False,
-        unique=True,
-    )
-    success = Column(Boolean, nullable=False, default=True)
-    columns = Column(ARRAY(String), nullable=False)  # List of column names
-    row_failures = Column(
-        ARRAY(UUID(as_uuid=True)), nullable=True, default=[]
-    )  # List of paper IDs that failed
-
-    job = relationship("DataTableExtractionJob", back_populates="result")
-    rows = relationship(
-        "DataTableRow",
-        back_populates="data_table",
-        cascade="all, delete-orphan",
-    )
-
-
-class DataTableRow(Base):
-    """
-    Stores a single row of extracted data for a paper.
-    The 'values' field is JSONB containing: {column_name: {value: str, citations: [{text, index}]}}
-    """
-
-    __tablename__ = "data_table_rows"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    data_table_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("data_table_extraction_results.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    paper_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("papers.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    values = Column(JSONB, nullable=False, default={})
-    # values schema: {
-    #   "column_name": {
-    #     "value": "extracted value",
-    #     "citations": [{"text": "citation text", "index": 1}, ...]
-    #   }
-    # }
-
-    data_table = relationship("DataTableExtractionResult", back_populates="rows")
-    paper = relationship("Paper")
-
-    # Index for efficient lookups by paper
-    __table_args__ = (
-        Index("ix_data_table_rows_paper_id", "paper_id"),
-        Index("ix_data_table_rows_data_table_id", "data_table_id"),
-    )
