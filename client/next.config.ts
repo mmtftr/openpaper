@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+    // Self-contained server bundle in `<distDir>/standalone` (server.js + the
+    // traced node_modules subset); the Docker image ships only that, plus
+    // `<distDir>/static` and `public/`. Doesn't affect `next dev`.
+    output: 'standalone' as const,
     // Separate build output for concurrent local reader benchmarks.
     distDir: process.env.NEXT_DIST_DIR || '.next',
     // Enable source maps in production for error tracking

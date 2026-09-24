@@ -1,80 +1,55 @@
 # syntax=docker/dockerfile:1.7
-# Use the official Node.js 24 slim image as the base image
-FROM node:24-slim AS base
 
+# --- build ------------------------------------------------------------------
+FROM node:24-slim AS build
 
-# Set the working directory inside the container
 WORKDIR /app
 
-
-# Public client values are compiled into the Next.js bundle.
-# Keep local-safe defaults and override them with build args for production.
+# Public client values are compiled into the Next.js bundle (and the
+# middleware) at build time, so they must be set before `yarn build`.
+# compose.yaml passes them as build args; these are local-safe defaults.
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
 ARG NEXT_PUBLIC_MAX_UPLOAD_SIZE_MB=50
 
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_MAX_UPLOAD_SIZE_MB=$NEXT_PUBLIC_MAX_UPLOAD_SIZE_MB
 
-
-# Copy package.json and yarn.lock to the working directory
-# This is done separately to leverage Docker cache.
-# If these files haven't changed, Docker will use the cached layer for yarn install.
+# Dependencies first so the install layer is cached until package.json or
+# yarn.lock change.
 COPY package.json yarn.lock ./
-
-
-# Install dependencies.
-# Only run this if package.json or yarn.lock changed
-# Using --frozen-lockfile for reproducible and potentially faster installs
 RUN yarn install --frozen-lockfile
 
-
-# Copy the rest of the application code to the working directory
-# This layer will only be rebuilt if the application code changes.
-# Ensure .dockerignore is properly configured to exclude unnecessary files.
 COPY . .
 
-
-# Build the Next.js application
-# This will only run if the code (above) or dependencies (further above) changed.
+# `prebuild` copies the pdf.js runtime assets into public/pdfjs/<version>/.
+# next.config.ts sets `output: "standalone"`: .next/standalone holds
+# server.js plus only the node_modules files the server actually needs.
 RUN yarn build
 
 
-# Use the official Node.js 24 slim image for running the app
+# --- runtime ----------------------------------------------------------------
 FROM node:24-slim AS production
 
-
-# Set the working directory
 WORKDIR /app
 
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
 ARG NEXT_PUBLIC_MAX_UPLOAD_SIZE_MB=50
 
-# Set production environment variables
 ENV NODE_ENV=production
-# Keep these available in the production stage for runtime checks and logs.
+# Already inlined by the build; kept in the environment for inspection.
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_MAX_UPLOAD_SIZE_MB=$NEXT_PUBLIC_MAX_UPLOAD_SIZE_MB
+# server.js binds to $HOSTNAME:$PORT. Docker sets HOSTNAME to the container
+# id, so pin it to all interfaces.
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
 
+# The standalone server does not serve .next/static or public/ unless they
+# sit next to it, so copy them in explicitly.
+COPY --from=build /app/.next/standalone ./
+COPY --from=build /app/.next/static ./.next/static
+COPY --from=build /app/public ./public
 
-# Copy package metadata first so the production dependency install can be cached
-# independently of the Next.js build output.
-COPY --from=base /app/package.json ./
-COPY --from=base /app/yarn.lock ./
-
-
-# Install only the production dependencies
-# This ensures a smaller final image by not including devDependencies
-RUN yarn install --production --frozen-lockfile
-
-
-# Copy the built application from the base image after dependencies are installed.
-COPY --from=base /app/.next ./.next
-COPY --from=base /app/public ./public
-
-
-# Expose port 3000 to the outside world
 EXPOSE 3000
 
-
-# Define the command to start the Next.js application
-CMD ["yarn", "start"]
+CMD ["node", "server.js"]
