@@ -146,6 +146,9 @@ baseline instead of keeping the per-deletion migrations (owner's call).
 Commit on `personal-cleanup`, tag `pre-restructure`, branch `restructure` off it.
 Before branching: one codex gpt-6-astra review of the whole cumulative diff
 (`57a527d..pre-restructure`), findings filtered by the scope rule and fixed.
+Done 2026-09-24: review found a notes-conflict overwrite on editor unmount/doc
+switch, crash-cap uploads recorded as Celery success, and duplicated live
+questions on "load earlier" — all fixed before tagging.
 After Phase 5, merge into `master`.
 
 ## Phase 5 — Restructure
