@@ -102,6 +102,7 @@ def update_profile(
 
 @auth_router.get("/logout")
 def logout(
+    request: Request,
     response: Response,
     current_user: CurrentUser = Depends(get_required_user),
     db: Session = Depends(get_db),
@@ -112,8 +113,7 @@ def logout(
         # Revoke all user sessions
         user_crud.revoke_all_sessions(db=db, user_id=current_user.id)
     else:
-        # Get token from cookie (handled in auth dependency)
-        token = response.headers.get("Set-Cookie")
+        token = request.cookies.get("session_token")
         if token:
             # Revoke this specific session
             user_crud.revoke_session(db=db, token=token)
