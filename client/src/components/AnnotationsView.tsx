@@ -439,7 +439,7 @@ export function AnnotationsView({
 														<File size={14} className="text-blue-500" />
 													) : user?.picture ? (
 														// eslint-disable-next-line @next/next/no-img-element
-														<img src={user.picture} alt={user.name} className="w-full h-full object-cover" />
+														<img src={user.picture} alt={user.name ?? undefined} className="w-full h-full object-cover" />
 													) : (
 														<UserIcon size={14} className="text-muted-foreground" />
 													)}

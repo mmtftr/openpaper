@@ -18,10 +18,12 @@ const googleScholarUrl = (q: string) =>
     `https://scholar.google.com/scholar?q=${encodeURIComponent(q)}`;
 
 export function MetadataPopover({ paperData }: MetadataPopoverProps) {
-    const hasAuthors = (paperData.authors?.length ?? 0) > 0;
-    const hasInstitutions = (paperData.institutions?.length ?? 0) > 0;
-    const hasDate =
-        !!paperData.publish_date && isDateValid(paperData.publish_date);
+    const authors = paperData.authors ?? [];
+    const institutions = paperData.institutions ?? [];
+    const publishDate = paperData.publish_date;
+    const hasAuthors = authors.length > 0;
+    const hasInstitutions = institutions.length > 0;
+    const hasDate = !!publishDate && isDateValid(publishDate);
 
     return (
         <Popover>
@@ -47,9 +49,7 @@ export function MetadataPopover({ paperData }: MetadataPopoverProps) {
                     </h3>
                     {hasDate && (
                         <div className="text-xs text-muted-foreground">
-                            {new Date(
-                                paperData.publish_date
-                            ).toLocaleDateString()}
+                            {new Date(publishDate).toLocaleDateString()}
                         </div>
                     )}
                     {hasAuthors && (
@@ -58,7 +58,7 @@ export function MetadataPopover({ paperData }: MetadataPopoverProps) {
                                 Authors
                             </div>
                             <div className="flex flex-wrap gap-x-2 gap-y-1">
-                                {paperData.authors.map((a, i) => (
+                                {authors.map((a, i) => (
                                     <a
                                         key={i}
                                         href={googleScholarUrl(a)}
@@ -78,7 +78,7 @@ export function MetadataPopover({ paperData }: MetadataPopoverProps) {
                                 Institutions
                             </div>
                             <div className="flex flex-wrap gap-x-2 gap-y-1">
-                                {paperData.institutions.map((inst, i) => (
+                                {institutions.map((inst, i) => (
                                     <a
                                         key={i}
                                         href={googleScholarUrl(inst)}

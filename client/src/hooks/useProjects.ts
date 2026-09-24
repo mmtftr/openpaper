@@ -3,10 +3,7 @@
 import { useCallback } from "react";
 import useSWR from "swr";
 import { api, unwrap } from "@/lib/api/client";
-import { Project, PaperItem } from "@/lib/schema";
-
-// Compat: callers still hold the hand-written `Project` / `PaperItem`, which
-// the generated responses don't match exactly (`string | null` vs `string`).
+import { Project, ProjectPaper } from "@/lib/schema";
 
 interface UseProjectsResult {
     projects: Project[];
@@ -17,7 +14,7 @@ interface UseProjectsResult {
 
 export function useProjects(): UseProjectsResult {
     const { data, error, isLoading, mutate } = useSWR("/api/projects", async () =>
-        (await unwrap(api.GET("/api/projects"))) as Project[]
+        unwrap(api.GET("/api/projects"))
     );
     const refetch = useCallback(async () => {
         await mutate();
@@ -42,9 +39,7 @@ export function useProject(projectId?: string): UseProjectResult {
     const { data, error, isLoading, mutate } = useSWR(
         projectId ? ["/api/projects/{project_id}", projectId] : null,
         async ([, id]: [string, string]) =>
-            (await unwrap(
-                api.GET("/api/projects/{project_id}", { params: { path: { project_id: id } } })
-            )) as Project
+            unwrap(api.GET("/api/projects/{project_id}", { params: { path: { project_id: id } } }))
     );
     const refetch = useCallback(async () => {
         await mutate();
@@ -59,7 +54,7 @@ export function useProject(projectId?: string): UseProjectResult {
 }
 
 interface UseProjectPapersResult {
-    papers: PaperItem[];
+    papers: ProjectPaper[];
     isLoading: boolean;
     error: Error | null;
     refetch: () => Promise<void>;
@@ -72,7 +67,7 @@ export function useProjectPapers(projectId?: string): UseProjectPapersResult {
             const { papers } = await unwrap(
                 api.GET("/api/projects/papers/{project_id}", { params: { path: { project_id: id } } })
             );
-            return papers as PaperItem[];
+            return papers;
         }
     );
     const refetch = useCallback(async () => {

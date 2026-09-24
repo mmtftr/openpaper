@@ -1,22 +1,21 @@
 import useSWR from 'swr';
 import { api, unwrap } from '@/lib/api/client';
-import { PaperItem } from '@/lib/schema';
+import { LibraryPaper } from '@/lib/schema';
 
 interface UserPapersProps {
 	detailed?: boolean;
 }
 
 export function usePapers({ detailed = false }: UserPapersProps = {}) {
-	const { data, error, isLoading, mutate } = useSWR<PaperItem[]>(
+	const { data, error, isLoading, mutate } = useSWR(
 		['/api/paper/all', detailed],
 		async () => {
 			const { papers } = await unwrap(api.GET('/api/paper/all', { params: { query: { detailed } } }));
-			// Compat: callers still hold the hand-written `PaperItem`.
-			return papers as PaperItem[];
+			return papers;
 		},
 	);
 
-	const setPapers = (paperId: string, updatedPaper: PaperItem) => {
+	const setPapers = (paperId: string, updatedPaper: LibraryPaper) => {
 		if (data) {
 			const updatedPapers = data.map(p => (p.id === paperId ? updatedPaper : p));
 			mutate(updatedPapers, false); // Update local data without revalidating

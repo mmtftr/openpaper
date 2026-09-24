@@ -1,15 +1,9 @@
 import type { Schemas } from "@/lib/api/client";
-import type { PaperStatus } from "@/components/utils/PdfStatus";
 
 /**
  * Names for the API types the app passes around. Everything describing server
  * data is an alias of the generated OpenAPI schema (`lib/api/schema.d.ts`,
  * regenerated with `yarn gen:api`); only client-side state is hand-written.
- *
- * The block marked "Compat" at the bottom is the exception: hand-written
- * shapes kept only because pages / top-level components not yet moved to the
- * generated types still compile against them. New code should use
- * `Schemas[...]` (noted on each) instead.
  */
 
 export interface ReferenceCitation {
@@ -77,109 +71,27 @@ export type ReasoningEffort = NonNullable<Schemas["ModelSlotUpdate"]["reasoning_
 export type ModelSlotUpdate = Schemas["ModelSlotUpdate"];
 export type ModelProvider = Schemas["ProviderOut"];
 export type SelectableModel = Schemas["SelectableModel"];
+export type ModelSlot = Schemas["ModelSlotOut"];
+export type ModelSettings = Schemas["ModelSettingsOut"];
 
-// ---------------------------------------------------------------------------
-// Compat: hand-written shapes still used by pages / top-level components that
-// don't compile against the generated types yet (mostly `string | null` where
-// these say `string | undefined`). Delete each once its last user moves to the
-// generated type named in its comment.
-// ---------------------------------------------------------------------------
+/** `GET /api/paper?id=` */
+export type PaperData = Schemas["PaperDetail"];
 
-/** Compat — use `Schemas["PaperDetail"]` (`GET /api/paper?id=`). */
-export interface PaperData {
-    filename: string;
-    file_url: string;
-    authors: string[];
-    title: string;
-    abstract: string;
-    publish_date: string;
-    institutions: string[];
-    keywords: string[];
-    status: PaperStatus;
-    journal?: string;
-    doi?: string;
-    publisher?: string;
-    // Mistral OCR pipeline. parser is "mistral" | "pymupdf" — selects which
-    // chat context modes the picker exposes for this paper.
-    parser?: "mistral" | "pymupdf";
-    page_count?: number;
-    figure_count?: number;
-    supplementary_of_paper_id?: string | null;
-}
+/** Item of `GET /api/paper/all`. */
+export type LibraryPaper = Schemas["LibraryPaper"];
 
-/** Compat — use `Schemas["UploadJobStatusResponse"]`. */
-export interface PaperUploadJobStatusResponse {
-    job_id: string;
-    status: JobStatusType;
-    started_at: string;
-    completed_at?: string | null;
-    paper_id: string | null;
-    has_file_url: boolean;
-    has_metadata: boolean;
-    celery_progress_message: string | null;
-}
+/** Item of `GET /api/projects/papers/{project_id}`. */
+export type ProjectPaper = Schemas["ProjectPaperItem"];
 
 /**
- * Compat — use `Schemas["LibraryPaper"]` (`GET /api/paper/all`) or
- * `Schemas["ProjectPaperItem"]` (`GET /api/projects/papers/{id}`).
+ * A paper row as the shared list components take it: an item from either
+ * list route. Fields only one route sends (`tags` / `preview_url` /
+ * `size_in_kb` on the library; `journal` / `doi` / `publisher` on project
+ * papers) are optional on both.
  */
-export interface PaperItem {
-    id: string
-    title: string
-    abstract?: string
-    authors?: string[]
-    keywords?: string[]
-    institutions?: string[]
-    created_at?: string
-    publish_date?: string
-    status?: PaperStatus
-    preview_url?: string
-    file_url?: string
-    size_in_kb?: number
-    tags?: PaperTag[]
-    journal?: string
-    doi?: string
-    publisher?: string
-}
+export type PaperItem = (LibraryPaper | ProjectPaper) &
+    Partial<Omit<LibraryPaper, keyof ProjectPaper>> &
+    Partial<Omit<ProjectPaper, keyof LibraryPaper>>;
 
-/** Compat — use `Schemas["ProjectResponse"]`. */
-export interface Project {
-    id: string;
-    title: string;
-    description: string;
-    num_papers?: number;
-    created_at: string;
-    updated_at: string;
-}
-
-/** Compat — use `Schemas["SlotChoice"]`. */
-interface SlotChoice {
-    provider: string;
-    model: string;
-    model_name: string;
-    reasoning_effort: string | null;
-}
-
-/** Compat — use `Schemas["ModelSlotOut"]`. */
-export interface ModelSlot {
-    slot: string;
-    description: string;
-    role: "default" | "fast";
-    default: SlotChoice;
-    override: {
-        provider: string | null;
-        model: string | null;
-        reasoning_effort: string | null;
-        updated_at: string | null;
-    } | null;
-    // Set when the stored override no longer resolves; the default is used.
-    override_error: string | null;
-    effective: SlotChoice;
-}
-
-/** Compat — use `Schemas["ModelSettingsOut"]`. */
-export interface ModelSettings {
-    slots: ModelSlot[];
-    providers: ModelProvider[];
-    models: SelectableModel[];
-}
+/** `GET /api/projects`, `GET /api/projects/{project_id}` */
+export type Project = Schemas["ProjectResponse"];

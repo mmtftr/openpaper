@@ -242,7 +242,7 @@ export const copyToClipboard = (text: string, styleName: string) => {
 };
 
 // Function to handle status changes
-export const handleStatusChange = async <T extends PaperBase>(
+export const handleStatusChange = async <T extends { id: string; title?: string | null; status?: PaperStatus }>(
     paper: T,
     status: PaperStatus,
     setPaper: (paperId: string, paper: T) => void
@@ -251,9 +251,9 @@ export const handleStatusChange = async <T extends PaperBase>(
         const record = await unwrap(api.POST("/api/paper/status", {
             params: { query: { status, paper_id: paper.id } },
         }));
-        // The caller's list holds its own paper shape; the server answers
-        // with the full `PaperRecord`, which replaces the entry as before.
-        const response = record as unknown as T;
+        // Merge into the caller's row rather than replacing it: the returned
+        // `PaperRecord` lacks list-only fields such as `tags`.
+        const response: T = { ...paper, status: record.status };
 
         if (status === PaperStatusEnum.COMPLETED) {
             toast.success(

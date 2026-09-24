@@ -1,22 +1,19 @@
 import useSWR from 'swr';
 import { api, unwrap } from '@/lib/api/client';
-import { ModelSettings, ModelSlot, ModelSlotUpdate } from '@/lib/schema';
-
-// Compat: the settings page still holds the hand-written `ModelSettings` /
-// `ModelSlot` (`role` as a literal union, override fields always present).
+import { ModelSlot, ModelSlotUpdate } from '@/lib/schema';
 
 /** Settings -> Models: every model slot plus the selectable models. */
 export function useModelSettings() {
-	const { data, error, isLoading, mutate } = useSWR<ModelSettings>(
+	const { data, error, isLoading, mutate } = useSWR(
 		'/api/settings/models',
-		async () => (await unwrap(api.GET('/api/settings/models'))) as ModelSettings,
+		() => unwrap(api.GET('/api/settings/models')),
 	);
 
 	/** Save a slot's override (all fields null = back to the default). */
 	const updateSlot = async (slot: string, update: ModelSlotUpdate): Promise<ModelSlot> => {
-		const updated = (await unwrap(
+		const updated = await unwrap(
 			api.PUT('/api/settings/models/{slot}', { params: { path: { slot } }, body: update }),
-		)) as ModelSlot;
+		);
 		await mutate(
 			current =>
 				current && {

@@ -1,23 +1,13 @@
 "use client"
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { api, unwrap } from '@/lib/api/client';
+import { api, unwrap, type Schemas } from '@/lib/api/client';
 
-/**
- * Compat — the server's `Schemas["CurrentUser"]` has `name` / `picture`
- * nullable; these keep the old non-null shape until the pages and top-level
- * components that read them handle null.
- */
-export interface BasicUser {
-	name: string;
-	picture: string;
-	id?: string;
-}
+/** `GET /api/auth/me` user. */
+export type User = Schemas["CurrentUser"];
 
-export interface User extends BasicUser {
-	id: string;
-	email: string;
-}
+/** The fields the annotation / highlight UI shows for a note's author. */
+export type BasicUser = Pick<User, "name" | "picture">;
 
 interface AuthContextType {
 	user: User | null;
@@ -62,7 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 			try {
 				const response = await unwrap(api.GET('/api/auth/me'));
 				if (response.success && response.user) {
-					setUser(response.user as User);
+					setUser(response.user);
 				} else {
 					// Auth check failed, clear the user
 					setUser(null);

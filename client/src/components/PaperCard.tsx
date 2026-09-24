@@ -1,4 +1,4 @@
-import type { useProjectPapers } from "@/hooks/useProjects";
+import type { ProjectPaper } from "@/lib/schema";
 import { Card } from "@/components/ui/card"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button";
@@ -7,14 +7,10 @@ import { toast } from "sonner";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { getStatusIcon, PaperStatusEnum } from "@/components/utils/PdfStatus";
 import Link from "next/link";
-import { formatFileSize } from "@/lib/utils";
 import { handleStatusChange } from "./utils/paperUtils";
 import { api, unwrap } from "@/lib/api/client";
 import { CitePaperButton } from "./CitePaperButton";
 
-
-/** A paper as listed by `useProjectPapers` (`GET /api/projects/papers/{project_id}`). */
-type ProjectPaper = ReturnType<typeof useProjectPapers>["papers"][number];
 
 interface PaperCardProps {
 	paper: ProjectPaper;
@@ -169,12 +165,6 @@ export default function PaperCard({ paper, handleDelete, setPaper, minimalist = 
 								<div className="flex items-center justify-between">
 									<div className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500">
 										<span>{new Date(paper.publish_date || paper.created_at || "").toLocaleDateString()}</span>
-										{paper.size_in_kb && (
-											<>
-												<span>•</span>
-												<span>{formatFileSize(paper.size_in_kb)}</span>
-											</>
-										)}
 									</div>
 									<Link href={`/paper/${paper.id}`} className="text-xs text-blue-600 dark:text-blue-400 hover:underline">
 										Read
@@ -184,19 +174,9 @@ export default function PaperCard({ paper, handleDelete, setPaper, minimalist = 
 							)}
 						</div>
 
-						{/* Paper Preview Section */}
+						{/* Abstract Section */}
 						{
-							paper.preview_url ? (
-								<div className={`md:w-1/5 bg-gray-100 dark:bg-gray-800 ${minimalist ? 'pt-2 px-2 pb-0' : 'pt-4 px-4 pb-0'} flex items-end justify-center border-b border-gray-200 dark:border-gray-700 rounded-t-2xl rounded-b-none overflow-hidden`}>
-									{/* eslint-disable-next-line @next/next/no-img-element */}
-									<img
-										src={paper.preview_url}
-										title={paper.title ?? undefined}
-										alt={paper.title ?? undefined}
-										className={`${minimalist ? 'max-h-24 !my-0' : 'max-h-48'} w-full object-cover object-top shadow-sm`}
-									/>
-								</div>
-							) : !minimalist && (
+							!minimalist && (
 								<div className="md:w-1/5 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 p-4 flex flex-col justify-between border-r border-gray-200 dark:border-gray-700 rounded-t-2xl rounded-b-none">
 									{/* Abstract text overlay */}
 									<div className="mt-2">

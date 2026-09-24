@@ -217,7 +217,7 @@ export function PaperPreview({ paper, onClose, setPaper }: PaperPreviewProps) {
 
     const highlightCount = highlights?.filter(highlight => highlight.role === 'user').length || 0;
 
-    const updateField = async (fields: Partial<LibraryPaper>) => {
+    const updateField = async (fields: Schemas["UpdatePaperFieldsRequest"]) => {
         try {
             await unwrap(api.PATCH("/api/paper", {
                 params: { query: { paper_id: paper.id } },
@@ -226,7 +226,7 @@ export function PaperPreview({ paper, onClose, setPaper }: PaperPreviewProps) {
             const updatedPaper = { ...paper, ...fields };
             setPaper(paper.id, updatedPaper);
             mutateLoadedPaper(
-                (current) => current && ({ ...current, ...fields } as Schemas["PaperDetail"]),
+                (current) => current && { ...current, ...fields },
                 { revalidate: false },
             );
         } catch (error) {
@@ -254,7 +254,7 @@ export function PaperPreview({ paper, onClose, setPaper }: PaperPreviewProps) {
     const onTagsApplied = () => {
         // Let's try to update the paper by refetching it.
         unwrap(api.GET("/api/paper", { params: { query: { id: paper.id } } })).then(updatedPaper => {
-            setPaper(paper.id, updatedPaper as LibraryPaper);
+            setPaper(paper.id, updatedPaper);
         });
     };
 

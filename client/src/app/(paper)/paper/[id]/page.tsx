@@ -18,10 +18,7 @@ import { toast } from "sonner";
 import { useAnnotations } from '@/hooks/PdfAnnotation';
 import { useHighlighterHighlights } from '@/hooks/PdfHighlighterHighlights';
 
-// PaperData / SupplementaryMaterialSummary: the reader/chat components' prop
-// types. TODO(B1 merge): drop the casts below once lib/schema aliases them to
-// the generated PaperDetail / SupplementaryMaterialItem.
-import { PaperData, PaperHighlight, SupplementaryMaterialSummary } from '@/lib/schema';
+import { PaperHighlight } from '@/lib/schema';
 
 import { PaperSidebar } from '@/components/PaperSidebar';
 import { useAuth } from '@/lib/auth';
@@ -665,7 +662,7 @@ export default function PaperView() {
         rightSideFunction,
         // Chat / doc are bound to the parent even when a supplementary PDF
         // is shown; the annotations list follows the displayed PDF.
-        paperData: paperData as unknown as PaperData,
+        paperData,
         annotations,
         highlights,
         handleHighlightClick,
@@ -714,7 +711,7 @@ export default function PaperView() {
                                     parentPaperId={parentPaperId}
                                     displayedPaperId={displayedPaperId}
                                     parentPaperTitle={paperData?.title ?? undefined}
-                                    supplementaryMaterials={(supplementaryMaterials ?? []) as SupplementaryMaterialSummary[]}
+                                    supplementaryMaterials={supplementaryMaterials ?? []}
                                     onChangeDisplayed={setDisplayedPaperId}
                                     onSupplementaryUploaded={refetchSupplementaryMaterials}
                                 />
@@ -820,7 +817,7 @@ export default function PaperView() {
                                 parentPaperId={parentPaperId}
                                 displayedPaperId={displayedPaperId}
                                 parentPaperTitle={paperData?.title ?? undefined}
-                                supplementaryMaterials={(supplementaryMaterials ?? []) as SupplementaryMaterialSummary[]}
+                                supplementaryMaterials={supplementaryMaterials ?? []}
                                 onChangeDisplayed={setDisplayedPaperId}
                                 onSupplementaryUploaded={refetchSupplementaryMaterials}
                             />

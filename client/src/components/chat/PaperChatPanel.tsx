@@ -1544,7 +1544,7 @@ const PaperMessage = memo(function PaperMessage({
                     {user && (
                         <Avatar className="size-6 shrink-0 ring-1 ring-border">
                             <AvatarImage
-                                src={user.picture}
+                                src={user.picture ?? undefined}
                                 alt={user.name || user.email}
                             />
                             <AvatarFallback

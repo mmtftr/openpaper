@@ -41,7 +41,7 @@ const providerLabel = (provider: string) =>
 
 // `provider::model`; an empty model means "the provider's own model for
 // the slot's role" (follows the provider's env config).
-const choiceKey = (provider: string, model: string | null) =>
+const choiceKey = (provider: string, model?: string | null) =>
 	`${provider}::${model ?? ""}`;
 
 function parseChoiceKey(key: string): { provider: string | null; model: string | null } {
