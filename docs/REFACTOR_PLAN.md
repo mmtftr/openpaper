@@ -134,6 +134,8 @@ Skip the upload/ingest UI (Phase 5 replaces it).
 
 ## Phase 4 — Snapshot
 Commit on `personal-cleanup`, tag `pre-restructure`, branch `restructure` off it.
+Before branching: one codex gpt-6-astra review of the whole cumulative diff
+(`57a527d..pre-restructure`), findings filtered by the scope rule and fixed.
 After Phase 5, merge into `master`.
 
 ## Phase 5 — Restructure
