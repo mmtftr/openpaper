@@ -5,12 +5,13 @@ import type { RefObject } from "react";
 import { useSetAtom } from "jotai";
 import type { PDFDocumentProxy, PDFViewer } from "../pdfjs";
 import { citationPreviewAtom } from "../atoms";
-import { extractBibEntry } from "./bibliography";
+import { extractAllEntries, extractBibEntry } from "./bibliography";
 import { decodeCitationHref, parseCiteHref, resolveDestination } from "./helpers";
-import { resolvePaper, type ResolveOutcome } from "./resolve";
+import { prefetchReferences } from "./resolve";
 
 const HOVER_DEBOUNCE_MS = 120;
 const DISMISS_DELAY_MS = 250;
+const PREFETCH_DELAY_MS = 2000;
 
 function citationAnchor(target: EventTarget | null): HTMLAnchorElement | null {
   if (!(target instanceof Element)) return null;
@@ -34,19 +35,24 @@ export function useCitationLinks(
     let generation = 0;
     let hoverTimer: ReturnType<typeof setTimeout> | undefined;
     let dismissTimer: ReturnType<typeof setTimeout> | undefined;
-    let inFlight: AbortController | undefined;
     let active: HTMLAnchorElement | null = null;
     let showing = false;
     const entries = new Map<string, Promise<{ referenceText: string | null; destinationPage: number | null }>>();
-    // Reader-scoped: library matches cannot leak between accounts/documents.
-    const matches = new Map<string, ResolveOutcome>();
     const cancelDismiss = () => { clearTimeout(dismissTimer); dismissTimer = undefined; };
     const dismiss = () => {
       generation++;
       clearTimeout(hoverTimer); hoverTimer = undefined;
-      cancelDismiss(); inFlight?.abort(); inFlight = undefined;
+      cancelDismiss();
       active = null; showing = false; setPreview(null);
     };
+    // Warm the whole bibliography once the document is idle, so hovers are
+    // instant (one batch request per chunk; the server caches the answers).
+    const prefetch = new AbortController();
+    const prefetchTimer = setTimeout(() => {
+      void extractAllEntries(pdfDoc, prefetch.signal)
+        .then(texts => prefetchReferences(texts, prefetch.signal))
+        .catch(() => {});
+    }, PREFETCH_DELAY_MS);
     const scheduleDismiss = () => {
       cancelDismiss();
       dismissTimer = setTimeout(dismiss, DISMISS_DELAY_MS);
@@ -82,32 +88,14 @@ export function useCitationLinks(
         setPreview({ state: "unavailable", anchorRect, destinationPage });
         return; // Labels, destination keys and error messages are not references.
       }
-      const publish = (outcome: ResolveOutcome, resolving = false) => {
-        if (myGen !== generation) return;
-        if (outcome && outcome !== "unavailable") {
-          setPreview({ state: "paper", anchorRect, paper: outcome.paper, destinationPage });
-        } else {
-          setPreview({ state: "raw", anchorRect, referenceText, destinationPage, resolving, lookupUnavailable: outcome === "unavailable" });
-        }
-      };
-      if (matches.has(referenceText)) { publish(matches.get(referenceText)!); return; }
-      publish(null, true); // Useful content must not wait for network searches.
-      inFlight?.abort();
-      const controller = new AbortController(); inFlight = controller;
-      let outcome: ResolveOutcome;
-      try { outcome = await resolvePaper(referenceText, controller.signal); }
-      catch { outcome = "unavailable"; }
-      if (controller.signal.aborted || myGen !== generation) return;
-      if (outcome !== "unavailable") {
-        if (matches.size >= 200) matches.delete(matches.keys().next().value!);
-        matches.set(referenceText, outcome);
-      }
-      publish(outcome);
+      // The card resolves the entry itself (SWR-cached by text), showing the
+      // raw reference until the answer arrives.
+      setPreview({ state: "entry", anchorRect, referenceText, destinationPage });
     };
     const activate = (anchor: HTMLAnchorElement, immediate = false) => {
       cancelDismiss();
       if (active === anchor && (hoverTimer || showing) && !immediate) return;
-      clearTimeout(hoverTimer); inFlight?.abort();
+      clearTimeout(hoverTimer);
       active = anchor;
       const myGen = ++generation;
       if (immediate) void resolveFor(anchor, myGen);
@@ -181,6 +169,7 @@ export function useCitationLinks(
     window.addEventListener("reader-citation-jump", onJump);
     return () => {
       dismiss(); observer.disconnect();
+      clearTimeout(prefetchTimer); prefetch.abort();
       container.removeEventListener("mouseover", onOver);
       container.removeEventListener("mouseout", onOut);
       container.removeEventListener("focusin", onFocus);

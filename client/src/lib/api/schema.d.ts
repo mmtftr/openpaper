@@ -1243,6 +1243,30 @@ export interface paths {
         patch: operations["update_project_api_projects__project_id__patch"];
         trace?: never;
     };
+    "/api/references/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve References
+         * @description Resolve bibliography entries to papers / web pages, by the caller's keys.
+         *
+         *     Cached results come back immediately; misses are looked up concurrently
+         *     within a time budget. Keys in `pending` were not resolved in time or hit
+         *     a temporary failure — ask again later.
+         */
+        post: operations["resolve_references_api_references_resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/search/global/search": {
         parameters: {
             query?: never;
@@ -3061,6 +3085,16 @@ export interface components {
              */
             type?: "reasoning";
         };
+        /** ReferenceEntry */
+        ReferenceEntry: {
+            /**
+             * Key
+             * @description Caller's id for this entry
+             */
+            key: string;
+            /** Text */
+            text: string;
+        };
         /**
          * RelevantPaper
          * @description Item of `GET /api/paper/relevant`.
@@ -3159,6 +3193,56 @@ export interface components {
             ref: string;
             /** Repo */
             repo: string;
+        };
+        /** ResolveReferencesRequest */
+        ResolveReferencesRequest: {
+            /** Entries */
+            entries: components["schemas"]["ReferenceEntry"][];
+        };
+        /** ResolveReferencesResponse */
+        ResolveReferencesResponse: {
+            /** Pending */
+            pending: string[];
+            /** Results */
+            results: {
+                [key: string]: components["schemas"]["ResolvedReference"];
+            };
+        };
+        /** ResolvedReference */
+        ResolvedReference: {
+            /** Abstract */
+            abstract?: string | null;
+            /** Arxiv Id */
+            arxiv_id?: string | null;
+            /** Authors */
+            authors?: string[];
+            /** Doi */
+            doi?: string | null;
+            /** Image Url */
+            image_url?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "library" | "paper" | "web" | "unresolved";
+            /** Library Paper Id */
+            library_paper_id?: string | null;
+            /** Pdf Url */
+            pdf_url?: string | null;
+            /** Preview Url */
+            preview_url?: string | null;
+            /** Site Name */
+            site_name?: string | null;
+            /** Source */
+            source?: ("library" | "crossref" | "openalex" | "arxiv" | "citation_meta" | "og") | null;
+            /** Title */
+            title?: string | null;
+            /** Url */
+            url?: string | null;
+            /** Venue */
+            venue?: string | null;
+            /** Year */
+            year?: number | null;
         };
         /**
          * RetryStatusData
@@ -6821,6 +6905,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectResponse"];
+                };
+            };
+            /** @description Client error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Server error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    resolve_references_api_references_resolve_post: {
+        parameters: {
+            query?: {
+                /** @description Ignore the cache and look the (single) entry up again */
+                refresh?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveReferencesRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolveReferencesResponse"];
                 };
             };
             /** @description Client error */

@@ -9,6 +9,7 @@ paper's keywords.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -30,7 +31,7 @@ BASE_URL = "https://api.openalex.org/works"
 
 _SELECT = (
     "id,doi,title,display_name,publication_date,authorships,primary_location,"
-    "abstract_inverted_index,ids,type"
+    "abstract_inverted_index,ids,type,best_oa_location"
 )
 
 
@@ -65,6 +66,32 @@ async def search(
     return [parse_work(work) for work in results if isinstance(work, dict)]
 
 
+async def title_search(
+    client: httpx.AsyncClient, title: str, deadline: Deadline, rows: int = 5
+) -> list[WorkRecord]:
+    """Works whose *title* matches `title` (`filter=title.search`).
+
+    Much more precise for a known title than `search`, which ranks by
+    full-text relevance and citations (a short ML title comes back buried
+    under famous papers), and cheaper against the API budget.
+    """
+    # `,` separates filters and `|` means OR in a filter value.
+    query = " ".join(re.sub(r"[,|:]", " ", title).split())
+    response = await get_or_none(
+        client,
+        BASE_URL,
+        params=openalex_params(
+            filter=f"title.search:{query}", per_page=rows, select=_SELECT
+        ),
+        deadline=deadline,
+        what="OpenAlex title filter",
+    )
+    if response is None:
+        return []
+    results = response.json().get("results") or []
+    return [parse_work(work) for work in results if isinstance(work, dict)]
+
+
 def parse_work(work: dict[str, Any]) -> WorkRecord:
     """An OpenAlex work object -> `WorkRecord`."""
     authors: list[Author] = []
@@ -79,7 +106,8 @@ def parse_work(work: dict[str, Any]) -> WorkRecord:
             for inst in authorship.get("institutions") or []
         ]
 
-    source = (work.get("primary_location") or {}).get("source") or {}
+    primary = work.get("primary_location") or {}
+    source = primary.get("source") or {}
     doi = strip_doi_url(work.get("doi"))
     arxiv_id = None
     if doi and doi.startswith("10.48550/arxiv."):
@@ -99,6 +127,8 @@ def parse_work(work: dict[str, Any]) -> WorkRecord:
         openalex_id=openalex_id,
         institutions=dedupe(institutions),
         work_type=work.get("type"),
+        pdf_url=(work.get("best_oa_location") or {}).get("pdf_url")
+        or primary.get("pdf_url"),
     )
 
 

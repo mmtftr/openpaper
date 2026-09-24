@@ -226,7 +226,29 @@ async function numberedEntry(doc: PDFDocumentProxy, pageNumber: number, number: 
   return null;
 }
 
+/**
+ * Every bibliography entry the PDF's citation links point to, extracted the
+ * same way a hover does (so the texts, and their cache keys, match). Yields
+ * to the event loop between entries; used to warm the reference resolver.
+ */
+export async function extractAllEntries(doc: PDFDocumentProxy, signal?: AbortSignal, limit = 400): Promise<string[]> {
+  const texts = new Set<string>();
+  for (const point of (await bibliographyPoints(doc)).slice(0, limit)) {
+    if (signal?.aborted) break;
+    const hint = parseCiteHref("#" + point.name);
+    const text = await extractBibEntry(doc, point.page, point.x, point.y, hint?.author ?? null, hint?.year ?? null, point.name).catch(() => null);
+    if (text) texts.add(text);
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  return [...texts];
+}
+
 function finish(lines: string[]): string | null {
-  const text = lines.join(" ").replace(/([a-z])-\s+([a-z])/g,"$1$2").replace(/\s+/g," ").trim();
+  // Rejoin words hyphenated across lines — but inside a URL the hyphen is
+  // real ("https://transluce.org/user-" + "modeling"), so keep it there.
+  const text = lines.join(" ")
+    .replace(/(\S*)([a-z])-\s+([a-z])/g, (_m, before: string, a: string, b: string) =>
+      /(?:https?:\/\/|www\.)/i.test(before) ? `${before}${a}-${b}` : `${before}${a}${b}`)
+    .replace(/\s+/g," ").trim();
   return text.length >= 15 ? text : null;
 }
