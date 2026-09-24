@@ -599,7 +599,9 @@ def quick_question_run(ready_snapshot, monkeypatch):
             def build_settings(self, _spec, reasoning_effort=None, **_kwargs):
                 return None
 
-        monkeypatch.setattr(qq, "get_registry", lambda: FakeRegistry())
+        from app.llm.chat import model_choice
+
+        monkeypatch.setattr(model_choice, "get_registry", lambda: FakeRegistry())
 
         async def drive():
             out: List[str] = []
@@ -624,6 +626,22 @@ def quick_question_run(ready_snapshot, monkeypatch):
         return recorded
 
     return run
+
+
+def test_the_per_request_client_is_closed_after_the_answer(quick_question_run):
+    """The shared pump's teardown releases the transport, as chat's does."""
+    from app.llm._pai_compat import MODEL_TRANSPORT_CLOSER
+
+    closed: List[str] = []
+    model = _script_model([["An answer."]])
+
+    async def close() -> None:
+        closed.append("closed")
+
+    setattr(model, MODEL_TRANSPORT_CLOSER, close)
+    recorded = quick_question_run(model)
+    assert [c.get("type") for c in recorded.chunks][-1] == "finish"
+    assert closed == ["closed"]
 
 
 def test_a_tool_call_round_trips_through_the_stream(quick_question_run):
