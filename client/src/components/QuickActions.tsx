@@ -1,5 +1,7 @@
 "use client";
 
+import { mutate as mutateSWR } from "swr";
+import { SIDEBAR_PROJECTS_KEY } from "@/hooks/useProjects";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Upload, FolderPlus, Globe2 } from "lucide-react";
@@ -77,6 +79,7 @@ export function QuickActions({ onUploadComplete, onProjectCreated, onUploadStart
             const response = await unwrap(api.POST("/api/projects", {
                 body: { title, description },
             }));
+            void mutateSWR(SIDEBAR_PROJECTS_KEY);
 
             if (response?.id) {
                 try {

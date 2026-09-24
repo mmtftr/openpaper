@@ -1,5 +1,7 @@
 "use client";
 
+import { mutate as mutateSWR } from "swr";
+import { SIDEBAR_PROJECTS_KEY } from "@/hooks/useProjects";
 import {
     Loader,
     ArrowRight,
@@ -83,6 +85,7 @@ export function PaperProjects({ id, view = 'full' }: PaperProjectsProps) {
             const project = await unwrap(api.POST("/api/projects", {
                 body: { title, description },
             }));
+            void mutateSWR(SIDEBAR_PROJECTS_KEY);
             toast.success("Project created successfully!");
 
             await unwrap(api.POST("/api/projects/papers/{project_id}", {

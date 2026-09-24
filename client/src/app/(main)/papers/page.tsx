@@ -1,5 +1,7 @@
 "use client"
 
+import { mutate as mutateSWR } from "swr";
+import { SIDEBAR_PROJECTS_KEY } from "@/hooks/useProjects";
 import { api, unwrap } from "@/lib/api/client";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -129,6 +131,7 @@ function PapersPageContent() {
             const project = await unwrap(api.POST("/api/projects", {
                 body: { title, description },
             }));
+            void mutateSWR(SIDEBAR_PROJECTS_KEY);
             toast.success("Project created successfully!");
 
             if (paperIds.length > 0) {
