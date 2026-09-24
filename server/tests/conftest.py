@@ -13,3 +13,17 @@ if str(SERVER_ROOT) not in sys.path:
 
 # Keep registry tests deterministic regardless of the developer's env.
 os.environ.pop("MODEL_OVERRIDES", None)
+
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _no_stored_model_slot_overrides(monkeypatch):
+    """Model slots read overrides from the DB; tests run without one."""
+    from app.llm import model_slots
+
+    monkeypatch.setattr(model_slots, "load_overrides", lambda: {})
+    model_slots.invalidate_overrides()
+    yield
+    model_slots.invalidate_overrides()
