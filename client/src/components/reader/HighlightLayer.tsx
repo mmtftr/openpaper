@@ -274,9 +274,18 @@ export function HighlightLayer({
 			target instanceof Element && target.closest(OVERLAY_SELECTOR) !== null;
 		const onLink = (target: EventTarget | null) =>
 			target instanceof Element && target.closest(PDF_LINK_SELECTOR) !== null;
+		// Judged on the dispatch path, not `closest()` on the target: React may
+		// already have handled this click and re-rendered the popover (the
+		// "Reply…" pill swaps itself for a textarea), detaching the clicked node
+		// — `closest()` would then call it a click on the bare page and close
+		// the popover out from under the reply box that just opened.
+		const pathHits = (e: Event, selector: string) =>
+			e
+				.composedPath()
+				.some((node) => node instanceof Element && node.matches(selector));
 
 		const onClick = (e: MouseEvent) => {
-			if (insidePopover(e.target) || onLink(e.target)) return;
+			if (pathHits(e, OVERLAY_SELECTOR) || pathHits(e, PDF_LINK_SELECTOR)) return;
 			// A drag that ends in a selection isn't a click on the highlight.
 			if (!window.getSelection()?.isCollapsed) return;
 			const hit = hitTest(e.clientX, e.clientY);
@@ -326,7 +335,7 @@ export function HighlightLayer({
 			report(null);
 		};
 		const onDown = (e: PointerEvent) => {
-			if (e.button !== 0 || insidePopover(e.target)) return;
+			if (e.button !== 0 || pathHits(e, OVERLAY_SELECTOR)) return;
 			onPagePointerDown?.();
 		};
 

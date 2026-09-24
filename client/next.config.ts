@@ -3,6 +3,8 @@ import createMDX from '@next/mdx'
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+    // Separate build output for concurrent local reader benchmarks.
+    distDir: process.env.NEXT_DIST_DIR || '.next',
     // Configure `pageExtensions` to include markdown and MDX files
     pageExtensions: ['js', 'jsx', 'md', 'mdx', 'ts', 'tsx'],
     // Enable source maps in production for error tracking

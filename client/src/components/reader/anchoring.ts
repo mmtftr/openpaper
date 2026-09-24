@@ -6,6 +6,7 @@ import type { PercentRect, TextAnchor } from "./types";
 import {
 	foldPdfMatchChar,
 	normalizeForPdfMatch,
+	findServerAlignedMatchInNormalizedPdfText,
 } from "./textNormalization";
 
 /**
@@ -81,9 +82,15 @@ export function anchorFromScaledPosition(
 	if (!source.length) return null;
 
 	const usePdfCoordinates = position.usePdfCoordinates === true;
-	const rects = source
-		.map((r) => toPercentRect(r, usePdfCoordinates))
-		.filter((r) => r.width > MIN_RECT_PERCENT && r.height > MIN_RECT_PERCENT);
+	// Merged per line: highlights saved from a selection before captureAnchor
+	// merged its rects carry overlapping duplicates, and overlapping rects
+	// multiply-blend into a darker band than the rest of the highlight.
+	const rects = mergeIntoLines(
+		source
+			.map((r) => toPercentRect(r, usePdfCoordinates))
+			.filter((r) => r.width > MIN_RECT_PERCENT && r.height > MIN_RECT_PERCENT),
+		MAX_SELECTION_GAP_PERCENT
+	);
 	if (!rects.length) return null;
 
 	const page =
@@ -168,14 +175,21 @@ export function captureAnchor(container: HTMLElement | null): TextAnchor | null 
 	const pageRect = pageEl.getBoundingClientRect();
 	if (!pageRect.width || !pageRect.height) return null;
 
-	const rects: PercentRect[] = Array.from(range.getClientRects())
-		.filter((r) => r.width > 1 && r.height > 1)
-		.map((r) => ({
-			left: ((r.left - pageRect.left) / pageRect.width) * 100,
-			top: ((r.top - pageRect.top) / pageRect.height) * 100,
-			width: (r.width / pageRect.width) * 100,
-			height: (r.height / pageRect.height) * 100,
-		}));
+	// A fully selected text-layer span reports two client rects — the span's
+	// own box and its text's — while a partially selected one reports only the
+	// text fragment. Drawn as-is, whole lines get a double (darker) tint, so
+	// fold everything down to one rect per line.
+	const rects: PercentRect[] = mergeIntoLines(
+		Array.from(range.getClientRects())
+			.filter((r) => r.width > 1 && r.height > 1)
+			.map((r) => ({
+				left: ((r.left - pageRect.left) / pageRect.width) * 100,
+				top: ((r.top - pageRect.top) / pageRect.height) * 100,
+				width: (r.width / pageRect.width) * 100,
+				height: (r.height / pageRect.height) * 100,
+			})),
+		MAX_SELECTION_GAP_PERCENT
+	);
 	if (rects.length === 0) return null;
 
 	const quote = normalizeWs(sel.toString());
@@ -247,7 +261,7 @@ interface PageTextItem {
 	height: number;
 }
 
-const textIndexCache = new WeakMap<PDFDocumentProxy, Map<number, PageTextIndex | null>>();
+const textIndexCache = new WeakMap<PDFDocumentProxy, Map<number, Promise<PageTextIndex | null>>>();
 
 /**
  * Build a searchable index of a page from `getTextContent()`.
@@ -267,8 +281,19 @@ async function buildPageTextIndex(
 		perDoc = new Map();
 		textIndexCache.set(pdfDoc, perDoc);
 	}
-	if (perDoc.has(pageNumber)) return perDoc.get(pageNumber) ?? null;
+	const cached = perDoc.get(pageNumber);
+	if (cached) return cached;
+	// Store the in-flight extraction too: a priority jump can request a page
+	// the background resolver is already reading.
+	const pending = extractPageTextIndex(pdfDoc, pageNumber);
+	perDoc.set(pageNumber, pending);
+	return pending;
+}
 
+async function extractPageTextIndex(
+	pdfDoc: PDFDocumentProxy,
+	pageNumber: number
+): Promise<PageTextIndex | null> {
 	let index: PageTextIndex | null = null;
 	try {
 		const page = await pdfDoc.getPage(pageNumber);
@@ -325,7 +350,7 @@ async function buildPageTextIndex(
 				// Per-character entry point on purpose: `normalizePdfTextForMatch`
 				// works on whole strings and ends with `.trim()`, which would delete
 				// every space in the page if applied here.
-				const folded = foldPdfMatchChar(item.str.slice(i, end));
+				const folded = foldPdfMatchChar(item.str.slice(i, end)).normalize("NFKC");
 				for (const ch of folded) {
 					text += ch;
 					sources.push({ item: itemIndex, offset: i });
@@ -351,7 +376,6 @@ async function buildPageTextIndex(
 		index = null;
 	}
 
-	perDoc.set(pageNumber, index);
 	return index;
 }
 
@@ -380,44 +404,13 @@ function findMatchRange(
 	haystack: string,
 	needle: string
 ): { start: number; end: number } | null {
-	if (!needle) return null;
-
-	const hay = compact(haystack.toLowerCase());
-	const ndl = compact(needle.toLowerCase()).value.trim();
-	if (!ndl) return null;
-
-	let at = hay.value.indexOf(ndl);
-	if (at >= 0) {
-		return { start: hay.map[at], end: hay.map[Math.min(at + ndl.length - 1, hay.map.length - 1)] + 1 };
-	}
-
-	// Whitespace-insensitive retry: papers hyphenate across line breaks, and the
-	// quote the model produced may not have the same breaks the PDF does.
-	//
-	// Dropping whitespace alone is not enough — `inter-\nnational` collapses to
-	// `inter-national`, which still doesn't equal `international`. A hyphen
-	// between a word character and following whitespace is a line-break hyphen,
-	// so it goes too. A hyphen with no whitespace after it is a real one
-	// (`state-of-the-art`) and is kept.
-	const squash = (s: string) => {
-		let out = "";
-		const map: number[] = [];
-		for (let i = 0; i < s.length; i++) {
-			if (/\s/.test(s[i])) continue;
-			out += s[i];
-			map.push(i);
-		}
-		return { value: out, map };
-	};
-	const hayTight = squash(haystack.toLowerCase());
-	const ndlTight = squash(needle.toLowerCase()).value;
-	if (!ndlTight) return null;
-	at = hayTight.value.indexOf(ndlTight);
-	if (at < 0) return null;
-	return {
-		start: hayTight.map[at],
-		end: hayTight.map[Math.min(at + ndlTight.length - 1, hayTight.map.length - 1)] + 1,
-	};
+	// Reuse the server-aligned, conservative normalization ladder (ligatures,
+	// line-break hyphens, whitespace, then punctuation for long quotes). Keep
+	// the source map so every match still resolves to actual PDF text items.
+	const hay = compact(haystack);
+	const hit = findServerAlignedMatchInNormalizedPdfText(needle, hay.value);
+	if (!hit) return null;
+	return { start: hay.map[hit.start], end: hay.map[hit.end - 1] + 1 };
 }
 
 /**
@@ -430,42 +423,56 @@ function findMatchRange(
  */
 const MAX_LINE_GAP_PERCENT = 5;
 
-function mergeIntoLines(boxes: PercentRect[]): PercentRect[] {
+/**
+ * Selection / stored rects only need duplicates and word-adjacent fragments
+ * folded together; anything wider than a word space may be a column gutter
+ * (2–3% of the page in two-column papers).
+ */
+const MAX_SELECTION_GAP_PERCENT = 1;
+
+export function mergeIntoLines(
+	boxes: PercentRect[],
+	maxGap: number = MAX_LINE_GAP_PERCENT
+): PercentRect[] {
 	const sorted = [...boxes].sort((a, b) => a.top - b.top || a.left - b.left);
 	const lines: PercentRect[] = [];
 	for (const box of sorted) {
-		const last = lines[lines.length - 1];
-		if (last) {
-			const lastMid = last.top + last.height / 2;
+		// Any line so far, not just the last: in a two-column selection the
+		// other column's lines sort in between boxes of the same line, and a box
+		// left unmerged double-tints wherever it overlaps its line.
+		let merged = false;
+		for (let li = lines.length - 1; li >= 0 && !merged; li--) {
+			const line = lines[li];
+			const lineMid = line.top + line.height / 2;
 			const mid = box.top + box.height / 2;
 			// Distance between the two horizontal intervals, in whichever order
-			// they appear. A signed `box.left - last.right` goes strongly negative
+			// they appear. A signed `box.left - line.right` goes strongly negative
 			// when the next box sits to the *left* of the previous one — which
 			// happens as soon as a box on the next line sorts in — and would then
 			// always pass the threshold, merging straight across a column gutter.
 			const gap = Math.max(
 				0,
-				box.left - (last.left + last.width),
-				last.left - (box.left + box.width)
+				box.left - (line.left + line.width),
+				line.left - (box.left + box.width)
 			);
 			if (
-				gap <= MAX_LINE_GAP_PERCENT &&
-				Math.abs(lastMid - mid) <= Math.max(last.height, box.height) * 0.6
+				gap <= maxGap &&
+				Math.abs(lineMid - mid) <= Math.max(line.height, box.height) * 0.6
 			) {
-				const left = Math.min(last.left, box.left);
-				const right = Math.max(last.left + last.width, box.left + box.width);
-				const top = Math.min(last.top, box.top);
-				const bottom = Math.max(last.top + last.height, box.top + box.height);
-				lines[lines.length - 1] = {
+				const left = Math.min(line.left, box.left);
+				const right = Math.max(line.left + line.width, box.left + box.width);
+				const top = Math.min(line.top, box.top);
+				const bottom = Math.max(line.top + line.height, box.top + box.height);
+				lines[li] = {
 					left,
 					top,
 					width: right - left,
 					height: bottom - top,
 				};
-				continue;
+				merged = true;
 			}
 		}
-		lines.push({ ...box });
+		if (!merged) lines.push({ ...box });
 	}
 	return lines;
 }
@@ -482,7 +489,10 @@ export async function locateQuoteOnPage(
 	const index = await buildPageTextIndex(pdfDoc, pageNumber);
 	if (!index || !index.text) return [];
 
-	const needle = normalizeForPdfMatch(quote);
+	// TeX's escaped math delimiters aren't printed parentheses/brackets.
+	const needle = normalizeForPdfMatch(
+		quote.normalize("NFKC").replace(/\\(?:\(|\)|\[|\])/g, "")
+	);
 	const range = findMatchRange(index.text, needle);
 	if (!range) return [];
 
@@ -542,15 +552,20 @@ export async function locateQuoteOnPage(
 export async function locateQuote(
 	pdfDoc: PDFDocumentProxy,
 	quote: string,
-	hintPage?: number
+	hintPage?: number,
+	options: { signal?: AbortSignal; beforePage?: () => Promise<void> } = {}
 ): Promise<{ page: number; rects: PercentRect[] } | null> {
 	const total = pdfDoc.numPages;
 	const order: number[] = [];
-	if (hintPage && hintPage >= 1 && hintPage <= total) order.push(hintPage);
+	if (Number.isInteger(hintPage) && hintPage && hintPage >= 1 && hintPage <= total) order.push(hintPage);
 	for (let p = 1; p <= total; p++) if (p !== hintPage) order.push(p);
 
 	for (const page of order) {
+		if (options.signal?.aborted) return null;
+		await options.beforePage?.();
+		if (options.signal?.aborted) return null;
 		const rects = await locateQuoteOnPage(pdfDoc, page, quote);
+		if (options.signal?.aborted) return null;
 		if (rects.length) return { page, rects };
 	}
 	return null;

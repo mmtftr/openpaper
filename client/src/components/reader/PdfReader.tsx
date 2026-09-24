@@ -23,12 +23,15 @@ import type { HighlightPopoverTarget } from "./useHighlightPopover";
 import type { HighlightHit } from "./HighlightLayer";
 import Thumbnails from "./Thumbnails";
 import Outline from "./Outline";
+import { useHighlightJump, type HighlightJumpRequest } from "./useHighlightJump";
 import { useAnchoredHighlights } from "./useAnchoredHighlights";
 import { scaledPositionFromAnchor } from "./anchoring";
 import type { RenderedHighlightPosition, TextAnchor } from "./types";
 
 export interface PdfReaderProps {
 	pdfUrl: string;
+	/** Explicit panel navigation; nonce changes even when the id stays the same. */
+	highlightJumpRequest?: HighlightJumpRequest | null;
 	/** Quote pushed from a chat citation; searched and scrolled to. */
 	explicitSearchTerm?: string;
 	/** Page the chat agent reported for `explicitSearchTerm`, when known. */
@@ -131,6 +134,7 @@ function PdfReaderInner(props: PdfReaderProps) {
 		explicitSearchPage,
 		onSearchComplete,
 		highlights = EMPTY_HIGHLIGHTS,
+		highlightJumpRequest,
 		annotations = EMPTY_ANNOTATIONS,
 		activeHighlight = null,
 		setActiveHighlight,
@@ -160,7 +164,8 @@ function PdfReaderInner(props: PdfReaderProps) {
 	const setFindQuery = useSetAtom(findQueryAtom);
 
 	const pageHints = useMemo(() => new Map<string, number>(), []);
-	const { anchored, unanchored } = useAnchoredHighlights(highlights, pageHints);
+	const { anchored, unanchored, resolveHighlight } = useAnchoredHighlights(highlights, pageHints);
+	useHighlightJump(explicitSearchTerm ? null : highlightJumpRequest, highlights, resolveHighlight);
 
 	// Surface highlights we could not place, so the side panel can say so.
 	const unanchoredKey = unanchored.map((h) => h.id ?? h.raw_text).join("|");
@@ -221,6 +226,11 @@ function PdfReaderInner(props: PdfReaderProps) {
 	// Bumped per user action so a slow note save can't pop a composer over
 	// whatever the user did next (another highlight, Ask, another document).
 	const selectionActionSeq = useRef(0);
+
+	// A panel jump dismisses a hover card that could obscure the destination.
+	useEffect(() => {
+		if (highlightJumpRequest && !isDirty()) closePopover();
+	}, [highlightJumpRequest, closePopover, isDirty]);
 
 	// Another document means another set of highlights.
 	useEffect(() => {
@@ -314,7 +324,7 @@ function PdfReaderInner(props: PdfReaderProps) {
 	}, [popoverTarget]);
 
 	return (
-		<div className="flex h-full w-full flex-col">
+		<div className="flex h-full w-full flex-col" data-pdf-reader>
 			<ReaderToolbar
 				{...toolbarProps}
 				displayedPaperId={displayedPaperId}
@@ -332,7 +342,9 @@ function PdfReaderInner(props: PdfReaderProps) {
 						<HighlightLayer
 							highlights={anchored}
 							activeHighlightId={
-								popoverTarget?.highlightId ?? activeHighlight?.id ?? null
+								highlightJumpRequest && activeHighlight?.id === highlightJumpRequest.highlightId && isDirty()
+									? activeHighlight?.id ?? null
+									: popoverTarget?.highlightId ?? activeHighlight?.id ?? null
 							}
 							onHighlightClick={handleHighlightClick}
 							onEmptyClick={clickAway}

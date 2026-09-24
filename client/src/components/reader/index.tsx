@@ -26,3 +26,5 @@ export function PdfReader(props: PdfReaderProps) {
 
 export type { PdfReaderProps };
 export type { RenderedHighlightPosition, TextAnchor, PercentRect } from "./types";
+
+export type { HighlightJumpRequest } from "./useHighlightJump";

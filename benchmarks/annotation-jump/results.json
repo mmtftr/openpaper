@@ -1,0 +1,424 @@
+{
+  "fixtureExportedAt": "2026-09-24T12:25:59.105Z",
+  "browser": "149.0.7827.55",
+  "viewport": {
+    "width": 1440,
+    "height": 1000
+  },
+  "timeoutMs": 1500,
+  "fixturePapers": 48,
+  "papersWithHighlights": 44,
+  "baseline": {
+    "highlights": 221,
+    "located": 187,
+    "correct": 181,
+    "unlocated": 34,
+    "meanRecall": 0.8229937248731719,
+    "meanPrecision": 0.8430920708734392,
+    "scenarios": [
+      {
+        "scenario": "cold",
+        "trials": 44,
+        "successes": 2,
+        "locatable": 32,
+        "locatableSuccesses": 2,
+        "p50Ms": 807,
+        "p95Ms": 964,
+        "unresolvedAtClick": 44
+      },
+      {
+        "scenario": "far",
+        "trials": 221,
+        "successes": 72,
+        "locatable": 187,
+        "locatableSuccesses": 72,
+        "p50Ms": 397,
+        "p95Ms": 709,
+        "unresolvedAtClick": 34
+      },
+      {
+        "scenario": "repeat",
+        "trials": 44,
+        "successes": 0,
+        "locatable": 34,
+        "locatableSuccesses": 0,
+        "p50Ms": null,
+        "p95Ms": null,
+        "unresolvedAtClick": 10
+      },
+      {
+        "scenario": "zoom-in",
+        "trials": 44,
+        "successes": 0,
+        "locatable": 34,
+        "locatableSuccesses": 0,
+        "p50Ms": null,
+        "p95Ms": null,
+        "unresolvedAtClick": 10
+      },
+      {
+        "scenario": "zoom-out",
+        "trials": 44,
+        "successes": 0,
+        "locatable": 34,
+        "locatableSuccesses": 0,
+        "p50Ms": null,
+        "p95Ms": null,
+        "unresolvedAtClick": 10
+      }
+    ],
+    "trials": 397,
+    "locatableTrials": 321,
+    "successes": 74,
+    "p50Ms": 397,
+    "p95Ms": 807
+  },
+  "firstIteration": {
+    "highlights": 221,
+    "located": 200,
+    "correct": 194,
+    "unlocated": 21,
+    "meanRecall": 0.8816226354944924,
+    "meanPrecision": 0.9018653237643391,
+    "scenarios": [
+      {
+        "scenario": "cold",
+        "trials": 44,
+        "successes": 34,
+        "locatable": 34,
+        "locatableSuccesses": 34,
+        "p50Ms": 583,
+        "p95Ms": 1018,
+        "unresolvedAtClick": 44
+      },
+      {
+        "scenario": "far",
+        "trials": 221,
+        "successes": 199,
+        "locatable": 200,
+        "locatableSuccesses": 199,
+        "p50Ms": 155,
+        "p95Ms": 281,
+        "unresolvedAtClick": 21
+      },
+      {
+        "scenario": "repeat",
+        "trials": 44,
+        "successes": 36,
+        "locatable": 36,
+        "locatableSuccesses": 36,
+        "p50Ms": 130,
+        "p95Ms": 140,
+        "unresolvedAtClick": 8
+      },
+      {
+        "scenario": "zoom-in",
+        "trials": 44,
+        "successes": 36,
+        "locatable": 36,
+        "locatableSuccesses": 36,
+        "p50Ms": 121,
+        "p95Ms": 130,
+        "unresolvedAtClick": 8
+      },
+      {
+        "scenario": "zoom-out",
+        "trials": 44,
+        "successes": 36,
+        "locatable": 36,
+        "locatableSuccesses": 36,
+        "p50Ms": 122,
+        "p95Ms": 131,
+        "unresolvedAtClick": 8
+      }
+    ],
+    "trials": 397,
+    "locatableTrials": 342,
+    "successes": 341,
+    "p50Ms": 147,
+    "p95Ms": 603
+  },
+  "final": {
+    "highlights": 221,
+    "located": 203,
+    "correct": 197,
+    "unlocated": 18,
+    "meanRecall": 0.8951972961279766,
+    "meanPrecision": 0.9154399843978233,
+    "scenarios": [
+      {
+        "scenario": "cold",
+        "trials": 44,
+        "successes": 35,
+        "locatable": 35,
+        "locatableSuccesses": 35,
+        "p50Ms": 596,
+        "p95Ms": 1023,
+        "unresolvedAtClick": 44
+      },
+      {
+        "scenario": "far",
+        "trials": 221,
+        "successes": 202,
+        "locatable": 203,
+        "locatableSuccesses": 202,
+        "p50Ms": 155,
+        "p95Ms": 260,
+        "unresolvedAtClick": 18
+      },
+      {
+        "scenario": "repeat",
+        "trials": 44,
+        "successes": 37,
+        "locatable": 37,
+        "locatableSuccesses": 37,
+        "p50Ms": 129,
+        "p95Ms": 148,
+        "unresolvedAtClick": 7
+      },
+      {
+        "scenario": "zoom-in",
+        "trials": 44,
+        "successes": 37,
+        "locatable": 37,
+        "locatableSuccesses": 37,
+        "p50Ms": 122,
+        "p95Ms": 130,
+        "unresolvedAtClick": 7
+      },
+      {
+        "scenario": "zoom-out",
+        "trials": 44,
+        "successes": 37,
+        "locatable": 37,
+        "locatableSuccesses": 37,
+        "p50Ms": 123,
+        "p95Ms": 131,
+        "unresolvedAtClick": 7
+      }
+    ],
+    "trials": 397,
+    "locatableTrials": 349,
+    "successes": 348,
+    "p50Ms": 146,
+    "p95Ms": 609,
+    "geometrySuccesses": 349,
+    "geometryP50Ms": 139,
+    "geometryP95Ms": 498
+  },
+  "correctnessRegressions": [],
+  "storedTextAgreement": {
+    "comparable": 98,
+    "samePage": 98,
+    "medianFirstRectDistancePercent": 0.29316500008225505
+  },
+  "resilience": [
+    {
+      "scenario": "rapid-replacement",
+      "success": true,
+      "latencyMs": 152.39999961853027
+    },
+    {
+      "scenario": "zoom-during-jump",
+      "success": true,
+      "latencyMs": 205
+    },
+    {
+      "scenario": "resize-during-jump",
+      "success": true,
+      "latencyMs": 212.89999961853027
+    },
+    {
+      "scenario": "manual-scroll-cancels-correction",
+      "success": true
+    },
+    {
+      "scenario": "citation-find-after-jump",
+      "success": true
+    },
+    {
+      "scenario": "unlocatable-page-fallback",
+      "success": true,
+      "latencyMs": 7
+    }
+  ],
+  "remaining": {
+    "unlocatedHighlightCount": 18,
+    "unlocatedReasons": [
+      "Quote wording differs from the PDF",
+      "Equations or tables do not match contiguous extracted text"
+    ],
+    "paintTimeouts": [
+      {
+        "pdfSizeMiB": 31,
+        "scenario": "far",
+        "geometryLatencyMs": 127.69999885559082
+      }
+    ],
+    "oracleFlags": {
+      "count": 6,
+      "confirmedWithPerfectDOMTextOverlap": 5,
+      "remainingLatexNotationMismatch": 1
+    }
+  },
+  "notes": [
+    "Percentiles are over successful trials; failures and unlocated quotes are reported separately.",
+    "Both primary matrices contain all 397 trials and all 221 anchor audits. The isolated baseline supplementary DOM check used an incompatible legacy click path; the check now navigates through the page toolbar and passes on final geometry.",
+    "Baseline geometry-only latency was not recorded. Baseline failed locatable trials all ended with the target outside the viewport.",
+    "Full reports and fixture data remain in benchmarks/annotation-jump/.data/, which is git-ignored."
+  ],
+  "navigationReview": {
+    "completedAt": "2026-09-24T13:51:30.818Z",
+    "beforeReport": ".data/review-before.json",
+    "afterReport": ".data/review-final.json",
+    "beforeChecks": [
+      {
+        "scenario": "pending-lookup-toolbar-page",
+        "success": false
+      },
+      {
+        "scenario": "pending-lookup-thumbnail",
+        "success": false
+      },
+      {
+        "scenario": "pending-lookup-outline",
+        "success": false
+      },
+      {
+        "scenario": "pending-lookup-toolbar-zoom",
+        "success": false
+      },
+      {
+        "scenario": "pending-lookup-wheel",
+        "success": true
+      },
+      {
+        "scenario": "pending-lookup-key",
+        "success": true
+      },
+      {
+        "scenario": "pending-lookup-citation",
+        "success": true
+      },
+      {
+        "scenario": "handled-request-remount",
+        "success": false
+      },
+      {
+        "scenario": "fresh-request-after-remount",
+        "success": true
+      },
+      {
+        "scenario": "handled-request-refreshUrl",
+        "success": false
+      },
+      {
+        "scenario": "fresh-request-after-refreshUrl",
+        "success": true
+      },
+      {
+        "scenario": "pending-request-remount",
+        "success": false
+      }
+    ],
+    "afterChecks": [
+      {
+        "scenario": "pending-lookup-toolbar-page",
+        "success": true
+      },
+      {
+        "scenario": "pending-lookup-thumbnail",
+        "success": true
+      },
+      {
+        "scenario": "pending-lookup-outline",
+        "success": true
+      },
+      {
+        "scenario": "pending-lookup-outline-percent",
+        "success": true
+      },
+      {
+        "scenario": "pending-lookup-toolbar-zoom",
+        "success": true
+      },
+      {
+        "scenario": "pending-lookup-wheel",
+        "success": true
+      },
+      {
+        "scenario": "pending-lookup-key",
+        "success": true
+      },
+      {
+        "scenario": "pending-lookup-citation",
+        "success": true
+      },
+      {
+        "scenario": "handled-request-remount",
+        "success": true
+      },
+      {
+        "scenario": "fresh-request-after-remount",
+        "success": true
+      },
+      {
+        "scenario": "handled-request-refreshUrl",
+        "success": true
+      },
+      {
+        "scenario": "fresh-request-after-refreshUrl",
+        "success": true
+      },
+      {
+        "scenario": "pending-request-remount",
+        "success": true
+      }
+    ],
+    "beforeFullMatrix": {
+      "trials": 397,
+      "locatableTrials": 349,
+      "renderInclusiveSuccesses": 348,
+      "p50Ms": 146,
+      "p95Ms": 609,
+      "geometrySuccesses": 349,
+      "geometryP50Ms": 139,
+      "geometryP95Ms": 498,
+      "located": 203,
+      "correct": 197,
+      "unlocated": 18
+    },
+    "afterFullMatrix": {
+      "trials": 397,
+      "locatableTrials": 349,
+      "renderInclusiveSuccesses": 348,
+      "p50Ms": 147,
+      "p95Ms": 599,
+      "geometrySuccesses": 349,
+      "geometryP50Ms": 143,
+      "geometryP95Ms": 511,
+      "located": 203,
+      "correct": 197,
+      "unlocated": 18
+    },
+    "existingResilienceChecksPassed": 6,
+    "anchorCorrectnessRegressions": 0,
+    "browserErrors": [],
+    "sourceHashes": {
+      "anchoring.ts": "60a22871aa784934f0d9b0132a15d65c7fba6b47be8c3dc7affee49f0d4fb47a",
+      "useAnchoredHighlights.ts": "df8e5aa10c74454a422217d3c84532f5b9b5ae9685db30db2b21c8f2ad4a1ce2",
+      "useViewer.ts": "3305bcd2f6833caaa6b2f9bc6c290bbaeba7ff90debc14d64ab3f48cfe7a3e0e",
+      "PdfReader.tsx": "5c11c974c390cc6447c7bb433c56211da4e055432ec5c62085238545c54af9a4",
+      "jumpToAnchor.ts": "7c6c30db40421b8bc505d88f3cf32dff4bc09f6a0154c5a8970dbec4ffc8dcf9",
+      "useHighlightJump.ts": "dc06c40aa541e978e7407f2b959ebedcf28ccdef5e8c2127514b29c00302e834",
+      "useReaderNavigation.ts": "8109a012c287a0049607ee5c812e929498ffe160c4eafb0de48ebaeaaee51322",
+      "textNormalization.ts": "1263075c087a514eff37ca90e9f24c557f96f406dfbb56918fa9d521d1fe1372",
+      "HighlightLayer.tsx": "f4efd7691a2b2d469b20638792b5593ae73ad4cdd09b7774501a8005a990eb17"
+    },
+    "notes": [
+      "The page-percentage outline check was added after the before-fix recording; all 12 shared checks pass after the fix.",
+      "All 13 navigation checks and six existing resilience checks pass.",
+      "The remaining render timeout is on the same 31 MiB PDF as the prior full run; geometry was visible and settled after 204 ms. The text layer exceeded the 1500 ms deadline."
+    ]
+  }
+}

@@ -52,12 +52,13 @@ export function useReaderNavigation() {
 	const goBack = useCallback(() => {
 		const el = containerRef.current;
 		if (!el || history.length === 0) return;
+		api?.cancelNavigation();
 		// Read the target outside the updater: React may invoke an updater twice
 		// under StrictMode, and a side effect belongs in neither invocation.
 		const target = history[history.length - 1];
 		el.scrollTo({ top: target.top, left: target.left, behavior: "smooth" });
 		setHistory((prev) => prev.slice(0, -1));
-	}, [containerRef, history, setHistory]);
+	}, [api, containerRef, history, setHistory]);
 
 	return {
 		jumpToPage,

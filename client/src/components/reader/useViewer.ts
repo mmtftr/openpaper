@@ -28,9 +28,15 @@ import {
 	scaleValueAtom,
 	spreadModeAtom,
 } from "./atoms";
-import type { ScaleValue } from "./types";
+import { jumpToAnchor } from "./jumpToAnchor";
+import type { TextAnchor, ScaleValue } from "./types";
 
 export interface ViewerApi {
+	/** One token spans annotation lookup AND its eventual scroll/corrections. */
+	beginNavigation(): AbortController;
+	cancelNavigation(): void;
+	/** Instant geometry jump with a bounded correction pass for lazy layout. */
+	jumpToAnchor(anchor: Pick<TextAnchor, "page" | "rects">, signal: AbortSignal): Promise<void>;
 	goToPage(page: number): void;
 	/** Scroll so that `topPercent` down page `page` sits a third into the viewport. */
 	goToPagePercent(page: number, topPercent: number): void;
@@ -95,6 +101,14 @@ export function usePdfViewer({ onRefreshUrl }: UsePdfViewerOptions = {}) {
 	const refreshAttemptsRef = useRef(0);
 	const onRefreshUrlRef = useRef(onRefreshUrl);
 	onRefreshUrlRef.current = onRefreshUrl;
+	const navigationRef = useRef<AbortController | null>(null);
+	const cancelNavigation = useCallback(() => { navigationRef.current?.abort(); }, []);
+	const beginNavigation = useCallback(() => {
+		cancelNavigation();
+		const controller = new AbortController();
+		navigationRef.current = controller;
+		return controller;
+	}, [cancelNavigation]);
 
 	const refs = useRef<ViewerRefs>({
 		viewer: null,
@@ -286,11 +300,21 @@ export function usePdfViewer({ onRefreshUrl }: UsePdfViewerOptions = {}) {
 		window.addEventListener("keydown", onKeyDown);
 		window.addEventListener("keyup", onKeyUp);
 
+		// Include toolbar and sidebar intent, not just events in the scroller.
+		// Capture runs before controls (including async outline destinations).
+		const reader = container.closest("[data-pdf-reader]") ?? container;
+		const navigationEvents = ["wheel", "touchstart", "pointerdown", "keydown", "click"];
+		for (const event of navigationEvents) reader.addEventListener(event, cancelNavigation, { capture: true, passive: true });
 		const api: ViewerApi = {
+			beginNavigation,
+			cancelNavigation,
+			jumpToAnchor: (anchor, signal) => jumpToAnchor(viewer, anchor, signal),
 			goToPage(page: number) {
+				cancelNavigation();
 				viewer.currentPageNumber = page;
 			},
 			goToPagePercent(page: number, topPercent: number) {
+				cancelNavigation();
 				const scroller = viewer.container as HTMLElement;
 				const pageEl = scroller.querySelector(
 					`[data-page-number="${page}"]`
@@ -309,6 +333,7 @@ export function usePdfViewer({ onRefreshUrl }: UsePdfViewerOptions = {}) {
 				scroller.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
 			},
 			find(query: string, findPrevious = false, again = false) {
+				cancelNavigation();
 				eventBus.dispatch("find", {
 					source: null,
 					type: again ? "again" : "",
@@ -325,9 +350,11 @@ export function usePdfViewer({ onRefreshUrl }: UsePdfViewerOptions = {}) {
 				eventBus.dispatch("findbarclose", { source: null });
 			},
 			zoomIn() {
+				cancelNavigation();
 				updateZoom(1, null);
 			},
 			zoomOut() {
+				cancelNavigation();
 				updateZoom(-1, null);
 			},
 			getViewer() {
@@ -337,6 +364,8 @@ export function usePdfViewer({ onRefreshUrl }: UsePdfViewerOptions = {}) {
 		setApi(api);
 
 		return () => {
+			cancelNavigation();
+			for (const event of navigationEvents) reader.removeEventListener(event, cancelNavigation, true);
 			zoomAbort.abort();
 			container.removeEventListener("wheel", onWheel);
 			window.removeEventListener("keydown", onKeyDown);
@@ -409,13 +438,15 @@ export function usePdfViewer({ onRefreshUrl }: UsePdfViewerOptions = {}) {
 			});
 		return () => {
 			cancelled = true;
+			cancelNavigation();
+			setDoc(null);
 			refs.current.findController?.setDocument(
 				null as unknown as PDFDocumentProxy
 			);
 			refs.current.viewer?.setDocument(null as unknown as PDFDocumentProxy);
 			task.destroy();
 		};
-	}, [url, setDoc, setNumPages, setProgress, setError, setUrl]);
+	}, [url, setDoc, setNumPages, setProgress, setError, setUrl, cancelNavigation]);
 
 	useEffect(() => {
 		const viewer = refs.current.viewer;

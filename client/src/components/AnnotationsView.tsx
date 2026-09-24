@@ -79,6 +79,19 @@ interface AnnotationThread {
 	annotations: PaperHighlightAnnotation[];
 }
 
+type ThreadFilter = 'all' | 'ai' | 'mine';
+
+const THREAD_FILTERS: { value: ThreadFilter; label: string }[] = [
+	{ value: 'all', label: 'All' },
+	{ value: 'ai', label: 'AI' },
+	{ value: 'mine', label: 'Mine' },
+];
+
+/** AI threads hang off the highlights the ingestion job / assistant made. */
+function isAiThread(thread: AnnotationThread): boolean {
+	return thread.highlight.role === 'assistant';
+}
+
 export function AnnotationsView({
 	highlights,
 	annotations,
@@ -105,6 +118,7 @@ export function AnnotationsView({
 	const [editDraft, setEditDraft] = useState('');
 	const [isEditSaving, setIsEditSaving] = useState(false);
 	const editTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+	const [filter, setFilter] = useState<ThreadFilter>('all');
 
 	const threads = useMemo<AnnotationThread[]>(() => {
 		const annotationMap = new Map<string, PaperHighlightAnnotation[]>();
@@ -152,6 +166,35 @@ export function AnnotationsView({
 		}));
 	}, [highlights, annotations, renderedHighlightPositions]);
 
+	const aiCount = useMemo(() => threads.filter(isAiThread).length, [threads]);
+	const filterCounts: Record<ThreadFilter, number> = {
+		all: threads.length,
+		ai: aiCount,
+		mine: threads.length - aiCount,
+	};
+	const visibleThreads = useMemo(
+		() =>
+			filter === 'all'
+				? threads
+				: threads.filter((t) => isAiThread(t) === (filter === 'ai')),
+		[threads, filter]
+	);
+
+	// A thread activated from the PDF (or "Open in Annotations") must be on
+	// screen, so a filter that hides it gives way. Only on activation: keyed on
+	// the id alone, so picking a chip that hides the current thread still works.
+	const filterRef = useRef(filter);
+	filterRef.current = filter;
+	const threadsRef = useRef(threads);
+	threadsRef.current = threads;
+	useEffect(() => {
+		const id = activeHighlight?.id;
+		const current = filterRef.current;
+		if (!id || current === 'all') return;
+		const thread = threadsRef.current.find((t) => t.highlight.id === id);
+		if (thread && isAiThread(thread) !== (current === 'ai')) setFilter('all');
+	}, [activeHighlight?.id]);
+
 	useEffect(() => {
 		if (activeHighlight?.id) {
 			const element = firstAnnotationRefs.current[activeHighlight.id];
@@ -159,7 +202,8 @@ export function AnnotationsView({
 				smoothScrollTo(element, scrollContainerRef.current);
 			}
 		}
-	}, [activeHighlight]);
+		// `filter`: the active row only mounts once a filter hiding it gives way.
+	}, [activeHighlight, filter]);
 
 	// When the active highlight changes (e.g. user clicked highlighted PDF text): expand that
 	// thread fully so "+N more replies" is not needed. When switching A→B, collapse A's expansion
@@ -267,9 +311,43 @@ export function AnnotationsView({
 
 	return (
 		<div className="flex flex-col h-full">
+			<div
+				role="radiogroup"
+				aria-label="Filter annotations"
+				className="flex shrink-0 items-center gap-1 border-b border-border px-4 py-2"
+			>
+				{THREAD_FILTERS.map(({ value, label }) => {
+					const selected = filter === value;
+					return (
+						<button
+							key={value}
+							type="button"
+							role="radio"
+							aria-checked={selected}
+							onClick={() => setFilter(value)}
+							className={cn(
+								"flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+								selected
+									? "bg-foreground text-background"
+									: "text-muted-foreground hover:bg-muted hover:text-foreground"
+							)}
+						>
+							{label}
+							<span className={cn("tabular-nums", selected ? "opacity-70" : "opacity-60")}>
+								{filterCounts[value]}
+							</span>
+						</button>
+					);
+				})}
+			</div>
 			<div className="flex-1 overflow-auto" ref={scrollContainerRef}>
+				{visibleThreads.length === 0 && (
+					<p className="px-4 py-6 text-center text-sm text-muted-foreground">
+						{filter === 'ai' ? 'No AI annotations for this paper.' : 'You have no annotations on this paper yet.'}
+					</p>
+				)}
 				<div className="divide-y divide-border">
-					{threads.map(({ highlight, annotations: threadAnns }) => {
+					{visibleThreads.map(({ highlight, annotations: threadAnns }) => {
 						const hid = highlight.id!;
 						const isActive = activeHighlight?.id === hid;
 						const color: HighlightColor = highlight.role === 'assistant'

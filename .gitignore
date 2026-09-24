@@ -53,6 +53,7 @@ yarn-error.log*
 next-env.d.ts
 
 # benchmarking
+benchmarks/*/.data/
 benchmark_manifest.json
 eval_dataset.json
 eval*.json

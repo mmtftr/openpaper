@@ -1,6 +1,6 @@
 'use client';
 
-import { PdfReader, RenderedHighlightPosition } from '@/components/reader';
+import { PdfReader, RenderedHighlightPosition, type HighlightJumpRequest } from '@/components/reader';
 import { Button } from '@/components/ui/button';
 import { fetchFromApi } from '@/lib/api';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
@@ -140,6 +140,7 @@ export default function PaperView() {
     // fetch) doesn't trigger a duplicate fetch in the effect below.
     const displayedPaperDataIdRef = useRef<string | null>(null);
     const flashCitationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [highlightJumpRequest, setHighlightJumpRequest] = useState<HighlightJumpRequest | null>(null);
     const [explicitSearchTerm, setExplicitSearchTerm] = useState<string | undefined>(undefined);
     const [userMessageReferences, setUserMessageReferences] = useState<string[]>([]);
     const [renderedHighlightPositions, setRenderedHighlightPositions] = useState<Map<string, RenderedHighlightPosition>>(new Map());
@@ -326,6 +327,7 @@ export default function PaperView() {
     // and refers to a supplementary, flip the displayed PDF first so the
     // explicit search term lands on the right document.
     const handleCitationClick = useCallback((key: string, messageIndex: number, paperId?: string) => {
+        setHighlightJumpRequest(null);
         setActiveCitationKey(key);
         setActiveCitationMessageIndex(messageIndex);
 
@@ -385,17 +387,17 @@ export default function PaperView() {
         };
     }, []);
 
+    useEffect(() => { setHighlightJumpRequest(null); }, [displayedPaperId]);
+
     const handleHighlightClick = useCallback((highlight: PaperHighlight) => {
         setActiveHighlight(highlight);
-        // Coordinate-backed highlights are already drawn in the right place, so
-        // don't run a text search for them: pdf.js would jump to the first textual
-        // occurrence, which fights the anchor when raw_text repeats on the page.
-        if (highlight.raw_text && !highlight.position) {
-            setExplicitSearchTerm(highlight.raw_text);
-        } else {
-            setExplicitSearchTerm(undefined);
+        setExplicitSearchTerm(undefined);
+        if (isMobile) setMobileView('reader');
+        if (highlight.id) {
+            const highlightId = highlight.id;
+            setHighlightJumpRequest(previous => ({ highlightId, nonce: (previous?.nonce ?? 0) + 1 }));
         }
-    }, []);
+    }, [isMobile]);
 
 
     useEffect(() => {
@@ -741,6 +743,7 @@ export default function PaperView() {
                             {pdfUrlForViewer && (
                                 <PdfReader
                                     pdfUrl={pdfUrlForViewer}
+                                    highlightJumpRequest={highlightJumpRequest}
                                     explicitSearchTerm={explicitSearchTerm}
                                     onSearchComplete={handleSearchComplete}
                                     highlights={highlights}
@@ -844,6 +847,7 @@ export default function PaperView() {
                         <div className="relative w-full h-full">
                             <PdfReader
                                 pdfUrl={pdfUrlForViewer}
+                                highlightJumpRequest={highlightJumpRequest}
                                 explicitSearchTerm={explicitSearchTerm}
                                 onSearchComplete={handleSearchComplete}
                                 highlights={highlights}
