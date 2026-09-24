@@ -3,6 +3,7 @@ from uuid import UUID
 
 from app.database.models import JobStatus, PaperStatus
 from app.schemas.json_datetime import IsoDatetime, StrDatetime
+from app.schemas.common import MessageResponse  # noqa: F401  (re-export)
 from pydantic import BaseModel, ConfigDict, HttpUrl
 
 
@@ -15,10 +16,6 @@ class EnrichedData(BaseModel):
     publisher: Optional[str]
     journal: Optional[str]
     publication_date: Optional[str]
-
-
-class MessageResponse(BaseModel):
-    message: str
 
 
 # -- tags -----------------------------------------------------------------
