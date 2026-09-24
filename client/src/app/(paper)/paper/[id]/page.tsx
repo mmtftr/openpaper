@@ -90,7 +90,8 @@ export default function PaperView() {
     // Highlights and annotations belong to the PDF being shown, not the parent:
     // a supplementary's highlights render on (and new ones attach to) the
     // supplementary. Both hooks re-fetch when the displayed paper changes,
-    // and highlights again when ingest's AI highlights stage finishes.
+    // and again when ingest's AI highlights stage finishes (its highlights
+    // come with annotation threads).
     const highlightsRefreshKey = useStageRefreshKey(displayedPaperId, ['highlights']);
     const {
         highlights,
@@ -108,7 +109,7 @@ export default function PaperView() {
         removeAnnotation,
         updateAnnotation,
         refreshAnnotations,
-    } = useAnnotations(displayedPaperId);
+    } = useAnnotations(displayedPaperId, highlightsRefreshKey);
 
     const [activeCitationKey, setActiveCitationKey] = useState<string | null>(null);
     const [activeCitationMessageIndex, setActiveCitationMessageIndex] = useState<number | null>(null);
