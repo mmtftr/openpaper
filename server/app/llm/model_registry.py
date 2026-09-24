@@ -29,10 +29,11 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from dataclasses import dataclass, fields, replace
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple
+
+from app.settings import get_settings
 
 if TYPE_CHECKING:
     from pydantic_ai.settings import ModelSettings
@@ -175,7 +176,7 @@ def _family_defaults(provider: LLMProvider, model_id: str) -> Dict[str, Any]:
 
 
 def _env_overrides() -> Dict[str, Dict[str, Any]]:
-    raw = os.getenv("MODEL_OVERRIDES")
+    raw = get_settings().MODEL_OVERRIDES
     if not raw:
         return {}
     try:
@@ -238,34 +239,35 @@ class _ProviderConfig:
 def _provider_configs() -> Dict[LLMProvider, _ProviderConfig]:
     """Read connection config for every provider whose credentials exist."""
     configs: Dict[LLMProvider, _ProviderConfig] = {}
+    settings = get_settings()
 
-    if os.getenv("OPENAI_API_KEY"):
+    if settings.OPENAI_API_KEY:
         configs[LLMProvider.OPENAI] = _ProviderConfig(
-            api_key=os.getenv("OPENAI_API_KEY"),
+            api_key=settings.OPENAI_API_KEY,
             base_url=None,  # Azure handling lives in _pai_compat
-            default_model=os.getenv("OPENAI_MODEL") or "gpt-5.5",
-            fast_model=os.getenv("OPENAI_FAST_MODEL") or "gpt-5.4-mini",
+            default_model=settings.OPENAI_MODEL,
+            fast_model=settings.OPENAI_FAST_MODEL,
         )
-    if os.getenv("CODEX_PROXY_BASE_URL"):
+    if settings.CODEX_PROXY_BASE_URL:
         configs[LLMProvider.CODEX_PROXY] = _ProviderConfig(
-            api_key=os.getenv("CODEX_PROXY_API_KEY", "codex-proxy-local"),
-            base_url=os.getenv("CODEX_PROXY_BASE_URL"),
-            default_model=os.getenv("CODEX_PROXY_MODEL", "gpt-5.5"),
-            fast_model=os.getenv("CODEX_PROXY_FAST_MODEL", "gpt-5.4-mini"),
+            api_key=settings.CODEX_PROXY_API_KEY,
+            base_url=settings.CODEX_PROXY_BASE_URL,
+            default_model=settings.CODEX_PROXY_MODEL,
+            fast_model=settings.CODEX_PROXY_FAST_MODEL,
         )
-    if os.getenv("ANTHROPIC_API_KEY"):
+    if settings.ANTHROPIC_API_KEY:
         configs[LLMProvider.ANTHROPIC] = _ProviderConfig(
-            api_key=os.getenv("ANTHROPIC_API_KEY"),
+            api_key=settings.ANTHROPIC_API_KEY,
             base_url=None,
-            default_model=os.getenv("ANTHROPIC_MODEL") or "claude-sonnet-5",
-            fast_model=os.getenv("ANTHROPIC_FAST_MODEL") or "claude-haiku-4-5",
+            default_model=settings.ANTHROPIC_MODEL,
+            fast_model=settings.ANTHROPIC_FAST_MODEL,
         )
-    if os.getenv("GEMINI_API_KEY"):
+    if settings.GEMINI_API_KEY:
         configs[LLMProvider.GEMINI] = _ProviderConfig(
-            api_key=os.getenv("GEMINI_API_KEY"),
+            api_key=settings.GEMINI_API_KEY,
             base_url=None,
-            default_model=os.getenv("GEMINI_MODEL") or "gemini-3.7-flash",
-            fast_model=os.getenv("GEMINI_FAST_MODEL") or "gemini-3.7-flash",
+            default_model=settings.GEMINI_MODEL,
+            fast_model=settings.GEMINI_FAST_MODEL,
         )
     return configs
 
@@ -303,14 +305,16 @@ class ModelRegistry:
         specs: List[ModelSpec] = []
         for provider, config in configs.items():
             env_var = _MODELS_ENV_VAR_BY_PROVIDER.get(provider)
-            options = _parse_models_env(os.getenv(env_var)) if env_var else []
+            options = (
+                _parse_models_env(getattr(get_settings(), env_var)) if env_var else []
+            )
             listed_ids = {o.id for o in options}
             if config.default_model not in listed_ids:
                 options.insert(0, _default_option(config.default_model))
             for option in options:
                 specs.append(_build_spec(option.id, option.name, provider, overrides))
 
-        env_default = os.getenv("DEFAULT_LLM_PROVIDER", LLMProvider.OPENAI.value)
+        env_default = get_settings().DEFAULT_LLM_PROVIDER
         try:
             default_provider = LLMProvider(env_default.lower())
         except ValueError:

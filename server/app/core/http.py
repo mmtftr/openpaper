@@ -14,10 +14,11 @@ The ingest worker runs one event loop, so one client per process is shared
 from __future__ import annotations
 
 import asyncio
-import os
 from typing import Any, Mapping, Optional
 
 import httpx
+
+from app.settings import get_settings
 
 DEFAULT_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 DEFAULT_LIMITS = httpx.Limits(max_connections=32, max_keepalive_connections=16)
@@ -25,8 +26,7 @@ USER_AGENT = "OpenPaper/0.1 (personal research reader)"
 
 
 def contact_email() -> Optional[str]:
-    value = (os.getenv("CONTACT_EMAIL") or "").strip()
-    return value or None
+    return get_settings().CONTACT_EMAIL
 
 
 def polite_headers() -> dict[str, str]:
@@ -45,7 +45,7 @@ def crossref_params(**params: Any) -> dict[str, Any]:
 def openalex_params(**params: Any) -> dict[str, Any]:
     """Query params for api.openalex.org: `api_key` and/or `mailto`."""
     extra: dict[str, Any] = {}
-    key = (os.getenv("OPENALEX_API_KEY") or "").strip()
+    key = get_settings().OPENALEX_API_KEY
     if key:
         extra["api_key"] = key
     email = contact_email()

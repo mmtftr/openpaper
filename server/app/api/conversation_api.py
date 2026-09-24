@@ -2,7 +2,6 @@ import logging
 import uuid
 from typing import Any, Optional
 
-from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_serializer
 from pydantic_ai.ui.vercel_ai.request_types import UIMessage
@@ -22,8 +21,6 @@ from app.llm.chat.history import serialize_ui_messages
 from app.llm.chat.title import rename_conversation as generate_conversation_title
 from app.schemas.common import MessageResponse
 from app.schemas.user import CurrentUser
-
-load_dotenv()
 
 logger = logging.getLogger(__name__)
 

@@ -1,8 +1,5 @@
-from dotenv import load_dotenv
 from fastapi import APIRouter
 from pydantic import BaseModel
-
-load_dotenv()
 
 # Create API router with prefix
 router = APIRouter()

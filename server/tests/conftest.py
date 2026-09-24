@@ -19,6 +19,17 @@ import pytest  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
+def _fresh_settings():
+    """`get_settings()` is cached per process; tests that `setenv` need the
+    next read to see it."""
+    from app.settings import get_settings
+
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
 def _no_stored_model_slot_overrides(monkeypatch):
     """Model slots read overrides from the DB; tests run without one."""
     from app.llm import model_slots

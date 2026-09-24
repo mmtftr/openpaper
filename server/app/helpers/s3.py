@@ -1,5 +1,4 @@
 import logging
-import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
@@ -12,17 +11,18 @@ from sqlalchemy.orm import Session
 from app.database.crud.paper_crud import PaperUpdate, paper_crud
 from app.database.models import Paper
 from app.schemas.user import CurrentUser
+from app.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
-# Load AWS configuration from environment variables
-AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID")
-AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY")
-AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
-S3_BUCKET_NAME = os.environ.get("S3_BUCKET_NAME")
-CLOUDFLARE_BUCKET_NAME = os.environ.get("CLOUDFLARE_BUCKET_NAME")
-S3_ENDPOINT_URL = os.environ.get("S3_ENDPOINT_URL")
-S3_PUBLIC_BASE_URL = os.environ.get("S3_PUBLIC_BASE_URL")
+_settings = get_settings()
+AWS_ACCESS_KEY_ID = _settings.AWS_ACCESS_KEY_ID
+AWS_SECRET_ACCESS_KEY = _settings.AWS_SECRET_ACCESS_KEY
+AWS_REGION = _settings.AWS_REGION
+S3_BUCKET_NAME = _settings.S3_BUCKET_NAME
+CLOUDFLARE_BUCKET_NAME = _settings.CLOUDFLARE_BUCKET_NAME
+S3_ENDPOINT_URL = _settings.S3_ENDPOINT_URL
+S3_PUBLIC_BASE_URL = _settings.S3_PUBLIC_BASE_URL
 
 
 class S3Service:

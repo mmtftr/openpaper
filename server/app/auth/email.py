@@ -1,13 +1,9 @@
 import logging
-import os
 from datetime import datetime
-
-from dotenv import load_dotenv
 
 from app.auth.utils import generate_verification_code, get_verification_code_expiry
 from app.helpers.email import load_email_template, send_email
-
-load_dotenv()
+from app.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +26,7 @@ class EmailAuthClient:
         # server logs so the operator can grab it from `docker compose logs
         # server`. This keeps the email login flow usable on local stacks
         # without forcing every self-hoster to wire up an SMTP/Resend account.
-        if not os.getenv("RESEND_API_KEY"):
+        if not get_settings().RESEND_API_KEY:
             logger.warning(
                 "RESEND_API_KEY not set — printing verification code to logs "
                 "instead of sending email.\n"

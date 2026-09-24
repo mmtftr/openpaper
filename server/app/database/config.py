@@ -1,25 +1,9 @@
 import logging
-import os
 
 import psycopg2
-from dotenv import load_dotenv
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-from pydantic_settings import BaseSettings
 
-load_dotenv()
-
-
-class Settings(BaseSettings):
-    PROJECT_NAME: str = "Annotated Papers App"
-    DATABASE_URL: str = os.getenv(
-        "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/annotated-paper"
-    )
-    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "your_openai_api_key")
-    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "your_gemini_api_key")
-
-    class Config:
-        env_file = ".env"
-        extra = "ignore"  # Ignore extra fields in the .env file
+from app.settings import get_settings
 
 
 def run_migrations():
@@ -56,10 +40,8 @@ def run_migrations():
 
 def create_database():
     """Create the database if it doesn't exist."""
-    settings = Settings()
-
     # Extract database name from the URL
-    db_url = settings.DATABASE_URL
+    db_url = get_settings().DATABASE_URL
     db_name = db_url.split("/")[-1]
 
     # Extract connection info

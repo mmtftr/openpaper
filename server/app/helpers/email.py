@@ -1,12 +1,13 @@
 import logging
-import os
 from pathlib import Path
 
 import resend
 
+from app.settings import get_settings
+
 logger = logging.getLogger(__name__)
 
-RESEND_API_KEY = os.getenv("RESEND_API_KEY")
+RESEND_API_KEY = get_settings().RESEND_API_KEY
 
 resend.api_key = RESEND_API_KEY
 

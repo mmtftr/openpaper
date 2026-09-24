@@ -1,6 +1,5 @@
 import datetime
 import logging
-import os
 import secrets
 import uuid
 from typing import Optional
@@ -12,19 +11,15 @@ from app.database.crud.base_crud import CRUDBase
 from app.database.models import Session as DBSession
 from app.database.models import User
 from app.schemas.user import UserCreate, UserUpdate
+from app.settings import get_settings
 
 logger = logging.getLogger(__name__)
-
-
-def _admin_emails() -> set[str]:
-    raw = os.getenv("ADMIN_EMAILS", "")
-    return {e.strip().lower() for e in raw.split(",") if e.strip()}
 
 
 def _bootstrap_user_account(db: Session, *, user: User) -> User:
     """Ensure a freshly-created user listed in ADMIN_EMAILS has admin status
     (and a verified email)."""
-    is_admin_email = str(user.email).lower() in _admin_emails()
+    is_admin_email = user.email.lower() in get_settings().admin_emails
     if is_admin_email and not bool(user.is_admin):
         user.is_admin = True
         user.is_email_verified = True

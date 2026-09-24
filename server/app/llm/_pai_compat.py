@@ -18,7 +18,6 @@ own them, they must be closed explicitly — `attach_transport_closer` /
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, Awaitable, Callable, Optional
 
 import httpx2 as httpx
@@ -31,6 +30,8 @@ from pydantic_ai.profiles.openai import (
 )
 from pydantic_ai.providers.azure import AzureProvider, _openai_compatible_v1_base_url
 from pydantic_ai.providers.openai import OpenAIProvider as PaiOpenAIProvider
+
+from app.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +84,7 @@ class AzureStrictJsonSchemaTransformer(OpenAIJsonSchemaTransformer):
 
 
 def _is_azure_openai_enabled() -> bool:
-    return os.getenv("AZURE_OPENAI", "").strip().lower() in ("1", "true", "yes")
+    return get_settings().azure_openai
 
 
 def _openai_provider(
@@ -101,7 +102,7 @@ def _openai_provider(
     silently keep the SDK defaults (2 retries, 600s read).
     """
     if _is_azure_openai_enabled() and base_url is None:
-        endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        endpoint = get_settings().AZURE_OPENAI_ENDPOINT
         if not endpoint:
             raise ValueError(
                 "AZURE_OPENAI=true requires AZURE_OPENAI_ENDPOINT to be set"
@@ -121,7 +122,7 @@ def _openai_provider(
         azure_client = openai.AsyncAzureOpenAI(
             azure_endpoint=endpoint,
             api_key=api_key,
-            api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2025-04-01-preview"),
+            api_version=get_settings().AZURE_OPENAI_API_VERSION,
             max_retries=max_retries,
             timeout=timeout,
         )
@@ -129,8 +130,8 @@ def _openai_provider(
         return AzureProvider(openai_client=azure_client), True
 
     # Standard OpenAI or OpenAI-compatible (codex proxy).
-    resolved_base = base_url or os.getenv("OPENAI_BASE_URL")
-    if api_key is None and resolved_base and not os.getenv("OPENAI_API_KEY"):
+    resolved_base = base_url or get_settings().OPENAI_BASE_URL
+    if api_key is None and resolved_base and not get_settings().OPENAI_API_KEY:
         # Locally-served OpenAI-compatible endpoints often need no key, but
         # the SDK insists on a non-empty one (same workaround pydantic-ai's
         # OpenAIProvider applies when it builds the client itself).

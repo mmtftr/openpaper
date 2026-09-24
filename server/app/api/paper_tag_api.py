@@ -2,7 +2,6 @@ import logging
 from typing import List
 from uuid import UUID
 
-from dotenv import load_dotenv
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -17,8 +16,6 @@ from app.schemas.paper import (
     TaggedPaper,
 )
 from app.schemas.user import CurrentUser
-
-load_dotenv()
 
 logger = logging.getLogger(__name__)
 

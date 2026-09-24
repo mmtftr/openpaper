@@ -1,15 +1,16 @@
 """Exa API integration for research paper discovery."""
 
 import logging
-import os
 from dataclasses import dataclass, field
 from typing import Optional
 
 from exa_py import Exa
 
+from app.settings import get_settings
+
 logger = logging.getLogger(__name__)
 
-EXA_API_KEY = os.getenv("EXA_API_KEY")
+EXA_API_KEY = get_settings().EXA_API_KEY
 
 
 @dataclass
