@@ -1,46 +1,52 @@
-# ![Open Paper](https://raw.githubusercontent.com/sabaimran/openpaper/refs/heads/master/client/src/app/openpaper.svg) Open Paper
+# Open Paper (personal deployment)
 
+A single-user deployment of [Open Paper](https://github.com/sabaimran/openpaper),
+a research-paper reader with an AI copilot, running on one host and reached
+over the tailnet at `https://paper.example.com`.
 
-When reading lots of papers for research, it can be hard to keep track of your notes and annotations. When you need to go deeper into a specific topic or clarify something you don't understand, you may switch contexts many times to look up terms, concepts, related research.
+What it does:
 
-I wanted to build something for myself that helped me address some of these issues in one place.
+- **Reader**: a pdf.js PDF view (or the OCR'd markdown) with outline,
+  thumbnails, figures, supplementary files, and bibliography hover cards that
+  resolve references against your library, Crossref, OpenAlex and arXiv.
+- **Chat with citations**: per-paper chat whose answers cite passages you can
+  click to jump to. It can also explore the paper's companion GitHub repo in a
+  sandbox, and "quick question" answers questions about a selection in the
+  repo's code viewer.
+- **Annotations and notes**: highlights with note threads (plus AI-suggested
+  highlights) and a markdown notes document per paper.
+- **Library, projects, discover**: tags and search across your papers,
+  single-owner project folders, and an OpenAlex/Exa-backed discover search.
+- **Ingest**: uploads (PDF file or URL) are processed in stages by a
+  background worker: OCR, metadata, figures, outline, AI highlights. Each
+  feature switches on as soon as the stage it needs is done.
+- **Model slots**: every LLM call site (chat, quick question, titles, discover,
+  each ingest stage) uses a named slot, and you can change each slot's
+  model on **Settings → Models**.
 
-The Open Paper is a place to upload your paper, highlight, leave comments, take notes, and chat all in one place. Search through your existing corpus of annotated papers.
+## Layout
 
-![The Open Paper](./demo.gif)
+| Path | What |
+|---|---|
+| `server/` | FastAPI app and the ingest worker (same code and image). Python 3.12, uv, pydantic-ai, SQLAlchemy, Alembic |
+| `client/` | Next.js 15 (App Router) app, standalone build, with a typed API client generated from the server's OpenAPI |
+| `compose.yaml` | postgres, minio (local S3), server, ingest-worker, client |
+| `compose.override.yaml` | the `paper.example.com` overlay: HTTPS URLs, secure cookies, S3 under `/s3/` |
+| `docs/INGEST_DESIGN.md` | ingest v2 design; `server/app/ingest/README.md` has the code contracts |
+| `scripts/` | `smoke.py` (end-to-end check), `rebuild.sh` (rebuild, restart, prune) |
+| `benchmarks/` | reader citation-hover and annotation-jump benchmarks |
 
-## AI-powered copilot
+## Running it
 
-![ai copilot](https://assets.khoj.dev/op_chat_1.png)
+```bash
+cp .env.example .env                  # BASE_HOSTNAME etc. for compose
+cp server/.env.example server/.env    # API keys, models
+docker compose up -d --build
+```
 
-AI is very useful at helping us elicit an understanding of new information in large, complex documents and translating between complexity <-> simplicity. This is useful in a research context, where the true meaning behind an insight, methodology, or hypothesis may not be immediately apparent. We want to build better bridges between where we are and where we need to go.
+See [DEVELOPMENT.md](./DEVELOPMENT.md) for configuration, host dev servers,
+checks and migrations.
 
-The AI copilot uses a citations annotation protocol that pushes it to ground its responses in the context of the protocol, while making it easy for you to click and navigate to the exact location in the document where that context may have appeared. One of the challenges here was implementing it in an efficient way where the response could be grounded, but still streamed back to the user for speed. The lookup logic relies on string matching, so it currently is imperfect, but it works well enough for most cases.
+## License
 
-## Parallel Views
-
-![parallel view](https://assets.khoj.dev/op_parallel_1.jpeg)
-
-Many tools currently allow you to upload your raw documents and chat with them, but they typically don't show the document in a parallel view. For me, this is a necessary feature as I still need to actually read the document. I want to use an LLM to give me an overview, provide context, extract references, but I want it to do it grounded in the context of the file I'm currently reading. Moreover, I want to highlight, take notes, annotate, all in one place. The split view allows me to do that more easily.
-
-In context of your PDF, try highlighting a section of the text to see an inline menu that quickly lets you take deeper actions.
-
-## Knowledge Base Search
-
-Since you can upload many of your PDFs all in one place, you can also search for them in that centralized spot. Quickly find the paper you might be thinking of in context of your corpus.
-
-## Annotations
-
-![annotations](https://assets.khoj.dev/op_annotations_1.jpeg)
-
-Highlights and annotations should help you quickly recall your insights in a given paper and navigate to the particular area of interest.
-
-## Notes
-
-Takes notes directly in context with your paper. You can use the toggle at the top of the section to view them in markdown format.
-
-## Run it Locally
-
-This project uses a separate server & client to run the web application. While Open Paper is open-source, it is not optimized for self-hosting. Our main focus is to make the most useful AI-assisted assistant for research.
-
-For instructions on how to set up the project for local development, see [DEVELOPMENT.md](./DEVELOPMENT.md).
+AGPL-3.0, see [LICENSE](./LICENSE).
