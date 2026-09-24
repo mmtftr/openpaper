@@ -3,7 +3,7 @@
 import { PdfReader, RenderedHighlightPosition, type HighlightJumpRequest, type TextSearchRequest } from '@/components/reader';
 import { Button } from '@/components/ui/button';
 import { api, unwrap, type Schemas } from '@/lib/api/client';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import useSWR from 'swr';
 
@@ -24,7 +24,6 @@ import { PaperSidebar } from '@/components/PaperSidebar';
 import { useAuth } from '@/lib/auth';
 
 import PaperViewSkeleton from '@/components/PaperViewSkeleton';
-import ReportSkeleton from '@/components/ReportSkeleton';
 import { usePaperHeader } from '@/components/PaperHeaderContext';
 import { useFeatureGate, useStageRefreshKey } from '@/hooks/useIngest';
 
@@ -66,7 +65,6 @@ const PaperToolset = {
 
 export default function PaperView() {
     const params = useParams();
-    const router = useRouter();
     const searchParams = useSearchParams();
     const id = params.id as string;
     const { user, loading: authLoading } = useAuth();
@@ -139,10 +137,6 @@ export default function PaperView() {
         setRenderedHighlightPositions(new Map(positions));
     }, []);
 
-    const [jobId, setJobId] = useState<string | null>(null);
-    const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
-    const [sidePanelDisplayedText, setSidePanelDisplayedText] = useState('');
-    const [elapsedTime, setElapsedTime] = useState(0);
 
     const [rightSideFunction, setRightSideFunction] = useState<string>('Chat');
     const annotationsPanelActive = rightSideFunction === 'Annotations';
@@ -235,79 +229,6 @@ export default function PaperView() {
             setRightSideFunction('Read');
         }
     }, [isReadMode, toolset.nav]);
-
-    useEffect(() => {
-        if (jobId) {
-            const timer = setInterval(() => {
-                setElapsedTime(prevTime => prevTime + 1);
-            }, 1000);
-            return () => clearInterval(timer);
-        } else {
-            setElapsedTime(0); // Reset timer when job is done
-        }
-    }, [jobId]);
-
-
-    useEffect(() => {
-        if (!jobId) {
-            setSidePanelDisplayedText('');
-            return;
-        }
-        if (!loadingMessage) {
-            setSidePanelDisplayedText('Processing your paper...');
-            return;
-        }
-
-        let charIndex = 0;
-        setSidePanelDisplayedText('');
-
-        const typingInterval = setInterval(() => {
-            if (charIndex < loadingMessage.length) {
-                setSidePanelDisplayedText(loadingMessage.slice(0, charIndex + 1));
-                charIndex++;
-            } else {
-                clearInterval(typingInterval);
-            }
-        }, 50); // 50ms per character for smooth typing
-
-        return () => clearInterval(typingInterval);
-    }, [loadingMessage, jobId]);
-
-    useEffect(() => {
-        const url = new URL(window.location.href);
-        const jobIdFromUrl = url.searchParams.get('job_id');
-        if (jobIdFromUrl) {
-            setJobId(jobIdFromUrl);
-            pollJobStatus(jobIdFromUrl);
-        }
-    }, []);
-
-    const pollJobStatus = async (jobId: string) => {
-        try {
-            const response = await unwrap(api.GET("/api/paper/upload/status/{job_id}", {
-                params: { path: { job_id: jobId } },
-            }));
-            setLoadingMessage(response.celery_progress_message ?? null);
-
-            if (response.status === 'completed') {
-                setJobId(null);
-            } else if (response.status === 'failed') {
-                setJobId(null);
-                toast.error("Failed to process your paper", {
-                    description: "There was an error indexing your paper. Please try uploading again.",
-                    duration: 10000,
-                    action: {
-                        label: "Go Home",
-                        onClick: () => router.push('/'),
-                    },
-                });
-            } else {
-                setTimeout(() => pollJobStatus(jobId), 2000);
-            }
-        } catch (error) {
-            console.error('Error polling job status:', error);
-        }
-    };
 
     // Add this function to handle citation clicks. Flip the displayed PDF to
     // the cited paper first (a missing `paperId` means the parent) so the
@@ -504,12 +425,10 @@ export default function PaperView() {
             }
         }
 
-        if (jobId) return;
-
         fetchPaper();
         refreshAnnotations();
         fetchHighlights();
-    }, [id, jobId]);
+    }, [id]);
 
     // Title / authors / DOI come from ingest's metadata stages: re-read the
     // paper when one of them finishes while the page is open.
@@ -759,27 +678,12 @@ export default function PaperView() {
                             <div
                                 className="flex flex-row h-full relative"
                             >
-                                {jobId ? (
-                                    <div className="flex flex-col h-full w-full">
-                                        <div className="flex items-center justify-center w-full px-6 py-4 border-b border-gray-100 dark:border-gray-800/50">
-                                            <div className="flex items-center gap-3">
-                                                <div className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />
-                                                <p className="text-sm text-muted-foreground">{sidePanelDisplayedText}</p>
-                                                <span className="text-xs text-muted-foreground/50 tabular-nums">{elapsedTime}s</span>
-                                            </div>
-                                        </div>
-                                        <ReportSkeleton />
-                                    </div>
-                                ) : (
-                                    <>
-                                        <SidePanelContent {...sidePanelProps} isMobile={true} />
-                                        <PaperSidebar
-                                            rightSideFunction={rightSideFunction}
-                                            setRightSideFunction={setRightSideFunction}
-                                            PaperToolset={toolset}
-                                        />
-                                    </>
-                                )}
+                                <SidePanelContent {...sidePanelProps} isMobile={true} />
+                                <PaperSidebar
+                                    rightSideFunction={rightSideFunction}
+                                    setRightSideFunction={setRightSideFunction}
+                                    PaperToolset={toolset}
+                                />
                             </div>
                         </div>
                     )}
@@ -871,27 +775,12 @@ export default function PaperView() {
                         transition: isDragging ? 'none' : 'width 300ms ease',
                     }}
                 >
-                    {jobId ? (
-                        <div className="flex flex-col h-full w-full">
-                            <div className="flex items-center justify-center w-full px-6 py-4 border-b border-gray-100 dark:border-gray-800/50">
-                                <div className="flex items-center gap-3">
-                                    <div className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />
-                                    <p className="text-sm text-muted-foreground">{sidePanelDisplayedText}</p>
-                                    <span className="text-xs text-muted-foreground/50 tabular-nums">{elapsedTime}s</span>
-                                </div>
-                            </div>
-                            <ReportSkeleton />
-                        </div>
-                    ) : (
-                        <>
-                            <SidePanelContent {...sidePanelProps} isMobile={false} />
-                            <PaperSidebar
-                                rightSideFunction={rightSideFunction}
-                                setRightSideFunction={setRightSideFunction}
-                                PaperToolset={toolset}
-                            />
-                        </>
-                    )}
+                    <SidePanelContent {...sidePanelProps} isMobile={false} />
+                    <PaperSidebar
+                        rightSideFunction={rightSideFunction}
+                        setRightSideFunction={setRightSideFunction}
+                        PaperToolset={toolset}
+                    />
                 </div>
             </div>
         </div>

@@ -10,10 +10,11 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog"
 import { PdfDropzone } from "@/components/PdfDropzone"
-import PdfUploadTracker from "@/components/PdfUploadTracker"
-import { MinimalJob } from "@/lib/schema"
 import { useState } from "react"
-import { uploadFiles, uploadFromUrlWithFallback } from "@/lib/uploadUtils"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
+import { FileText } from "lucide-react"
+import { uploadFiles, uploadFromUrlWithFallback, type UploadedPaper } from "@/lib/uploadUtils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import LoadingIndicator from "@/components/utils/Loading"
@@ -22,6 +23,7 @@ interface UploadModalProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     uploadLimit?: number;
+    /** Called for each uploaded paper (its PDF is readable at once). A single upload also opens it. */
     onUploadComplete?: (paperId: string) => void;
     /** Called when files are selected, allowing parent to handle upload with custom loading experience */
     onUploadStart?: (files: File[]) => void;
@@ -90,15 +92,28 @@ function UrlImportDialog({
 const DEFAULT_UPLOAD_LIMIT = 10;
 
 export function UploadModal({ open, onOpenChange, uploadLimit = DEFAULT_UPLOAD_LIMIT, onUploadComplete, onUploadStart, onUrlImportStart }: UploadModalProps) {
-    const [jobs, setJobs] = useState<MinimalJob[]>([]);
+    const router = useRouter();
+    const [uploaded, setUploaded] = useState<UploadedPaper[]>([]);
     const [isUrlDialogOpen, setIsUrlDialogOpen] = useState(false);
     const [importError, setImportError] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const UPLOAD_LIMIT = uploadLimit;
 
+    // Papers are readable as soon as the upload returns: open a single one
+    // right away, list several so each can be opened.
+    const finish = (papers: UploadedPaper[]) => {
+        papers.forEach(p => onUploadComplete?.(p.paperId));
+        if (papers.length === 1 && uploaded.length === 0) {
+            onOpenChange(false);
+            router.push(`/paper/${papers[0].paperId}`);
+            return;
+        }
+        setUploaded(prev => [...prev, ...papers]);
+    }
+
     const handleFileSelect = async (files: File[]) => {
         setImportError(null);
-        if (jobs.length + files.length > UPLOAD_LIMIT) {
+        if (uploaded.length + files.length > UPLOAD_LIMIT) {
             setImportError(`This would exceed the upload limit of ${UPLOAD_LIMIT} files.`);
             return;
         }
@@ -112,8 +127,7 @@ export function UploadModal({ open, onOpenChange, uploadLimit = DEFAULT_UPLOAD_L
 
         setIsSubmitting(true);
         try {
-            const newJobs = await uploadFiles(files);
-            setJobs(prevJobs => [...prevJobs, ...newJobs]);
+            finish(await uploadFiles(files));
         } catch (error) {
             console.error("Failed to upload file", error);
             const errorMessage = error instanceof Error ? error.message : "Failed to upload the file. Please try again.";
@@ -123,12 +137,8 @@ export function UploadModal({ open, onOpenChange, uploadLimit = DEFAULT_UPLOAD_L
         }
     }
 
-    const onComplete = (paperId: string) => {
-        onUploadComplete?.(paperId);
-    }
-
     const onUrlClick = () => {
-        if (jobs.length >= UPLOAD_LIMIT) {
+        if (uploaded.length >= UPLOAD_LIMIT) {
             setImportError(`You have reached the upload limit of ${UPLOAD_LIMIT} files.`);
             return;
         }
@@ -145,13 +155,12 @@ export function UploadModal({ open, onOpenChange, uploadLimit = DEFAULT_UPLOAD_L
 
         try {
             setImportError(null);
-            if (jobs.length >= UPLOAD_LIMIT) {
+            if (uploaded.length >= UPLOAD_LIMIT) {
                 setImportError(`You have reached the upload limit of ${UPLOAD_LIMIT} files.`);
                 return;
             }
             setIsSubmitting(true);
-            const newJob = await uploadFromUrlWithFallback(url);
-            setJobs(prevJobs => [...prevJobs, newJob]);
+            finish([await uploadFromUrlWithFallback(url)]);
         } catch (error) {
             console.error("Failed to import from URL", error);
             const errorMessage = error instanceof Error ? error.message : "Failed to import from URL. Please check the URL and try again.";
@@ -168,19 +177,19 @@ export function UploadModal({ open, onOpenChange, uploadLimit = DEFAULT_UPLOAD_L
                     <DialogHeader>
                         <DialogTitle>Upload Papers</DialogTitle>
                         <DialogDescription>
-                            You can click out of this modal while your papers are uploading.
+                            Each paper opens right away; OCR, metadata and highlights finish in the background.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                         {isSubmitting ? (
                             <div className="flex flex-col items-center justify-center h-64 space-y-4">
                                 <LoadingIndicator />
-                                <p className="text-sm text-gray-600 dark:text-gray-400">Processing your papers...</p>
+                                <p className="text-sm text-gray-600 dark:text-gray-400">Uploading your papers...</p>
                             </div>
                         ) : (
                             <PdfDropzone
-                                maxPapers={UPLOAD_LIMIT - jobs.length}
-                                disabled={jobs.length >= UPLOAD_LIMIT}
+                                maxPapers={UPLOAD_LIMIT - uploaded.length}
+                                disabled={uploaded.length >= UPLOAD_LIMIT}
                                 onFileSelect={handleFileSelect}
                                 onUrlClick={onUrlClick}
                             />
@@ -188,7 +197,21 @@ export function UploadModal({ open, onOpenChange, uploadLimit = DEFAULT_UPLOAD_L
                         {importError && (
                             <p className="text-red-500 text-sm mt-2">{importError}</p>
                         )}
-                        <PdfUploadTracker initialJobs={jobs} onComplete={onComplete} />
+                        {uploaded.length > 0 && (
+                            <ul className="space-y-1">
+                                {uploaded.map(p => (
+                                    <li key={p.paperId}>
+                                        <Link
+                                            href={`/paper/${p.paperId}`}
+                                            className="flex items-center gap-2 text-sm hover:underline"
+                                        >
+                                            <FileText className="h-4 w-4 text-muted-foreground" />
+                                            <span className="truncate">{p.fileName}</span>
+                                        </Link>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
                     </div>
                 </DialogContent>
             </Dialog>

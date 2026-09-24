@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { api, unwrap } from "@/lib/api/client";
@@ -98,166 +98,44 @@ export default function Home() {
 		}
 	};
 
-	// Loading experience state
-	const [elapsedTime, setElapsedTime] = useState(0);
-	const [messageIndex, setMessageIndex] = useState(0);
-	const [fileSize, setFileSize] = useState<number | null>(null);
-	const [displayedMessage, setDisplayedMessage] = useState("");
-	const [celeryMessage, setCeleryMessage] = useState<string | null>(null);
-
-	const celeryMessageRef = useRef<string | null>(null);
-
-	useEffect(() => {
-		celeryMessageRef.current = celeryMessage;
-	}, [celeryMessage]);
-
-	const loadingMessages = useMemo(() => [
-		`Processing bits and bytes...`,
-		`Processing ${fileSize ? (fileSize / 1024 / 1024).toFixed(2) + 'mb' : '...'} `,
-		"Uploading to the cloud",
-		"Extracting metadata",
-		"Crafting grounded citations",
-	], [fileSize]);
-
-	// Effect for timer and message cycling
-	useEffect(() => {
-		let timer: NodeJS.Timeout | undefined;
-		let messageTimer: NodeJS.Timeout | undefined;
-
-		if (isUploading) {
-			setElapsedTime(0);
-			setMessageIndex(0);
-
-			timer = setInterval(() => {
-				setElapsedTime((prevTime) => prevTime + 1);
-			}, 1000);
-
-			messageTimer = setInterval(() => {
-				if (celeryMessageRef.current) {
-					if (messageTimer) {
-						clearInterval(messageTimer);
-						messageTimer = undefined;
-					}
-					return;
-				}
-
-				setMessageIndex((prevIndex) => {
-					if (prevIndex < loadingMessages.length - 1) {
-						return prevIndex + 1;
-					}
-					return prevIndex;
-				});
-			}, 8000);
-		}
-
-		return () => {
-			if (timer) clearInterval(timer);
-			if (messageTimer) clearInterval(messageTimer);
-		};
-	}, [isUploading, fileSize, loadingMessages]);
-
-	// Typewriter effect
-	useEffect(() => {
-		setDisplayedMessage("");
-		let i = 0;
-		const typingTimer = setInterval(() => {
-			const currentMessage = celeryMessage || loadingMessages[messageIndex];
-			if (i < currentMessage.length) {
-				setDisplayedMessage(currentMessage.slice(0, i + 1));
-				i++;
-			} else {
-				clearInterval(typingTimer);
-			}
-		}, 50);
-
-		return () => clearInterval(typingTimer);
-	}, [messageIndex, loadingMessages, celeryMessage]);
-
-	// Poll job status
-	const pollJobStatus = async (jobId: string) => {
-		try {
-			const response = await unwrap(api.GET("/api/paper/upload/status/{job_id}", {
-				params: { path: { job_id: jobId } },
-			}));
-
-			if (response.celery_progress_message) {
-				setCeleryMessage(response.celery_progress_message);
-			}
-
-			if (response.paper_id) {
-				const redirectUrl = new URL(`/paper/${response.paper_id}`, window.location.origin);
-				redirectUrl.searchParams.append('job_id', jobId);
-				setTimeout(() => {
-					window.location.href = redirectUrl.toString();
-				}, 500);
-			} else if (response.status === 'failed') {
-				console.error('Upload job failed');
-				setShowErrorAlert(true);
-				setIsUploading(false);
-			} else {
-				setTimeout(() => pollJobStatus(jobId), 2000);
-			}
-		} catch (error) {
-			console.error('Error polling job status:', error);
-			setShowErrorAlert(true);
-			setIsUploading(false);
-		}
-	};
-
 	const refreshData = async () => {
 		if (!user) return;
 		await Promise.all([mutatePapers(), mutateProjects()]);
 	};
 
-	// Handle file upload with custom loading experience
+	const showUploadError = (error: unknown) => {
+		console.error('Error uploading paper:', error);
+		setShowErrorAlert(true);
+		if (error instanceof Error) {
+			setErrorAlertMessage(error.message);
+		} else if (typeof error === 'object' && error !== null) {
+			setErrorAlertMessage(JSON.stringify(error));
+		} else {
+			setErrorAlertMessage(String(error));
+		}
+		setIsUploading(false);
+	};
+
+	// The upload returns once the PDF is stored: open the paper right away
+	// (the reader works at once; its header shows the rest of ingest).
 	const handleUploadStart = async (files: File[]) => {
 		if (files.length === 0) return;
-
-		const file = files[0];
 		setIsUploading(true);
-		setFileSize(file.size);
-		setCeleryMessage(null);
-		setMessageIndex(0);
-
 		try {
-			const jobs = await uploadFiles(files);
-			if (jobs.length > 0) {
-				pollJobStatus(jobs[0].jobId);
-			}
+			const [uploaded] = await uploadFiles(files.slice(0, 1));
+			router.push(`/paper/${uploaded.paperId}`);
 		} catch (error) {
-			console.error('Error uploading file:', error);
-			setShowErrorAlert(true);
-			if (error instanceof Error) {
-				setErrorAlertMessage(error.message);
-			} else if (typeof error === 'object' && error !== null) {
-				setErrorAlertMessage(JSON.stringify(error));
-			} else {
-				setErrorAlertMessage(String(error));
-			}
-			setIsUploading(false);
+			showUploadError(error);
 		}
 	};
 
-	// Handle URL import with custom loading experience
 	const handleUrlImportStart = async (url: string) => {
 		setIsUploading(true);
-		setFileSize(null);
-		setCeleryMessage(null);
-		setMessageIndex(0);
-
 		try {
-			const job = await uploadFromUrlWithFallback(url);
-			pollJobStatus(job.jobId);
+			const uploaded = await uploadFromUrlWithFallback(url);
+			router.push(`/paper/${uploaded.paperId}`);
 		} catch (error) {
-			setShowErrorAlert(true);
-			if (error instanceof Error) {
-				setErrorAlertMessage(error.message);
-			} else if (typeof error === 'object' && error !== null) {
-				setErrorAlertMessage(JSON.stringify(error));
-			} else {
-				setErrorAlertMessage(String(error));
-			}
-			setIsUploading(false);
+			showUploadError(error);
 		}
 	};
 
@@ -365,18 +243,13 @@ export default function Home() {
 						e.preventDefault();
 					}}>
 					<DialogHeader>
-						<DialogTitle className="text-center">Processing Your Paper</DialogTitle>
+						<DialogTitle className="text-center">Uploading Your Paper</DialogTitle>
 						<DialogDescription className="text-center">
-							This might take up to two minutes...
+							It opens as soon as the PDF is stored.
 						</DialogDescription>
 					</DialogHeader>
-					<div className="flex flex-col items-center justify-center py-8 space-y-6 w-full">
+					<div className="flex flex-col items-center justify-center py-8 w-full">
 						<EnigmaticLoadingExperience />
-						<div className="flex items-center gap-3">
-							<div className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />
-							<p className="text-sm text-muted-foreground">{displayedMessage}</p>
-							<span className="text-xs text-muted-foreground/50 tabular-nums">{elapsedTime}s</span>
-						</div>
 					</div>
 				</DialogContent>
 			</Dialog>

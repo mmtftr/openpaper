@@ -25,12 +25,8 @@ export interface ContextModeOption {
     label: string;
     subtitle: string;
     recommended: boolean;
-    forParser: "mistral" | "pymupdf";
 }
 
-// Each mode is gated by which parser ran on the paper. The picker hides
-// modes that don't apply (Raw only on pymupdf-parsed papers; the rest only
-// on Mistral-parsed papers).
 export const CONTEXT_MODE_OPTIONS: ContextModeOption[] = [
     {
         id: "adaptive",
@@ -38,7 +34,6 @@ export const CONTEXT_MODE_OPTIONS: ContextModeOption[] = [
         subtitle:
             "Includes abstract, intro and conclusion with model-selected access to the rest",
         recommended: true,
-        forParser: "mistral",
     },
     {
         id: "comprehensive",
@@ -46,22 +41,12 @@ export const CONTEXT_MODE_OPTIONS: ContextModeOption[] = [
         subtitle:
             "Includes the main paper content and all the figures, excl. references and appendix",
         recommended: true,
-        forParser: "mistral",
     },
     {
         id: "full",
         label: "Full",
         subtitle: "Includes the full paper content (slow, expensive)",
         recommended: false,
-        forParser: "mistral",
-    },
-    {
-        id: "raw",
-        label: "Raw",
-        subtitle:
-            "Includes references and appendices, no figures (fallback parsing)",
-        recommended: false,
-        forParser: "pymupdf",
     },
 ];
 

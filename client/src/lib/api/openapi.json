@@ -1,50 +1,6 @@
 {
   "components": {
     "schemas": {
-      "AIHighlight": {
-        "description": "Schema for a highlight in the paper.\nThis is used to represent a single highlight with its text and context.",
-        "properties": {
-          "annotation": {
-            "description": "The context or annotation for the highlight, explaining its significance or relevance to the paper's content. Less than 350 characters.",
-            "title": "Annotation",
-            "type": "string"
-          },
-          "text": {
-            "description": "The raw text of the highlight as it appears in the paper. Ensure that this is a direct quote or paraphrase from the paper.",
-            "title": "Text",
-            "type": "string"
-          },
-          "type": {
-            "$ref": "#/components/schemas/HighlightType",
-            "description": "The type of highlight. This can be one of the following: topic, motivation, method, evidence, result, impact. This helps categorize the highlight based on its content and significance."
-          }
-        },
-        "required": [
-          "text",
-          "annotation",
-          "type"
-        ],
-        "title": "AIHighlight",
-        "type": "object"
-      },
-      "AIHighlightAnchor": {
-        "description": "Where the jobs service anchored an AI highlight in the PDF\n(`jobs/src/highlight_anchor.py`).",
-        "properties": {
-          "page_number": {
-            "title": "Page Number",
-            "type": "integer"
-          },
-          "position": {
-            "$ref": "#/components/schemas/ScaledPosition"
-          }
-        },
-        "required": [
-          "page_number",
-          "position"
-        ],
-        "title": "AIHighlightAnchor",
-        "type": "object"
-      },
       "ActivePaper": {
         "description": "Item of `GET /api/paper/active`.",
         "properties": {
@@ -2831,17 +2787,6 @@
         "title": "Institution",
         "type": "object"
       },
-      "JobStatus": {
-        "enum": [
-          "pending",
-          "running",
-          "completed",
-          "failed",
-          "cancelled"
-        ],
-        "title": "JobStatus",
-        "type": "string"
-      },
       "Keyword": {
         "properties": {
           "display_name": {
@@ -2975,6 +2920,11 @@
               }
             ],
             "title": "Preview Url"
+          },
+          "processing": {
+            "default": false,
+            "title": "Processing",
+            "type": "boolean"
           },
           "publish_date": {
             "anyOf": [
@@ -3558,195 +3508,6 @@
         "title": "OutlineEntry",
         "type": "object"
       },
-      "PDFProcessingResult": {
-        "description": "Result of PDF processing",
-        "properties": {
-          "ai_highlight_anchors": {
-            "anyOf": [
-              {
-                "items": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/components/schemas/AIHighlightAnchor"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ai Highlight Anchors"
-          },
-          "duration": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Duration"
-          },
-          "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error"
-          },
-          "figure_count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Figure Count"
-          },
-          "file_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "File Url"
-          },
-          "job_id": {
-            "title": "Job Id",
-            "type": "string"
-          },
-          "metadata": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/PaperMetadataExtraction"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "ocr": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ocr"
-          },
-          "page_count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Page Count"
-          },
-          "page_offset_map": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "items": {
-                    "type": "integer"
-                  },
-                  "type": "array"
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Page Offset Map"
-          },
-          "parser": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Parser"
-          },
-          "preview_object_key": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Preview Object Key"
-          },
-          "preview_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Preview Url"
-          },
-          "raw_content": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Raw Content"
-          },
-          "s3_object_key": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "S3 Object Key"
-          },
-          "success": {
-            "title": "Success",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "success",
-          "job_id"
-        ],
-        "title": "PDFProcessingResult",
-        "type": "object"
-      },
       "PaperChatRequest": {
         "description": "The whole POST body: the AI SDK submit payload plus OpenPaper's fields.\n\n`messages` carries only the NEW user message; server-side history is\nground truth.",
         "properties": {
@@ -3756,8 +3517,7 @@
                 "enum": [
                   "adaptive",
                   "comprehensive",
-                  "full",
-                  "raw"
+                  "full"
                 ],
                 "type": "string"
               },
@@ -3970,17 +3730,6 @@
             ],
             "title": "Doi"
           },
-          "figure_count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Figure Count"
-          },
           "file_url": {
             "title": "File Url",
             "type": "string"
@@ -4051,17 +3800,6 @@
               }
             ],
             "title": "Page Count"
-          },
-          "parser": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Parser"
           },
           "preview_url": {
             "anyOf": [
@@ -4242,76 +3980,8 @@
         "title": "PaperMarkdown",
         "type": "object"
       },
-      "PaperMetadataExtraction": {
-        "properties": {
-          "abstract": {
-            "default": "",
-            "description": "Abstract of the paper",
-            "title": "Abstract",
-            "type": "string"
-          },
-          "authors": {
-            "default": [],
-            "description": "List of authors",
-            "items": {
-              "type": "string"
-            },
-            "title": "Authors",
-            "type": "array"
-          },
-          "highlights": {
-            "default": [],
-            "description": "List of key highlights from the paper. These should be significant quotes that are must-reads of the paper's findings and contributions. Each highlight should include the text of the highlight and an annotation explaining its significance or relevance to the paper's content. Particularly drill into interesting, novel findings, methodologies, or implications that are worth noting. Pay special attention to tables, figures, and diagrams that may contain important information.",
-            "items": {
-              "$ref": "#/components/schemas/AIHighlight"
-            },
-            "title": "Highlights",
-            "type": "array"
-          },
-          "institutions": {
-            "default": [],
-            "description": "List of institutions involved in the publication.",
-            "items": {
-              "type": "string"
-            },
-            "title": "Institutions",
-            "type": "array"
-          },
-          "keywords": {
-            "default": [],
-            "description": "List of keywords",
-            "items": {
-              "type": "string"
-            },
-            "title": "Keywords",
-            "type": "array"
-          },
-          "publish_date": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Publishing date of the paper in YYYY-MM-DD format",
-            "title": "Publish Date"
-          },
-          "title": {
-            "description": "Title of the paper in normal case",
-            "title": "Title",
-            "type": "string"
-          }
-        },
-        "required": [
-          "title"
-        ],
-        "title": "PaperMetadataExtraction",
-        "type": "object"
-      },
       "PaperRecord": {
-        "description": "A paper row's metadata columns.\n\nLarge or internal columns (`raw_content`, `ocr`, `ts_vector`,\n`page_offset_map`, `generated_outline`, storage keys and the\npresigned-URL cache) are left out.",
+        "description": "A paper row's metadata columns.\n\nLarge or internal columns (`ts_vector`, `generated_outline`, storage\nkeys, upload sources and the presigned-URL cache) are left out.",
         "properties": {
           "abstract": {
             "anyOf": [
@@ -4360,17 +4030,6 @@
               }
             ],
             "title": "Doi"
-          },
-          "figure_count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Figure Count"
           },
           "file_url": {
             "title": "File Url",
@@ -4442,17 +4101,6 @@
               }
             ],
             "title": "Page Count"
-          },
-          "parser": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Parser"
           },
           "preview_url": {
             "anyOf": [
@@ -4724,46 +4372,6 @@
           "name"
         ],
         "title": "PaperTagResponse",
-        "type": "object"
-      },
-      "PdfProcessingWebhookData": {
-        "description": "Schema for webhook data from PDF processing service",
-        "properties": {
-          "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error"
-          },
-          "result": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/PDFProcessingResult"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "status": {
-            "title": "Status",
-            "type": "string"
-          },
-          "task_id": {
-            "title": "Task Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "task_id",
-          "status"
-        ],
-        "title": "PdfProcessingWebhookData",
         "type": "object"
       },
       "PrimaryLocation": {
@@ -6125,7 +5733,7 @@
         "type": "object"
       },
       "SupplementaryMaterialItem": {
-        "description": "A finished supplementary paper, or an upload job still producing one.",
+        "description": "A supplementary material (its own paper row; see `/ingest` for progress).",
         "properties": {
           "created_at": {
             "anyOf": [
@@ -6166,9 +5774,6 @@
             ],
             "title": "Preview Url"
           },
-          "status": {
-            "$ref": "#/components/schemas/JobStatus"
-          },
           "title": {
             "anyOf": [
               {
@@ -6182,8 +5787,7 @@
           }
         },
         "required": [
-          "id",
-          "status"
+          "id"
         ],
         "title": "SupplementaryMaterialItem",
         "type": "object"
@@ -7402,139 +7006,19 @@
         "title": "UploadFromUrlRequest",
         "type": "object"
       },
-      "UploadJobStatusResponse": {
-        "description": "The `celery_*` keys are present only while a Celery task is live.",
+      "UploadedPaper": {
+        "description": "The new paper: readable at once, the rest of ingest runs in the worker.",
         "properties": {
-          "celery_error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Celery Error"
-          },
-          "celery_progress_message": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Celery Progress Message"
-          },
-          "celery_status": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Celery Status"
-          },
-          "completed_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Completed At"
-          },
-          "has_file_url": {
-            "title": "Has File Url",
-            "type": "boolean"
-          },
-          "has_metadata": {
-            "title": "Has Metadata",
-            "type": "boolean"
-          },
-          "job_id": {
-            "format": "uuid",
-            "title": "Job Id",
-            "type": "string"
-          },
           "paper_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Paper Id"
-          },
-          "started_at": {
-            "format": "date-time",
-            "title": "Started At",
-            "type": "string"
-          },
-          "status": {
-            "$ref": "#/components/schemas/JobStatus"
-          },
-          "task_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Task Id"
-          }
-        },
-        "required": [
-          "job_id",
-          "status",
-          "started_at",
-          "has_file_url",
-          "has_metadata"
-        ],
-        "title": "UploadJobStatusResponse",
-        "type": "object"
-      },
-      "UploadStartedResponse": {
-        "properties": {
-          "job_id": {
             "format": "uuid",
-            "title": "Job Id",
-            "type": "string"
-          },
-          "message": {
-            "title": "Message",
+            "title": "Paper Id",
             "type": "string"
           }
         },
         "required": [
-          "message",
-          "job_id"
+          "paper_id"
         ],
-        "title": "UploadStartedResponse",
-        "type": "object"
-      },
-      "WebhookStatusResponse": {
-        "properties": {
-          "status": {
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "WebhookStatusResponse",
+        "title": "UploadedPaper",
         "type": "object"
       }
     },
@@ -9878,6 +9362,7 @@
     },
     "/api/paper/outline": {
       "get": {
+        "description": "The outline the ingest `outline` stage built (empty until it ran).",
         "operationId": "get_paper_outline_api_paper_outline_get",
         "parameters": [
           {
@@ -10378,7 +9863,7 @@
     },
     "/api/paper/upload": {
       "post": {
-        "description": "Upload a PDF file",
+        "description": "Upload a PDF file.",
         "operationId": "upload_pdf_api_paper_upload_post",
         "parameters": [
           {
@@ -10427,11 +9912,11 @@
           "required": true
         },
         "responses": {
-          "202": {
+          "201": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UploadStartedResponse"
+                  "$ref": "#/components/schemas/UploadedPaper"
                 }
               }
             },
@@ -10468,7 +9953,7 @@
     },
     "/api/paper/upload/from-url": {
       "post": {
-        "description": "Upload a document from a given URL, rather than the raw file.",
+        "description": "Import a PDF from a URL.",
         "operationId": "upload_pdf_from_url_api_paper_upload_from_url_post",
         "parameters": [
           {
@@ -10517,11 +10002,11 @@
           "required": true
         },
         "responses": {
-          "202": {
+          "201": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UploadStartedResponse"
+                  "$ref": "#/components/schemas/UploadedPaper"
                 }
               }
             },
@@ -10554,62 +10039,6 @@
           }
         ],
         "summary": "Upload Pdf From Url"
-      }
-    },
-    "/api/paper/upload/status/{job_id}": {
-      "get": {
-        "description": "Get the status of a paper upload job, including real-time Celery task status.",
-        "operationId": "get_upload_status_api_paper_upload_status__job_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Job Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UploadJobStatusResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Client error"
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Server error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Get Upload Status"
       }
     },
     "/api/paper/{paper_id}/figure/{label_or_id}": {
@@ -11214,7 +10643,7 @@
     },
     "/api/paper/{paper_id}/supplementary": {
       "get": {
-        "description": "List supplementary materials attached to a paper, plus any in-flight upload jobs.",
+        "description": "Supplementary materials attached to a paper, oldest first.",
         "operationId": "list_supplementary_materials_api_paper__paper_id__supplementary_get",
         "parameters": [
           {
@@ -12127,66 +11556,6 @@
           }
         ],
         "summary": "Update Model Slot"
-      }
-    },
-    "/api/webhooks/paper-processing/{job_id}": {
-      "post": {
-        "description": "Handle webhook from paper processing jobs service.",
-        "operationId": "handle_paper_processing_webhook_api_webhooks_paper_processing__job_id__post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "title": "Job Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PdfProcessingWebhookData"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WebhookStatusResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "4XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Client error"
-          },
-          "5XX": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Server error"
-          }
-        },
-        "summary": "Handle Paper Processing Webhook"
       }
     }
   }

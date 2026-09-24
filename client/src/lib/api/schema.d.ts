@@ -709,7 +709,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Paper Outline */
+        /**
+         * Get Paper Outline
+         * @description The outline the ingest `outline` stage built (empty until it ran).
+         */
         get: operations["get_paper_outline_api_paper_outline_get"];
         put?: never;
         post?: never;
@@ -874,7 +877,7 @@ export interface paths {
         put?: never;
         /**
          * Upload Pdf
-         * @description Upload a PDF file
+         * @description Upload a PDF file.
          */
         post: operations["upload_pdf_api_paper_upload_post"];
         delete?: never;
@@ -894,29 +897,9 @@ export interface paths {
         put?: never;
         /**
          * Upload Pdf From Url
-         * @description Upload a document from a given URL, rather than the raw file.
+         * @description Import a PDF from a URL.
          */
         post: operations["upload_pdf_from_url_api_paper_upload_from_url_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/paper/upload/status/{job_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Upload Status
-         * @description Get the status of a paper upload job, including real-time Celery task status.
-         */
-        get: operations["get_upload_status_api_paper_upload_status__job_id__get"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1113,7 +1096,7 @@ export interface paths {
         };
         /**
          * List Supplementary Materials
-         * @description List supplementary materials attached to a paper, plus any in-flight upload jobs.
+         * @description Supplementary materials attached to a paper, oldest first.
          */
         get: operations["list_supplementary_materials_api_paper__paper_id__supplementary_get"];
         put?: never;
@@ -1332,59 +1315,10 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/webhooks/paper-processing/{job_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Handle Paper Processing Webhook
-         * @description Handle webhook from paper processing jobs service.
-         */
-        post: operations["handle_paper_processing_webhook_api_webhooks_paper_processing__job_id__post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /**
-         * AIHighlight
-         * @description Schema for a highlight in the paper.
-         *     This is used to represent a single highlight with its text and context.
-         */
-        AIHighlight: {
-            /**
-             * Annotation
-             * @description The context or annotation for the highlight, explaining its significance or relevance to the paper's content. Less than 350 characters.
-             */
-            annotation: string;
-            /**
-             * Text
-             * @description The raw text of the highlight as it appears in the paper. Ensure that this is a direct quote or paraphrase from the paper.
-             */
-            text: string;
-            /** @description The type of highlight. This can be one of the following: topic, motivation, method, evidence, result, impact. This helps categorize the highlight based on its content and significance. */
-            type: components["schemas"]["HighlightType"];
-        };
-        /**
-         * AIHighlightAnchor
-         * @description Where the jobs service anchored an AI highlight in the PDF
-         *     (`jobs/src/highlight_anchor.py`).
-         */
-        AIHighlightAnchor: {
-            /** Page Number */
-            page_number: number;
-            position: components["schemas"]["ScaledPosition"];
-        };
         /**
          * ActivePaper
          * @description Item of `GET /api/paper/active`.
@@ -2367,11 +2301,6 @@ export interface components {
             /** Type */
             type?: string | null;
         };
-        /**
-         * JobStatus
-         * @enum {string}
-         */
-        JobStatus: "pending" | "running" | "completed" | "failed" | "cancelled";
         /** Keyword */
         Keyword: {
             /** Display Name */
@@ -2410,6 +2339,11 @@ export interface components {
             keywords?: string[] | null;
             /** Preview Url */
             preview_url?: string | null;
+            /**
+             * Processing
+             * @default false
+             */
+            processing?: boolean;
             /** Publish Date */
             publish_date?: string | null;
             /** Size In Kb */
@@ -2563,47 +2497,6 @@ export interface components {
             top_percent?: number | null;
         };
         /**
-         * PDFProcessingResult
-         * @description Result of PDF processing
-         */
-        PDFProcessingResult: {
-            /** Ai Highlight Anchors */
-            ai_highlight_anchors?: (components["schemas"]["AIHighlightAnchor"] | null)[] | null;
-            /** Duration */
-            duration?: number | null;
-            /** Error */
-            error?: string | null;
-            /** Figure Count */
-            figure_count?: number | null;
-            /** File Url */
-            file_url?: string | null;
-            /** Job Id */
-            job_id: string;
-            metadata?: components["schemas"]["PaperMetadataExtraction"] | null;
-            /** Ocr */
-            ocr?: {
-                [key: string]: unknown;
-            } | null;
-            /** Page Count */
-            page_count?: number | null;
-            /** Page Offset Map */
-            page_offset_map?: {
-                [key: string]: number[];
-            } | null;
-            /** Parser */
-            parser?: string | null;
-            /** Preview Object Key */
-            preview_object_key?: string | null;
-            /** Preview Url */
-            preview_url?: string | null;
-            /** Raw Content */
-            raw_content?: string | null;
-            /** S3 Object Key */
-            s3_object_key?: string | null;
-            /** Success */
-            success: boolean;
-        };
-        /**
          * PaperChatRequest
          * @description The whole POST body: the AI SDK submit payload plus OpenPaper's fields.
          *
@@ -2612,7 +2505,7 @@ export interface components {
          */
         PaperChatRequest: {
             /** Context Mode */
-            context_mode?: ("adaptive" | "comprehensive" | "full" | "raw") | null;
+            context_mode?: ("adaptive" | "comprehensive" | "full") | null;
             /** Conversation Id */
             conversation_id: string;
             /** Id */
@@ -2665,8 +2558,6 @@ export interface components {
             created_at?: string | null;
             /** Doi */
             doi?: string | null;
-            /** Figure Count */
-            figure_count?: number | null;
             /** File Url */
             file_url: string;
             /**
@@ -2684,8 +2575,6 @@ export interface components {
             last_accessed_at?: string | null;
             /** Page Count */
             page_count?: number | null;
-            /** Parser */
-            parser?: string | null;
             /** Preview Url */
             preview_url?: string | null;
             /** Publish Date */
@@ -2730,56 +2619,12 @@ export interface components {
              */
             source: "mistral" | "pymupdf";
         };
-        /** PaperMetadataExtraction */
-        PaperMetadataExtraction: {
-            /**
-             * Abstract
-             * @description Abstract of the paper
-             * @default
-             */
-            abstract?: string;
-            /**
-             * Authors
-             * @description List of authors
-             * @default []
-             */
-            authors?: string[];
-            /**
-             * Highlights
-             * @description List of key highlights from the paper. These should be significant quotes that are must-reads of the paper's findings and contributions. Each highlight should include the text of the highlight and an annotation explaining its significance or relevance to the paper's content. Particularly drill into interesting, novel findings, methodologies, or implications that are worth noting. Pay special attention to tables, figures, and diagrams that may contain important information.
-             * @default []
-             */
-            highlights?: components["schemas"]["AIHighlight"][];
-            /**
-             * Institutions
-             * @description List of institutions involved in the publication.
-             * @default []
-             */
-            institutions?: string[];
-            /**
-             * Keywords
-             * @description List of keywords
-             * @default []
-             */
-            keywords?: string[];
-            /**
-             * Publish Date
-             * @description Publishing date of the paper in YYYY-MM-DD format
-             */
-            publish_date?: string | null;
-            /**
-             * Title
-             * @description Title of the paper in normal case
-             */
-            title: string;
-        };
         /**
          * PaperRecord
          * @description A paper row's metadata columns.
          *
-         *     Large or internal columns (`raw_content`, `ocr`, `ts_vector`,
-         *     `page_offset_map`, `generated_outline`, storage keys and the
-         *     presigned-URL cache) are left out.
+         *     Large or internal columns (`ts_vector`, `generated_outline`, storage
+         *     keys, upload sources and the presigned-URL cache) are left out.
          */
         PaperRecord: {
             /** Abstract */
@@ -2790,8 +2635,6 @@ export interface components {
             created_at?: string | null;
             /** Doi */
             doi?: string | null;
-            /** Figure Count */
-            figure_count?: number | null;
             /** File Url */
             file_url: string;
             /**
@@ -2809,8 +2652,6 @@ export interface components {
             last_accessed_at?: string | null;
             /** Page Count */
             page_count?: number | null;
-            /** Parser */
-            parser?: string | null;
             /** Preview Url */
             preview_url?: string | null;
             /** Publish Date */
@@ -2886,19 +2727,6 @@ export interface components {
             id: string;
             /** Name */
             name: string;
-        };
-        /**
-         * PdfProcessingWebhookData
-         * @description Schema for webhook data from PDF processing service
-         */
-        PdfProcessingWebhookData: {
-            /** Error */
-            error?: string | null;
-            result?: components["schemas"]["PDFProcessingResult"] | null;
-            /** Status */
-            status: string;
-            /** Task Id */
-            task_id: string;
         };
         /** PrimaryLocation */
         PrimaryLocation: {
@@ -3367,7 +3195,7 @@ export interface components {
         };
         /**
          * SupplementaryMaterialItem
-         * @description A finished supplementary paper, or an upload job still producing one.
+         * @description A supplementary material (its own paper row; see `/ingest` for progress).
          */
         SupplementaryMaterialItem: {
             /** Created At */
@@ -3381,7 +3209,6 @@ export interface components {
             page_count?: number | null;
             /** Preview Url */
             preview_url?: string | null;
-            status: components["schemas"]["JobStatus"];
             /** Title */
             title?: string | null;
         };
@@ -3749,52 +3576,15 @@ export interface components {
             url: string;
         };
         /**
-         * UploadJobStatusResponse
-         * @description The `celery_*` keys are present only while a Celery task is live.
+         * UploadedPaper
+         * @description The new paper: readable at once, the rest of ingest runs in the worker.
          */
-        UploadJobStatusResponse: {
-            /** Celery Error */
-            celery_error?: string | null;
-            /** Celery Progress Message */
-            celery_progress_message?: string | null;
-            /** Celery Status */
-            celery_status?: string | null;
-            /** Completed At */
-            completed_at?: string | null;
-            /** Has File Url */
-            has_file_url: boolean;
-            /** Has Metadata */
-            has_metadata: boolean;
+        UploadedPaper: {
             /**
-             * Job Id
+             * Paper Id
              * Format: uuid
              */
-            job_id: string;
-            /** Paper Id */
-            paper_id?: string | null;
-            /**
-             * Started At
-             * Format: date-time
-             */
-            started_at: string;
-            status: components["schemas"]["JobStatus"];
-            /** Task Id */
-            task_id?: string | null;
-        };
-        /** UploadStartedResponse */
-        UploadStartedResponse: {
-            /**
-             * Job Id
-             * Format: uuid
-             */
-            job_id: string;
-            /** Message */
-            message: string;
-        };
-        /** WebhookStatusResponse */
-        WebhookStatusResponse: {
-            /** Status */
-            status: string;
+            paper_id: string;
         };
     };
     responses: never;
@@ -5911,12 +5701,12 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
-            202: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UploadStartedResponse"];
+                    "application/json": components["schemas"]["UploadedPaper"];
                 };
             };
             /** @description Client error */
@@ -5956,52 +5746,12 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
-            202: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UploadStartedResponse"];
-                };
-            };
-            /** @description Client error */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Server error */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    get_upload_status_api_paper_upload_status__job_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                job_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UploadJobStatusResponse"];
+                    "application/json": components["schemas"]["UploadedPaper"];
                 };
             };
             /** @description Client error */
@@ -6996,50 +6746,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelSlotOut"];
-                };
-            };
-            /** @description Client error */
-            "4XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Server error */
-            "5XX": {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    handle_paper_processing_webhook_api_webhooks_paper_processing__job_id__post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                job_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PdfProcessingWebhookData"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WebhookStatusResponse"];
                 };
             };
             /** @description Client error */

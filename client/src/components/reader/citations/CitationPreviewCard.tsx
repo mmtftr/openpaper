@@ -178,9 +178,14 @@ export default function CitationPreviewCard({
 		if (!importUrl || importing) return;
 		setImporting(true);
 		try {
-			await uploadFromUrlWithFallback(importUrl);
+			const uploaded = await uploadFromUrlWithFallback(importUrl);
 			setImported(true);
-			toast.success("Added to your library — processing in the background.");
+			toast.success("Added to your library — processing in the background.", {
+				action: {
+					label: "Open",
+					onClick: () => window.open(`/paper/${uploaded.paperId}`, "_blank"),
+				},
+			});
 		} catch (error) {
 			console.error("Failed to import cited paper:", error);
 			toast.error(

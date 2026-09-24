@@ -131,18 +131,14 @@ export function PaperMarkdownReader({
                                 <>
                                     <div className="border-t border-border my-1" />
                                     {supplementaryMaterials.map((item, idx) => {
-                                        const isCompleted = item.status === 'completed';
                                         const isCurrent = displayedPaperId === item.id;
-                                        const subLabel = isCompleted
-                                            ? (item.title?.trim() || 'Untitled')
-                                            : `Processing… (${item.status})`;
+                                        const subLabel = item.title?.trim() || 'Untitled';
                                         return (
                                             <button
                                                 key={item.id}
                                                 type="button"
-                                                disabled={!isCompleted}
                                                 onClick={() => {
-                                                    if (isCompleted && !isCurrent) {
+                                                    if (!isCurrent) {
                                                         onChangeDisplayed?.(item.id);
                                                     }
                                                     setSwitcherOpen(false);

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { Upload, FolderKanban, MessageSquare, Library } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { UploadModal } from "@/components/UploadModal";
@@ -13,12 +12,11 @@ interface HomeEmptyStateProps {
 }
 
 export function HomeEmptyState({ onUploadComplete, onUploadStart, onUrlImportStart }: HomeEmptyStateProps) {
-    const router = useRouter();
     const [isUploadModalOpen, setUploadModalOpen] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
 
-    const handleUploadComplete = (paperId: string) => {
-        router.push(`/paper/${paperId}`);
+    // The upload modal opens the paper itself; just refresh the lists.
+    const handleUploadComplete = () => {
         onUploadComplete?.();
     };
 

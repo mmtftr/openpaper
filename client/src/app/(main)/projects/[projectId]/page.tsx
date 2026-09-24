@@ -1,15 +1,13 @@
 "use client";
 
 import { ArrowLeft, ArrowRight, BookOpen, Library, Loader2, Pencil, PlusCircle, Search, Sparkles, UploadCloud } from "lucide-react";
-import { useState, useCallback, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { useParams } from "next/navigation";
-import { API_BASE_URL, api, errorDetail, unwrap, type Schemas } from "@/lib/api/client";
+import { api, unwrap } from "@/lib/api/client";
 import { PdfDropzone } from "@/components/PdfDropzone";
 import PaperCard from "@/components/PaperCard";
-import PdfUploadTracker from "@/components/PdfUploadTracker";
 import { CitePaperButton } from "@/components/CitePaperButton";
-import { MinimalJob } from "@/lib/schema";
-import { uploadFromUrlWithFallbackForProject } from "@/lib/uploadUtils";
+import { uploadFile, uploadFromUrlWithFallback } from "@/lib/uploadUtils";
 import {
 	Sheet,
 	SheetContent,
@@ -68,7 +66,6 @@ export default function ProjectPage() {
 	const { papers, isLoading: isPapersLoading, refetch: refetchPapers } = useProjectPapers(projectId);
 	const [error] = useState<string | null>(null);
 	const [uploadError, setUploadError] = useState<string | null>(null);
-	const [initialJobs, setInitialJobs] = useState<MinimalJob[]>([]);
 	const [isUrlDialogOpen, setIsUrlDialogOpen] = useState(false);
 	const [pdfUrl, setPdfUrl] = useState("");
 	const [isUploading, setIsUploading] = useState(false);
@@ -105,45 +102,30 @@ export default function ProjectPage() {
 		return result;
 	}, [papers, paperSearchQuery, paperSortBy]);
 
+	// Uploaded papers are in the project (and readable) as soon as the
+	// upload returns; their ingest finishes in the background.
 	const handleFileSelect = async (files: File[]) => {
 		setUploadError(null);
-		const newJobs: MinimalJob[] = [];
 		if (files.length > 0) {
 			setIsAddPapersSheetOpen(false);
 			setIsUploadDialogOpen(false);
 		}
 		for (const file of files) {
-			const formData = new FormData();
-			formData.append("file", file);
-
 			try {
-				// Multipart upload: raw fetch (the typed client is JSON-only here).
-				const res = await fetch(`${API_BASE_URL}/api/paper/upload?project_id=${encodeURIComponent(projectId)}`, {
-					method: "POST",
-					body: formData,
-					credentials: "include",
-				});
-				const body = await res.json().catch(() => undefined);
-				if (!res.ok) throw new Error(errorDetail(body, res.status));
-				const response = body as Schemas["UploadStartedResponse"];
-				newJobs.push({ jobId: response.job_id, fileName: file.name });
+				await uploadFile(file, projectId);
 			} catch (err) {
 				setUploadError(`Failed to upload file: ${file.name}. Please try again.`);
 				console.error(err);
 			}
 		}
-		setInitialJobs((prevJobs) => [...prevJobs, ...newJobs]);
-	};
-
-	const handleUploadComplete = useCallback(async () => {
 		refetchPapers();
-	}, [refetchPapers]);
+	};
 
 	const handlePdfUrl = async (url: string) => {
 		setIsUploading(true);
 		try {
-			const job = await uploadFromUrlWithFallbackForProject(url, projectId);
-			setInitialJobs((prevJobs) => [...prevJobs, { jobId: job.jobId, fileName: job.fileName }]);
+			await uploadFromUrlWithFallback(url, projectId);
+			refetchPapers();
 			// Close sheet and dialogs on success
 			setIsAddPapersSheetOpen(false);
 			setIsUploadDialogOpen(false);
@@ -244,8 +226,6 @@ export default function ProjectPage() {
 						</button>
 					)}
 				</div>
-
-				<PdfUploadTracker initialJobs={initialJobs} onComplete={handleUploadComplete} />
 
 				<div className="flex flex-col items-center justify-center py-12 max-w-lg mx-auto text-center">
 					<div className="p-4 bg-blue-100 dark:bg-blue-900/30 rounded-full w-16 h-16 mb-4 flex items-center justify-center">
@@ -386,7 +366,6 @@ export default function ProjectPage() {
 					</BreadcrumbItem>
 				</BreadcrumbList>
 			</Breadcrumb>
-			<PdfUploadTracker initialJobs={initialJobs} onComplete={handleUploadComplete} />
 
 
 			<div className="group relative">

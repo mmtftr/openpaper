@@ -69,8 +69,8 @@ export function QuickActions({ onUploadComplete, onProjectCreated, onUploadStart
         setUploadModalOpen(true);
     };
 
-    const handleUploadComplete = (paperId: string) => {
-        router.push(`/paper/${paperId}`);
+    // The upload modal opens the paper itself; just refresh the lists.
+    const handleUploadComplete = () => {
         onUploadComplete?.();
     };
 

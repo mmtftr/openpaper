@@ -53,18 +53,10 @@ export type Citation = Omit<Schemas["ChatCitation"], "key"> & { key: string };
 /** `GET /api/paper/conversations` */
 export type Conversation = Schemas["PaperConversationSummary"];
 
-export type JobStatusType = Schemas["JobStatus"];
-
 export type PaperResult = Schemas["PaperResult"];
 export type SearchResults = Schemas["SearchResults"];
 
 export type PaperTag = Schemas["PaperTagResponse"];
-
-/** An upload the client is tracking until its job finishes. */
-export interface MinimalJob {
-    jobId: string;
-    fileName: string;
-}
 
 // Settings -> Models (GET/PUT /api/settings/models)
 export type ReasoningEffort = NonNullable<Schemas["ModelSlotUpdate"]["reasoning_effort"]>;

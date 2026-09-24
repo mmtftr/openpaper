@@ -268,16 +268,10 @@ export function PaperChatPanel({
         window.localStorage.setItem(REASONING_EFFORT_LS_KEY, reasoningEffort);
     }, [reasoningEffort]);
 
-    // Context mode for the agentic chat surface. Defaults to Adaptive on
-    // Mistral-parsed papers and Raw on pymupdf-parsed papers; user choice
-    // sticks via localStorage but is filtered down to the modes valid for
-    // the current paper's parser.
-    const paperParser: "mistral" | "pymupdf" =
-        paperData?.parser === "mistral" ? "mistral" : "pymupdf";
-    const availableContextModes = useMemo(
-        () => CONTEXT_MODE_OPTIONS.filter((m) => m.forParser === paperParser),
-        [paperParser]
-    );
+    // Context mode for the agentic chat surface (default Adaptive). The
+    // user's choice sticks via localStorage; a stored mode that no longer
+    // exists (the old "Raw") falls back to the first option.
+    const availableContextModes = CONTEXT_MODE_OPTIONS;
     const [contextMode, setContextMode] = useState<ContextMode>(() => {
         if (typeof window === "undefined") return "adaptive";
         const stored = window.localStorage.getItem(CONTEXT_MODE_LS_KEY) as
@@ -300,9 +294,7 @@ export function PaperChatPanel({
     const contextWarningMessage =
         contextMode === "full"
             ? "This mode sends the entire paper to the model on every turn. Adaptive is faster and cheaper for most questions."
-            : contextMode === "raw"
-              ? "OCR parsing failed for this paper, so chat is using fallback PDF text without structured sections or figures."
-              : null;
+            : null;
 
     // ---- Chat session ----------------------------------------------------
     //

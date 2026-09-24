@@ -14,9 +14,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SupplementaryMaterialSummary } from "@/lib/schema";
 import { uploadSupplementaryFile, MAX_UPLOAD_SIZE_MB } from "@/lib/uploadUtils";
-import { api, unwrap } from "@/lib/api/client";
-
-const SUPPLEMENTARY_POLL_INTERVAL_MS = 2000;
 
 export interface SupplementaryPickerProps {
 	parentPaperId?: string;
@@ -59,29 +56,6 @@ export function SupplementaryPicker({
 			? `Suppl ${currentIndex + 1}`
 			: "Suppl";
 
-	const pollStatus = (jobId: string, fileName: string): Promise<void> =>
-		new Promise((resolve, reject) => {
-			const poll = async () => {
-				try {
-					const response = await unwrap(
-						api.GET("/api/paper/upload/status/{job_id}", {
-							params: { path: { job_id: jobId } },
-						})
-					);
-					if (response.status === "completed") {
-						resolve();
-					} else if (response.status === "failed") {
-						reject(new Error(`Failed to process ${fileName}`));
-					} else {
-						setTimeout(poll, SUPPLEMENTARY_POLL_INTERVAL_MS);
-					}
-				} catch (err) {
-					reject(err instanceof Error ? err : new Error(String(err)));
-				}
-			};
-			poll();
-		});
-
 	const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
 		const file = e.target.files?.[0];
 		// Reset input early so the same file can be re-selected.
@@ -100,9 +74,8 @@ export function SupplementaryPicker({
 		const toastId = toast.loading(`Uploading ${file.name}…`);
 		setIsUploading(true);
 		try {
-			const job = await uploadSupplementaryFile(parentPaperId, file);
-			toast.loading(`Processing ${file.name}…`, { id: toastId });
-			await pollStatus(job.jobId, file.name);
+			// Readable at once; its OCR etc. finish in the background.
+			await uploadSupplementaryFile(parentPaperId, file);
 			toast.success("Supplementary uploaded.", { id: toastId });
 			onSupplementaryUploaded?.();
 		} catch (err) {
@@ -165,17 +138,13 @@ export function SupplementaryPicker({
 						<>
 							<DropdownMenuSeparator />
 							{supplementaryMaterials.map((item, idx) => {
-								const isCompleted = item.status === "completed";
 								const isCurrent = displayedPaperId === item.id;
-								const subLabel = isCompleted
-									? item.title?.trim() || "Untitled"
-									: `Processing… (${item.status})`;
+								const subLabel = item.title?.trim() || "Untitled";
 								return (
 									<DropdownMenuItem
 										key={item.id}
-										disabled={!isCompleted}
 										onClick={() => {
-											if (isCompleted && !isCurrent) onChangeDisplayed?.(item.id);
+											if (!isCurrent) onChangeDisplayed?.(item.id);
 										}}
 									>
 										<span className="flex items-center gap-2 flex-1 min-w-0">

@@ -566,6 +566,11 @@ export function LibraryTable({
 												>
 													{paper.title || 'Untitled'}
 												</div>
+												{paper.processing && (
+													<Badge variant="outline" className="mt-1 text-[10px] font-normal text-muted-foreground">
+														processing
+													</Badge>
+												)}
 											</TableCell>
 											<TableCell className="py-4 pr-4 whitespace-normal">
 												<div className="text-sm text-muted-foreground leading-relaxed break-words hyphens-auto line-clamp-2">
