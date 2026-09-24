@@ -266,7 +266,8 @@ export function LibraryTable({
 		);
 	}
 
-	if (papersFetchError) {
+	// A failed revalidation keeps the cached list on screen.
+	if (papersFetchError && !papers) {
 		return (
 			<div className="flex items-center justify-center py-12">
 				<div className="text-destructive">

@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { MoreHorizontal, ArrowRight, FileText, X } from "lucide-react";
 import { useState } from "react";
+import { useSWRConfig } from "swr";
+import { SIDEBAR_PROJECTS_KEY } from "@/hooks/useProjects";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -33,6 +35,7 @@ export function ProjectCard({ project, onProjectUpdate, onUnlink, compact = fals
 	const [currentTitle, setCurrentTitle] = useState(project.title ?? '');
 	const [currentDescription, setCurrentDescription] = useState(project.description || '');
 	const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+	const { mutate: globalMutate } = useSWRConfig();
 
 	const deleteProject = async () => {
 		try {
@@ -41,6 +44,7 @@ export function ProjectCard({ project, onProjectUpdate, onUnlink, compact = fals
 			}));
 			if (response) {
 				setShowDeleteAlert(false);
+				void globalMutate(SIDEBAR_PROJECTS_KEY);
 				onProjectUpdate?.();
 			} else {
 				toast.error('Failed to delete project. Please try again.');
@@ -62,6 +66,7 @@ export function ProjectCard({ project, onProjectUpdate, onUnlink, compact = fals
 			}));
 			if (response) {
 				setShowEditAlert(false);
+				void globalMutate(SIDEBAR_PROJECTS_KEY);
 				onProjectUpdate?.();
 			} else {
 				toast.error('Failed to update project. Please try again.');

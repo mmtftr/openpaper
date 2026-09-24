@@ -38,6 +38,7 @@ import {
     CONTEXT_MODE_OPTIONS,
     ContextMode,
     ContextModeOption,
+    DEFAULT_MODEL_KEY,
     ModelOption,
     modelKey,
     REASONING_EFFORT_OPTIONS,
@@ -58,6 +59,9 @@ interface ChatComposerProps {
     onStop: () => void;
 
     availableModels: ModelOption[];
+    /** Label for the "Default" option (the server-resolved slot model). */
+    defaultModelLabel: string;
+    /** A `modelKey`, or DEFAULT_MODEL_KEY to let the server pick. */
     selectedModel: string;
     onSelectModel: (key: string) => void;
 
@@ -87,6 +91,7 @@ export const ChatComposer = memo(
             onSubmit,
             onStop,
             availableModels,
+            defaultModelLabel,
             selectedModel,
             onSelectModel,
             supportsReasoningEffort,
@@ -102,8 +107,10 @@ export const ChatComposer = memo(
         useImperativeHandle(ref, () => ({ setText }), []);
 
         const modelLabel =
-            availableModels.find((m) => modelKey(m) === selectedModel)?.name ??
-            "Model";
+            selectedModel === DEFAULT_MODEL_KEY
+                ? defaultModelLabel
+                : (availableModels.find((m) => modelKey(m) === selectedModel)
+                      ?.name ?? "Model");
 
         const modelsByProvider = useMemo(() => {
             const groups = new Map<string, ModelOption[]>();
@@ -164,9 +171,21 @@ export const ChatComposer = memo(
                                         No models available
                                     </DropdownMenuItem>
                                 ) : (
-                                    modelsByProvider.map(([provider, items], gi) => (
+                                    <>
+                                    <DropdownMenuItem
+                                        onClick={() => onSelectModel(DEFAULT_MODEL_KEY)}
+                                        className="flex items-center justify-between"
+                                    >
+                                        <span className="truncate">
+                                            {defaultModelLabel}
+                                        </span>
+                                        {selectedModel === DEFAULT_MODEL_KEY && (
+                                            <CheckIcon className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                                        )}
+                                    </DropdownMenuItem>
+                                    {modelsByProvider.map(([provider, items]) => (
                                         <div key={provider}>
-                                            {gi > 0 && <DropdownMenuSeparator />}
+                                            <DropdownMenuSeparator />
                                             <DropdownMenuLabel className="text-xs text-muted-foreground">
                                                 {providerLabel(provider)}
                                             </DropdownMenuLabel>
@@ -187,7 +206,8 @@ export const ChatComposer = memo(
                                                 </DropdownMenuItem>
                                             ))}
                                         </div>
-                                    ))
+                                    ))}
+                                    </>
                                 )}
                             </DropdownMenuContent>
                         </DropdownMenu>

@@ -55,7 +55,8 @@ import {
 	BreadcrumbPage,
 	BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { useProject, useProjectPapers } from "@/hooks/useProjects";
+import { SIDEBAR_PROJECTS_KEY, useProject, useProjectPapers } from "@/hooks/useProjects";
+import { useSWRConfig } from "swr";
 import ProjectPageSkeleton from "@/components/ProjectPageSkeleton";
 import { PaperListSkeleton } from "@/components/PaperListSkeleton";
 
@@ -63,6 +64,7 @@ export default function ProjectPage() {
 	const params = useParams();
 	const projectId = params.projectId as string;
 	const { project, isLoading, error: projectError, refetch: refetchProject } = useProject(projectId);
+	const { mutate: globalMutate } = useSWRConfig();
 	const { papers, isLoading: isPapersLoading, refetch: refetchPapers } = useProjectPapers(projectId);
 	const [error] = useState<string | null>(null);
 	const [uploadError, setUploadError] = useState<string | null>(null);
@@ -178,6 +180,7 @@ export default function ProjectPage() {
 			}));
 			if (response) {
 				refetchProject();
+				void globalMutate(SIDEBAR_PROJECTS_KEY);
 				setShowEditAlert(false);
 			} else {
 				console.error('Failed to update project');
@@ -198,7 +201,8 @@ export default function ProjectPage() {
 		return <ProjectPageSkeleton />;
 	}
 
-	if (projectError || error) {
+	// A failed revalidation keeps the cached project on screen.
+	if ((projectError && !project) || error) {
 		return <div className="container mx-auto p-4 text-red-500">{projectError?.message || error}</div>;
 	}
 

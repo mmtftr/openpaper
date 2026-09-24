@@ -54,8 +54,12 @@ export interface PaperChatSessionState {
      * Keyed by the assistant message id so it disappears with that message.
      */
     truncatedTurn: TruncatedTurn | null;
-    /** The first history page has been fetched (or failed). */
+    /** The first history page has been fetched. */
     historyLoaded: boolean;
+    /**
+     * The first history page failed to load; `ensureHistoryLoaded()` retries.
+     */
+    historyError: string | null;
     loadingHistory: boolean;
     hasMoreHistory: boolean;
     nextHistoryPage: number;
@@ -119,6 +123,7 @@ export class PaperChatSession {
         retryStatus: null,
         truncatedTurn: null,
         historyLoaded: false,
+        historyError: null,
         loadingHistory: false,
         hasMoreHistory: true,
         nextHistoryPage: 1,
@@ -230,7 +235,10 @@ export class PaperChatSession {
         this.setState({ truncatedTurn: null });
     }
 
-    /** Load the first history page once per session. */
+    /**
+     * Load the first history page once per session. After a failed first
+     * load the guard is reset, so calling this again retries.
+     */
     ensureHistoryLoaded() {
         if (this.historyRequested || !this.conversationId) return;
         this.historyRequested = true;
@@ -243,8 +251,9 @@ export class PaperChatSession {
         // rows but bump the page counter twice, skipping a page of history.
         if (!this.conversationId || this.historyFetchInFlight) return 0;
         this.historyFetchInFlight = true;
-        this.setState({ loadingHistory: true });
+        this.setState({ loadingHistory: true, historyError: null });
         let fetchedCount = 0;
+        let failed = false;
         try {
             const response = await unwrap(
                 api.GET("/api/conversation/{conversation_id}", {
@@ -273,9 +282,19 @@ export class PaperChatSession {
             }
         } catch (err) {
             console.error("Error fetching conversation history:", err);
+            failed = true;
         } finally {
             this.historyFetchInFlight = false;
-            this.setState({ loadingHistory: false, historyLoaded: true });
+            if (failed && !this.state.historyLoaded) {
+                // First page failed: let `ensureHistoryLoaded` try again.
+                this.historyRequested = false;
+                this.setState({
+                    loadingHistory: false,
+                    historyError: "Couldn't load this conversation",
+                });
+            } else {
+                this.setState({ loadingHistory: false, historyLoaded: true });
+            }
         }
         return fetchedCount;
     }

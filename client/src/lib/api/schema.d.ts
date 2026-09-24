@@ -1547,6 +1547,8 @@ export interface components {
             /** Default */
             default: string;
             default_provider: components["schemas"]["LLMProvider"];
+            /** Default Reasoning Effort */
+            default_reasoning_effort?: string | null;
             /** Models */
             models: components["schemas"]["ChatModelOption"][];
         };

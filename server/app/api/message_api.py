@@ -68,8 +68,11 @@ class ChatModelOption(BaseModel):
 
 class ChatModelsResponse(BaseModel):
     models: list[ChatModelOption]
+    # What a chat request that names no model gets: the `chat.default` slot
+    # (with any stored override), model and reasoning effort.
     default: str
     default_provider: LLMProvider
+    default_reasoning_effort: Optional[str] = None
 
 
 @message_router.get("/models")
@@ -77,11 +80,12 @@ def get_available_models() -> ChatModelsResponse:
     """User-selectable chat models with capabilities, for the picker."""
     registry = get_registry()
     specs = registry.chat_models()
-    default_spec = resolve_slot("chat.default", registry).spec
+    default_slot = resolve_slot("chat.default", registry)
     return ChatModelsResponse(
         models=[ChatModelOption(**spec.to_public_dict()) for spec in specs],
-        default=default_spec.id,
-        default_provider=default_spec.provider,
+        default=default_slot.spec.id,
+        default_provider=default_slot.spec.provider,
+        default_reasoning_effort=default_slot.reasoning_effort,
     )
 
 

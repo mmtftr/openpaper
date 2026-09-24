@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, Suspense, useMemo } from "react";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
+import { SIDEBAR_PROJECTS_KEY } from "@/hooks/useProjects";
 import { useRouter } from "next/navigation";
 import { ProjectCard } from "@/components/ProjectCard";
 import { Button } from "@/components/ui/button";
@@ -57,12 +58,14 @@ function ProjectsPage() {
 		mutateProjects();
 	};
 
+	const { mutate: globalMutate } = useSWRConfig();
 	const handleCreateProject = async (title: string, description: string) => {
 		try {
 			const project = await unwrap(api.POST("/api/projects", {
 				body: { title, description },
 			}));
 			setCreateProjectOpen(false);
+			void globalMutate(SIDEBAR_PROJECTS_KEY);
 			router.push(`/projects/${project.id}`);
 		} catch (err) {
 			console.error(err);

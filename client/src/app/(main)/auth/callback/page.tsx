@@ -3,6 +3,7 @@
 import { Info, Loader2 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
+import { safeReturnTo } from "@/lib/utils";
 
 function CallbackContent() {
 
@@ -16,7 +17,7 @@ function CallbackContent() {
 		const success = params.get('success') === 'true';
 
 		if (success) {
-			const returnTo = localStorage.getItem('returnTo') || '/';
+			const returnTo = safeReturnTo(localStorage.getItem('returnTo')) || '/';
 			localStorage.removeItem('returnTo');
 			router.push(returnTo);
 			return;

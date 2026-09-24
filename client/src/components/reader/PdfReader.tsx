@@ -189,15 +189,29 @@ function PdfReaderInner(props: PdfReaderProps) {
 	}, [unanchoredKey]);
 
 	// --- Chat citation → find + scroll -------------------------------------
+	// A citation can switch the displayed paper in the same render that asks
+	// for the search. The doc on screen when `pdfUrl` last changed is the
+	// outgoing one: a find dispatched before the new PDF replaces it is
+	// dropped by pdf.js, so each search waits for a doc newer than that.
+	const staleDocRef = useRef<typeof pdfDoc>(null);
+	useEffect(() => {
+		staleDocRef.current = pdfDoc;
+		// Only a URL change marks the current doc stale (pdfDoc is read, not
+		// a dependency).
+	}, [pdfUrl]);
+	const appliedSearchRef = useRef<TextSearchRequest | null>(null);
 	const pendingSearchRef = useRef<string | null>(null);
 	useEffect(() => {
 		const term = explicitSearch?.term.trim();
-		if (!term || !api) return;
+		if (!term || !explicitSearch || !api) return;
+		if (appliedSearchRef.current === explicitSearch) return;
+		if (!pdfDoc || pdfDoc === staleDocRef.current) return;
+		appliedSearchRef.current = explicitSearch;
 		pendingSearchRef.current = term;
 		if (explicitSearch?.page) api.goToPage(explicitSearch.page);
 		setFindQuery(term);
 		api.find(term);
-	}, [explicitSearch, api, setFindQuery]);
+	}, [explicitSearch, api, pdfDoc, setFindQuery]);
 
 	// pdf.js reports counts progressively; settle briefly before reporting so a
 	// mid-scan zero isn't mistaken for "no match".

@@ -179,7 +179,7 @@ export function HomeSearch() {
         if (type === "paper") {
             router.push(`/paper/${id}`);
         } else {
-            router.push(`/project/${id}`);
+            router.push(`/projects/${id}`);
         }
     }, [router]);
 

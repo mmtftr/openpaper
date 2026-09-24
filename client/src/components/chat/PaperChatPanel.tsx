@@ -116,6 +116,7 @@ import {
 import {
     CONTEXT_MODE_OPTIONS,
     ContextMode,
+    DEFAULT_MODEL_KEY,
     ModelOption,
     modelKey,
     REASONING_EFFORT_VALUES,
@@ -241,7 +242,10 @@ export function PaperChatPanel({
 
     const [selectedModel, setSelectedModel] = useState<string>(() => {
         if (typeof window === "undefined") return "";
-        return window.localStorage.getItem(SELECTED_MODEL_LS_KEY) ?? "";
+        return (
+            window.localStorage.getItem(SELECTED_MODEL_LS_KEY) ||
+            DEFAULT_MODEL_KEY
+        );
     });
     useEffect(() => {
         if (typeof window === "undefined" || !selectedModel) return;
@@ -315,7 +319,8 @@ export function PaperChatPanel({
         session.getState
     );
     const { retryStatus, truncatedTurn } = sessionState;
-    const isFetchingHistory = !sessionState.historyLoaded;
+    const historyError = sessionState.historyError;
+    const isFetchingHistory = !sessionState.historyLoaded && !historyError;
     const hasMoreMessages = sessionState.hasMoreHistory;
     const isLoadingMoreMessages = sessionState.loadingHistory;
 
@@ -327,7 +332,12 @@ export function PaperChatPanel({
         status,
         error,
         clearError,
-    } = useChat<ChatUIMessage>({ chat: session.chat });
+    } = useChat<ChatUIMessage>({
+        chat: session.chat,
+        // Batch streamed chunks: re-rendering long cited answers per chunk
+        // is what makes streaming janky.
+        experimental_throttle: 50,
+    });
 
     const isStreaming = status === "submitted" || status === "streaming";
 
@@ -513,25 +523,31 @@ export function PaperChatPanel({
         const models = chatModels.models;
         if (models.length === 0) return;
         setAvailableModels(models);
-        const defaultModel = models.find(
-            (m) =>
-                m.id === chatModels.default &&
-                (!chatModels.default_provider ||
-                    m.provider === chatModels.default_provider)
-        );
-        const fallback = modelKey(defaultModel ?? models[0]);
-        // Honor the persisted choice if it's still offered; otherwise
-        // fall back. This keeps the picker stable across reloads
-        // instead of snapping back to the server default each time.
-        // (Legacy stored values are bare model ids — upgrade them to
-        // the provider-qualified key.)
+        // Honor the persisted choice if it's still offered; otherwise fall
+        // back to "Default" (the server's slot). (Legacy stored values are
+        // bare model ids — upgrade them to the provider-qualified key.)
         setSelectedModel((current) => {
+            if (current === DEFAULT_MODEL_KEY) return current;
             if (current && models.some((m) => modelKey(m) === current)) {
                 return current;
             }
             const legacy = models.find((m) => m.id === current);
-            return legacy ? modelKey(legacy) : fallback;
+            return legacy ? modelKey(legacy) : DEFAULT_MODEL_KEY;
         });
+    }, [chatModels]);
+
+    // "Default (<model>)": what the server resolves when no model is sent.
+    const defaultModelLabel = useMemo(() => {
+        if (!chatModels) return "Default";
+        const resolved = chatModels.models.find(
+            (m) =>
+                m.id === chatModels.default &&
+                m.provider === chatModels.default_provider
+        );
+        const effort = chatModels.default_reasoning_effort;
+        return `Default (${resolved?.name ?? chatModels.default}${
+            effort ? `, ${effort}` : ""
+        })`;
     }, [chatModels]);
 
     const selectedModelOption = useMemo(
@@ -964,9 +980,22 @@ export function PaperChatPanel({
                             />
                         )}
 
+                    {historyError && !sessionState.historyLoaded && (
+                        <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                            <span>{historyError} —</span>
+                            <Button
+                                variant="link"
+                                size="sm"
+                                className="h-auto p-0"
+                                onClick={() => session.ensureHistoryLoaded()}
+                            >
+                                Retry
+                            </Button>
+                        </div>
+                    )}
                     {isFetchingHistory ? (
                         <ChatHistorySkeleton />
-                    ) : messages.length === 0 && !isStreaming ? (
+                    ) : historyError && messages.length === 0 ? null : messages.length === 0 && !isStreaming ? (
                         <ConversationEmptyState
                             title="Start a conversation"
                             description="Ask anything about this paper, or pick one of the suggested prompts to begin."
@@ -1147,6 +1176,7 @@ export function PaperChatPanel({
                     onSubmit={handleComposerSubmit}
                     onStop={handleStop}
                     availableModels={availableModels}
+                    defaultModelLabel={defaultModelLabel}
                     selectedModel={selectedModel}
                     onSelectModel={setSelectedModel}
                     supportsReasoningEffort={supportsReasoningEffort}

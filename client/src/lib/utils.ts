@@ -121,3 +121,14 @@ export const formatFileSize = (sizeInKb: number): string => {
 		return `${(sizeInKb / (1024 * 1024)).toFixed(1)} GB`;
 	}
 };
+
+/**
+ * A post-login return path, or null unless it's a same-site relative path
+ * ("/papers?x=1"). Rejects absolute and protocol-relative URLs ("//host",
+ * "/\host") so a crafted ?returnTo= can't bounce the user off-site.
+ */
+export function safeReturnTo(value: string | null | undefined): string | null {
+	if (!value || !value.startsWith("/")) return null;
+	if (value.startsWith("//") || value.startsWith("/\\")) return null;
+	return value;
+}

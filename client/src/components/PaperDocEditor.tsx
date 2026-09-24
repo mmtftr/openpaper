@@ -10,7 +10,6 @@ import { Loader2, FileText, Plus, Pencil, Trash2, Check, X, ChevronDown } from '
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { toast } from 'sonner';
 
 const MilkdownImpl = dynamic(() => import('./PaperDocEditorImpl'), {
     ssr: false,
@@ -182,8 +181,8 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
         setStatus({ kind: 'saving' });
         const sentContent = pending;
         const sentDocId = current.id;
-        // Set when the save ends in a state a blind retry can't fix (a second
-        // conflict); the `finally` below then doesn't re-schedule another PUT.
+        // Set when the save ends in a conflict a blind retry can't fix; the
+        // `finally` below then doesn't re-schedule another PUT.
         let stopRetrying = false;
         const put = (expectedRevision: number) =>
             unwrap(api.PUT("/api/document/{document_id}", {
@@ -195,40 +194,45 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
             e instanceof ApiRequestError && e.status === 409
                 ? (e.body as Schemas["RevisionConflictError"])
                 : null;
+        // Stop autosaving and show the conflict prompt; the user's text stays
+        // in the editor until they reload.
+        const enterConflict = (latest: Schemas["RevisionConflictError"]) => {
+            stopRetrying = true;
+            if (docRef.current?.id !== sentDocId) return;
+            setDoc({ ...current, revision: latest.current_revision, content: latest.current_content });
+            setStatus({ kind: 'conflict' });
+        };
         try {
             let updated: DocumentResponse;
-            let overwroteOtherEdits = false;
 
             try {
                 updated = await put(current.revision);
             } catch (e) {
                 const latest = conflictOf(e);
                 if (!latest) throw e;
-                // Someone else (the chat agent, another tab) saved since our
-                // last known revision. Single user, so last writer wins: take
-                // the latest revision from the 409 and re-send the user's text
-                // on top of it.
+                // The revision moved since our last load/save.
                 if (docRef.current?.id !== sentDocId) return;
                 if (latest.current_content === sentContent) {
+                    // The server already holds exactly our text.
                     updated = { ...current, revision: latest.current_revision, content: latest.current_content };
+                } else if (latest.current_content !== current.content) {
+                    // Someone else (the chat agent, another tab) wrote different
+                    // content: don't overwrite it, let the user reload.
+                    enterConflict(latest);
+                    return;
                 } else {
-                    overwroteOtherEdits = latest.current_content !== current.content;
+                    // Only the revision moved; the content is still our last
+                    // known base, so nothing would be lost. Retry on top of it.
                     try {
                         updated = await put(latest.current_revision);
                     } catch (retryError) {
-                        if (!conflictOf(retryError)) throw retryError;
-                        // Lost the race twice; stop and let the user reload.
-                        setDoc({ ...current, revision: latest.current_revision, content: latest.current_content });
-                        setStatus({ kind: 'conflict' });
-                        stopRetrying = true;
+                        const again = conflictOf(retryError);
+                        if (!again) throw retryError;
+                        // Lost the race again; stop and let the user reload.
+                        enterConflict(again);
                         return;
                     }
                 }
-            }
-            if (overwroteOtherEdits) {
-                toast.warning('These notes were changed elsewhere', {
-                    description: 'Your version was kept and replaced the other changes.',
-                });
             }
             // Only adopt the response if the user didn't switch docs while we
             // were saving — otherwise overwriting `doc` would clobber the

@@ -697,6 +697,17 @@
           "default_provider": {
             "$ref": "#/components/schemas/LLMProvider"
           },
+          "default_reasoning_effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Reasoning Effort"
+          },
           "models": {
             "items": {
               "$ref": "#/components/schemas/ChatModelOption"

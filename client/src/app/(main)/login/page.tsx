@@ -11,13 +11,15 @@ import { Input } from "@/components/ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { api, unwrap } from "@/lib/api/client";
 import { Badge } from "@/components/ui/badge";
+import { safeReturnTo } from "@/lib/utils";
 
 function LoginContent() {
 	const { user, loading, error: authError } = useAuth();
 	const [error, setError] = useState<string | null>(null);
 	const router = useRouter();
 	const searchParams = useSearchParams();
-	const returnTo = searchParams.get('returnTo') || '/';
+	const returnToParam = safeReturnTo(searchParams.get('returnTo'));
+	const returnTo = returnToParam || '/';
 	const errorParam = searchParams.get('error');
 
 	const [email, setEmail] = useState('');
@@ -147,6 +149,10 @@ function LoginContent() {
 			}
 
 			if (data.redirectUrl) {
+				// The server sends us to /auth/callback, which lands on the
+				// stored returnTo; a ?returnTo= from the middleware wins over
+				// an older stored one.
+				if (returnToParam) localStorage.setItem('returnTo', returnToParam);
 				window.location.href = data.redirectUrl;
 				return;
 			}

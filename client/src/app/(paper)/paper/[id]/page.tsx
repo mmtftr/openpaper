@@ -306,20 +306,21 @@ export default function PaperView() {
         }
     };
 
-    // Add this function to handle citation clicks. When `paperId` is provided
-    // and refers to a supplementary, flip the displayed PDF first so the
-    // explicit search term lands on the right document. `page` is the page
-    // the agent quoted from, handed to the reader as a search hint.
+    // Add this function to handle citation clicks. Flip the displayed PDF to
+    // the cited paper first (a missing `paperId` means the parent) so the
+    // explicit search term lands on the right document — the reader holds the
+    // search until that PDF has loaded. `page` is the page the agent quoted
+    // from, handed to the reader as a search hint.
     const handleCitationClick = useCallback((key: string, messageIndex: number, paperId?: string, page?: number) => {
         setHighlightJumpRequest(null);
         setActiveCitationKey(key);
         setActiveCitationMessageIndex(messageIndex);
 
-        // Backwards-compat: a missing paperId means "the parent". Only switch
-        // displayed paper when the citation explicitly references something
-        // other than the parent.
-        if (paperId && paperId !== parentPaperId && paperId !== displayedPaperId) {
-            setDisplayedPaperId(paperId);
+        // Backwards-compat: a missing paperId means "the parent" — including
+        // while a supplementary is on screen.
+        const target = paperId ?? parentPaperId;
+        if (target !== displayedPaperId) {
+            setDisplayedPaperId(target);
         }
 
         // Scroll to the citation

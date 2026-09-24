@@ -1,9 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import { PaperHighlight, ScaledPosition, HighlightColor } from "@/lib/schema";
 import { api, unwrap } from "@/lib/api/client";
 
 const EMPTY: PaperHighlight[] = [];
+
+const highlightsKey = (paperId: string): [string, string] => [
+	"/api/highlight/{paper_id}",
+	paperId,
+];
 
 /** `GET /api/highlight/{paper_id}`, minus unusable rows and duplicates. */
 async function loadHighlights([, paperId]: [string, string]): Promise<PaperHighlight[]> {
@@ -39,13 +44,16 @@ async function loadHighlights([, paperId]: [string, string]): Promise<PaperHighl
 }
 
 export function useHighlighterHighlights(paperId: string) {
-	// Cached per paper: a response (or a save) for a paper the reader has
-	// since switched away from (parent <-> supplementary) lands in that
-	// paper's entry instead of being mixed into the new paper's list.
+	// Cached per paper. The hook's bound `mutate` always targets the
+	// CURRENT key, so after an await (the reader may have switched parent <->
+	// supplementary meanwhile) writes go through the global `mutate` with the
+	// key captured before the request — the result lands in the entry of the
+	// paper it was made for, not in the newly displayed paper's list.
 	const { data, mutate } = useSWR(
-		paperId ? ["/api/highlight/{paper_id}", paperId] : null,
+		paperId ? highlightsKey(paperId) : null,
 		loadHighlights
 	);
+	const { mutate: globalMutate } = useSWRConfig();
 	const highlights = data ?? EMPTY;
 	const [activeHighlight, setActiveHighlight] =
 		useState<PaperHighlight | null>(null);
@@ -90,6 +98,7 @@ export function useHighlighterHighlights(paperId: string) {
 	const removeHighlightFromServer = async (highlight: PaperHighlight) => {
 		if (!highlight.id) return;
 		const highlightId = highlight.id;
+		const key = highlightsKey(paperId);
 		try {
 			await unwrap(
 				api.DELETE("/api/highlight/{highlight_id}", {
@@ -97,9 +106,11 @@ export function useHighlighterHighlights(paperId: string) {
 				})
 			);
 
-			await mutate((prev) => prev?.filter((h) => h.id !== highlightId), {
-				revalidate: false,
-			});
+			await globalMutate<PaperHighlight[]>(
+				key,
+				(prev) => prev?.filter((h) => h.id !== highlightId),
+				{ revalidate: false }
+			);
 		} catch (error) {
 			console.error("Error removing highlight from server:", error);
 		}
@@ -138,22 +149,25 @@ export function useHighlighterHighlights(paperId: string) {
 				color: color,
 			};
 
+			const key = highlightsKey(paperId);
 			let savedHighlight: PaperHighlight | undefined;
 			try {
 				const saved = await sendHighlightToServer(newHighlight);
 				savedHighlight = saved;
 
 				if (saved)
-					await mutate((prev) => [...(prev ?? []), saved], {
-						revalidate: false,
-					});
+					await globalMutate<PaperHighlight[]>(
+						key,
+						(prev) => [...(prev ?? []), saved],
+						{ revalidate: false }
+					);
 			} catch (error) {
 				console.error("Error adding highlight:", error);
 			}
 
 			return savedHighlight;
 		},
-		[highlights, paperId, mutate]
+		[highlights, paperId, globalMutate]
 	);
 
 	// Remove a highlight
@@ -161,7 +175,8 @@ export function useHighlighterHighlights(paperId: string) {
 		(highlight: PaperHighlight) => {
 			removeHighlightFromServer(highlight);
 		},
-		[mutate]
+		// removeHighlightFromServer only closes over paperId + globalMutate.
+		[paperId, globalMutate]
 	);
 
 	// Change a user highlight's colour. The PATCH replaces every field, so the
@@ -171,7 +186,9 @@ export function useHighlighterHighlights(paperId: string) {
 			if (!highlight.id || highlight.color === color) return;
 			const highlightId = highlight.id;
 			const previous = highlight.color;
-			await mutate(
+			const key = highlightsKey(paperId);
+			await globalMutate<PaperHighlight[]>(
+				key,
 				(prev) => prev?.map((h) => (h.id === highlightId ? { ...h, color } : h)),
 				{ revalidate: false }
 			);
@@ -191,7 +208,8 @@ export function useHighlighterHighlights(paperId: string) {
 			} catch (error) {
 				console.error("Error updating highlight colour:", error);
 				// Only undo our own change — a newer pick may have landed since.
-				await mutate(
+				await globalMutate<PaperHighlight[]>(
+					key,
 					(prev) =>
 						prev?.map((h) =>
 							h.id === highlightId && h.color === color ? { ...h, color: previous } : h
@@ -200,7 +218,7 @@ export function useHighlighterHighlights(paperId: string) {
 				);
 			}
 		},
-		[mutate]
+		[paperId, globalMutate]
 	);
 
 	// A paper switch drops the previous paper's active selection right away

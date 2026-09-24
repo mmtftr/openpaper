@@ -45,6 +45,7 @@ import {
 import { useTheme } from "next-themes";
 import Link from "next/link";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { SIDEBAR_PROJECTS_KEY } from "@/hooks/useProjects";
 import { CollapsibleSidebarMenu } from "./CollapsibleSidebarMenu";
 
 // Menu items.
@@ -142,7 +143,7 @@ export function AppSidebar() {
         { onError: onFetchError },
     );
     const { data: projectsData } = useSWR(
-        user ? ["/api/projects"] : null,
+        user ? SIDEBAR_PROJECTS_KEY : null,
         () => unwrap(api.GET("/api/projects")),
         { onError: onFetchError },
     );

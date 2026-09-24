@@ -72,3 +72,10 @@ export type ModelOption = Schemas["ChatModelOption"];
 // AND on the codex proxy), so selection is keyed by provider too.
 export const modelKey = (m: Pick<ModelOption, "id" | "provider">) =>
     `${m.provider}::${m.id}`;
+
+/**
+ * Picker value for "no explicit pick": the request carries no model,
+ * provider or reasoning effort, so the server resolves the `chat.default`
+ * (or `quick_question`) slot, including any override set in settings.
+ */
+export const DEFAULT_MODEL_KEY = "default";

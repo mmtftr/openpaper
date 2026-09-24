@@ -2,15 +2,22 @@ import {
     PaperHighlightAnnotation
 } from '@/lib/schema';
 import { api, unwrap } from '@/lib/api/client';
-import useSWR from 'swr';
+import useSWR, { useSWRConfig } from 'swr';
 
 const EMPTY: PaperHighlightAnnotation[] = [];
 
+const annotationsKey = (paperId: string): [string, string] => [
+    '/api/annotation/{paper_id}',
+    paperId,
+];
+
 export function useAnnotations(paperId: string) {
-    // Cached per paper: a response (or a save) for a paper the reader has
-    // since switched away from lands in that paper's entry, not this one.
+    // Cached per paper. The hook's bound `mutate` always targets the CURRENT
+    // key, so writes after an await go through the global `mutate` with the
+    // key captured before the request: if the reader switched papers
+    // meanwhile, the result lands in the paper it was made for.
     const { data, mutate } = useSWR(
-        paperId ? ['/api/annotation/{paper_id}', paperId] : null,
+        paperId ? annotationsKey(paperId) : null,
         async ([, id]: [string, string]): Promise<PaperHighlightAnnotation[]> => {
             try {
                 return await unwrap(api.GET('/api/annotation/{paper_id}', {
@@ -23,13 +30,19 @@ export function useAnnotations(paperId: string) {
         },
     );
     const annotations = data ?? EMPTY;
+    const { mutate: globalMutate } = useSWRConfig();
 
     const addAnnotation = async (highlightId: string, content: string) => {
+        const key = annotationsKey(paperId);
         try {
             const savedAnnotation = await unwrap(api.POST('/api/annotation', {
                 body: { highlight_id: highlightId, paper_id: paperId, content },
             }));
-            await mutate(prev => [...(prev ?? []), savedAnnotation], { revalidate: false });
+            await globalMutate<PaperHighlightAnnotation[]>(
+                key,
+                prev => [...(prev ?? []), savedAnnotation],
+                { revalidate: false },
+            );
             return savedAnnotation;
         } catch (error) {
             console.error('Error saving annotation:', error);
@@ -38,11 +51,16 @@ export function useAnnotations(paperId: string) {
     };
 
     const removeAnnotation = async (annotationId: string) => {
+        const key = annotationsKey(paperId);
         try {
             await unwrap(api.DELETE('/api/annotation/{annotation_id}', {
                 params: { path: { annotation_id: annotationId } },
             }));
-            await mutate(prev => prev?.filter(a => a.id !== annotationId), { revalidate: false });
+            await globalMutate<PaperHighlightAnnotation[]>(
+                key,
+                prev => prev?.filter(a => a.id !== annotationId),
+                { revalidate: false },
+            );
         } catch (error) {
             console.error('Error removing annotation:', error);
             throw error;
@@ -50,12 +68,14 @@ export function useAnnotations(paperId: string) {
     };
 
     const updateAnnotation = async (annotationId: string, content: string) => {
+        const key = annotationsKey(paperId);
         try {
             const updatedAnnotation = await unwrap(api.PATCH('/api/annotation/{annotation_id}', {
                 params: { path: { annotation_id: annotationId } },
                 body: { content },
             }));
-            await mutate(
+            await globalMutate<PaperHighlightAnnotation[]>(
+                key,
                 prev => prev?.map(a => (a.id === annotationId ? updatedAnnotation : a)),
                 { revalidate: false },
             );
