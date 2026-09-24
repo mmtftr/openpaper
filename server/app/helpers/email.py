@@ -10,7 +10,6 @@ RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 
 resend.api_key = RESEND_API_KEY
 
-CLIENT_DOMAIN = os.getenv("CLIENT_DOMAIN", "http://localhost:3000")
 
 
 def load_email_template(template_name: str) -> str:

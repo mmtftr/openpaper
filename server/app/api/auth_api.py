@@ -269,7 +269,6 @@ async def email_verify(
         if not db_user:
             return AuthResponse(success=False, message="User not found")
 
-        new_user = db_user.is_email_verified == False
 
         # Check if verification code matches and is not expired
         verification_token = str(db_user.email_verification_token)

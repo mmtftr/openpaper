@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { fetchFromApi } from "@/lib/api";
-import { Project, PaperItem, Conversation } from "@/lib/schema";
+import { Project, PaperItem } from "@/lib/schema";
 
 interface UseProjectsResult {
     projects: Project[];
