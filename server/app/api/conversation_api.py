@@ -2,7 +2,6 @@ import logging
 import uuid
 from typing import Any, Optional
 
-from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_serializer
 from pydantic_ai.ui.vercel_ai.request_types import UIMessage
@@ -22,8 +21,6 @@ from app.llm.chat.history import serialize_ui_messages
 from app.llm.chat.title import rename_conversation as generate_conversation_title
 from app.schemas.common import MessageResponse
 from app.schemas.user import CurrentUser
-
-load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -54,10 +51,8 @@ class ConversationPage(ConversationSummary):
         ]
 
 
-def _conversation_not_found(conversation_id: Any) -> HTTPException:
-    return HTTPException(
-        status_code=404, detail=f"Conversation with ID {conversation_id} not found."
-    )
+def _not_found(conversation_id: Any) -> str:
+    return f"Conversation with ID {conversation_id} not found."
 
 
 @conversation_router.post("/{conversation_id}/rename")
@@ -90,9 +85,9 @@ def get_conversation(
     current_user: CurrentUser = Depends(get_required_user),
 ) -> ConversationPage:
     """Get a conversation page as Vercel AI UIMessages (chronological)."""
-    conversation = conversation_crud.get(db, conversation_id, user=current_user)
-    if not conversation:
-        raise _conversation_not_found(conversation_id)
+    conversation = conversation_crud.require(
+        db, conversation_id, user=current_user, not_found=_not_found(conversation_id)
+    )
 
     messages = message_crud.get_conversation_messages(
         db,
@@ -119,8 +114,7 @@ def create_conversation(
     current_user: CurrentUser = Depends(get_required_user),
 ) -> ConversationPage:
     """Create a new conversation for a document"""
-    if not paper_crud.get(db, id=paper_id, user=current_user):
-        raise HTTPException(status_code=404, detail="Paper not found.")
+    paper_crud.require(db, paper_id, user=current_user, not_found="Paper not found.")
 
     conversation = conversation_crud.create(
         db,
@@ -131,8 +125,6 @@ def create_conversation(
         ),
         user=current_user,
     )
-    if not conversation:
-        raise HTTPException(status_code=500, detail="Failed to create conversation.")
     return ConversationPage.model_validate(
         {"id": conversation.id, "title": conversation.title, "messages": []}
     )
@@ -146,19 +138,15 @@ def update_conversation(
     current_user: CurrentUser = Depends(get_required_user),
 ) -> ConversationSummary:
     """Update conversation title"""
-    existing_conversation = conversation_crud.get(
-        db, conversation_id, user=current_user
+    existing_conversation = conversation_crud.require(
+        db, conversation_id, user=current_user, not_found=_not_found(conversation_id)
     )
-    if not existing_conversation:
-        raise _conversation_not_found(conversation_id)
     conversation = conversation_crud.update(
         db,
         db_obj=existing_conversation,
         obj_in=ConversationUpdate(title=title),
         user=current_user,
     )
-    if not conversation:
-        raise HTTPException(status_code=500, detail="Failed to update conversation.")
     return ConversationSummary.model_validate(
         {"id": conversation.id, "title": conversation.title}
     )
@@ -171,8 +159,10 @@ def delete_conversation(
     current_user: CurrentUser = Depends(get_required_user),
 ) -> MessageResponse:
     """Delete an existing conversation"""
-    if not conversation_crud.get(db, conversation_id, user=current_user):
-        raise _conversation_not_found(conversation_id)
-    if not conversation_crud.remove(db, id=conversation_id, user=current_user):
-        raise HTTPException(status_code=500, detail="Failed to delete conversation.")
+    conversation_crud.remove(
+        db,
+        id=conversation_id,
+        user=current_user,
+        not_found=_not_found(conversation_id),
+    )
     return MessageResponse(message="Conversation deleted successfully")

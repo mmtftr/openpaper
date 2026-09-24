@@ -1,4 +1,3 @@
-import logging
 from typing import Any, Dict, List, Optional, Union
 
 from sqlalchemy.orm import Query, Session
@@ -12,8 +11,6 @@ from app.database.crud.base_crud import (
 from app.database.models import Project, ProjectPaper
 from app.schemas.user import CurrentUser
 
-logger = logging.getLogger(__name__)
-
 
 class ProjectBaseCRUD(CRUDBase[ModelType, CreateSchemaType, UpdateSchemaType]):
     def _get_base_query(self, db: Session) -> Query:
@@ -21,12 +18,19 @@ class ProjectBaseCRUD(CRUDBase[ModelType, CreateSchemaType, UpdateSchemaType]):
             return db.query(self.model)
         else:
             return db.query(self.model).join(
-                Project, self.model.project_id == Project.id
+                Project, self._col("project_id") == Project.id
             )
 
-    def get(self, db: Session, id: Any, *, user: CurrentUser) -> Optional[ModelType]:  # type: ignore
+    def get(
+        self,
+        db: Session,
+        id: Any,
+        *,
+        user: CurrentUser,
+        update_last_accessed: bool = False,  # no such column on project rows
+    ) -> Optional[ModelType]:
         query = self._get_base_query(db)
-        return query.filter(self.model.id == id, Project.owner_id == user.id).first()
+        return query.filter(self._col("id") == id, Project.owner_id == user.id).first()
 
     def get_multi_by_user(
         self, db: Session, *, user: CurrentUser, skip: int = 0, limit: int = 100
@@ -40,7 +44,7 @@ class ProjectBaseCRUD(CRUDBase[ModelType, CreateSchemaType, UpdateSchemaType]):
             .all()
         )
 
-    def update(  # type: ignore
+    def update(
         self,
         db: Session,
         *,
@@ -48,56 +52,38 @@ class ProjectBaseCRUD(CRUDBase[ModelType, CreateSchemaType, UpdateSchemaType]):
         obj_in: Union[UpdateSchemaType, Dict[str, Any]],
         user: CurrentUser,
     ) -> Optional[ModelType]:
-        try:
-            query = self._get_base_query(db)
-            db_obj = query.filter(
-                self.model.id == id, Project.owner_id == user.id
-            ).first()
+        """Update a row of one of the user's projects; None if there is none."""
+        query = self._get_base_query(db)
+        db_obj = query.filter(
+            self._col("id") == id, Project.owner_id == user.id
+        ).first()
+        if not db_obj:
+            return None
 
-            if not db_obj:
-                return None
+        if isinstance(obj_in, dict):
+            update_data = obj_in
+        else:
+            update_data = obj_in.model_dump(exclude_unset=True)
 
-            if isinstance(obj_in, dict):
-                update_data = obj_in
-            else:
-                update_data = obj_in.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(db_obj, field, value)
 
-            for field, value in update_data.items():
-                setattr(db_obj, field, value)
+        db.add(db_obj)
+        db.commit()
+        db.refresh(db_obj)
+        return db_obj
 
-            db.add(db_obj)
-            db.commit()
-            db.refresh(db_obj)
-            return db_obj
-        except Exception as e:
-            db.rollback()
-            logger.error(
-                f"Error updating {self.model.__name__} with ID {id}: {str(e)}",
-                exc_info=True,
+    def remove(self, db: Session, *, id: Any, user: CurrentUser) -> Optional[ModelType]:
+        """Delete a row of one of the user's projects (a project takes its
+        paper links with it); None if there is none."""
+        query = self._get_base_query(db)
+        obj = query.filter(self._col("id") == id, Project.owner_id == user.id).first()
+        if not obj:
+            return None
+        if self.model is Project:
+            db.query(ProjectPaper).filter(ProjectPaper.project_id == id).delete(
+                synchronize_session=False
             )
-            return None
-
-    def remove(self, db: Session, *, id: Any, user: CurrentUser) -> Optional[ModelType]:  # type: ignore
-        try:
-            query = self._get_base_query(db)
-            obj = query.filter(self.model.id == id, Project.owner_id == user.id).first()
-
-            if obj:
-                if self.model is Project:
-                    project_id = obj.id
-
-                    db.query(ProjectPaper).filter(
-                        ProjectPaper.project_id == project_id
-                    ).delete(synchronize_session=False)
-
-                db.delete(obj)
-                db.commit()
-                return obj
-            return None
-        except Exception as e:
-            db.rollback()
-            logger.error(
-                f"Error removing {self.model.__name__} with ID {id}: {str(e)}",
-                exc_info=True,
-            )
-            return None
+        db.delete(obj)
+        db.commit()
+        return obj

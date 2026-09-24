@@ -247,8 +247,6 @@ def update_document(
             current_content=e.current_content,
         )
         return JSONResponse(status_code=409, content=conflict.model_dump())  # type: ignore[return-value]
-    except PermissionError:
-        raise HTTPException(status_code=404, detail="Document not found")
 
     return _serialize(updated)
 
@@ -296,12 +294,7 @@ def rename_document(
             status_code=400,
             detail=f"'{RESERVED_MAIN_NAME}' is reserved for the main doc",
         )
-    try:
-        updated = document_crud.update_title(
-            db, doc=doc, title=title, user=current_user
-        )
-    except PermissionError:
-        raise HTTPException(status_code=404, detail="Document not found")
+    updated = document_crud.update_title(db, doc=doc, title=title, user=current_user)
     return _serialize(updated)
 
 
@@ -320,8 +313,6 @@ def delete_document(
         raise HTTPException(status_code=400, detail="Cannot delete the main doc")
     try:
         document_crud.delete_doc(db, doc=doc, user=current_user)
-    except PermissionError:
-        raise HTTPException(status_code=404, detail="Document not found")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return None

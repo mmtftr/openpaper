@@ -1,5 +1,4 @@
 import logging
-import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
@@ -12,17 +11,18 @@ from sqlalchemy.orm import Session
 from app.database.crud.paper_crud import PaperUpdate, paper_crud
 from app.database.models import Paper
 from app.schemas.user import CurrentUser
+from app.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
-# Load AWS configuration from environment variables
-AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID")
-AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY")
-AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
-S3_BUCKET_NAME = os.environ.get("S3_BUCKET_NAME")
-CLOUDFLARE_BUCKET_NAME = os.environ.get("CLOUDFLARE_BUCKET_NAME")
-S3_ENDPOINT_URL = os.environ.get("S3_ENDPOINT_URL")
-S3_PUBLIC_BASE_URL = os.environ.get("S3_PUBLIC_BASE_URL")
+_settings = get_settings()
+AWS_ACCESS_KEY_ID = _settings.AWS_ACCESS_KEY_ID
+AWS_SECRET_ACCESS_KEY = _settings.AWS_SECRET_ACCESS_KEY
+AWS_REGION = _settings.AWS_REGION
+S3_BUCKET_NAME = _settings.S3_BUCKET_NAME
+CLOUDFLARE_BUCKET_NAME = _settings.CLOUDFLARE_BUCKET_NAME
+S3_ENDPOINT_URL = _settings.S3_ENDPOINT_URL
+S3_PUBLIC_BASE_URL = _settings.S3_PUBLIC_BASE_URL
 
 
 class S3Service:
@@ -183,8 +183,7 @@ class S3Service:
             else:
                 size_in_kb = self.get_file_size_in_kb(object_key)
 
-            # Update using CRUD
-            updated_paper = paper_crud.update(
+            paper_crud.update(
                 db=db,
                 db_obj=paper,
                 obj_in=PaperUpdate(
@@ -195,52 +194,13 @@ class S3Service:
                 user=current_user,
             )
 
-            if not updated_paper:
-                logger.error(f"Failed to update cached URL for paper {paper_id}")
-                return None
-
             logger.debug(f"Generated and cached new presigned URL for paper {paper_id}")
             return url
 
         except Exception as e:
             logger.error(f"Error getting cached presigned URL: {e}")
+            db.rollback()
             return None
-
-    def invalidate_cached_url(
-        self, db: Session, paper_id: str, current_user: Optional[CurrentUser] = None
-    ) -> bool:
-        """
-        Invalidate the cached presigned URL for a paper
-
-        Args:
-            db: Database session
-            paper_id: The paper ID to invalidate
-            current_user: Current user for ownership verification
-
-        Returns:
-            bool: True if invalidated successfully
-        """
-
-        try:
-            paper = paper_crud.get(db, id=paper_id, user=current_user)
-            if not paper:
-                return False
-
-            # Update using CRUD to clear cached URL
-            updated_paper = paper_crud.update(
-                db=db,
-                db_obj=paper,
-                obj_in=PaperUpdate(
-                    cached_presigned_url=None, presigned_url_expires_at=None
-                ),
-                user=current_user,
-            )
-
-            return updated_paper is not None
-
-        except Exception as e:
-            logger.error(f"Error invalidating cached URL: {e}")
-            return False
 
     def get_cached_presigned_urls_bulk(
         self,
@@ -352,6 +312,7 @@ class S3Service:
                 logger.debug(f"Cached new presigned URL for paper {paper_id}")
             except Exception as e:
                 logger.error(f"Error updating cached URL for paper {paper_id}: {e}")
+                db.rollback()  # so the next paper's write can use the session
                 result[paper_id] = url  # Still return the URL even if caching failed
 
         # Add any papers that failed to generate URLs

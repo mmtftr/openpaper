@@ -4,6 +4,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_required_user
@@ -56,21 +57,22 @@ def create_highlight(
     current_user: CurrentUser = Depends(get_required_user),
 ) -> HighlightResponse:
     """Create a new highlight for a document"""
-    highlight = highlight_crud.create(
-        db,
-        obj_in=HighlightCreate(
-            paper_id=request.paper_id,
-            raw_text=request.raw_text,
-            start_offset=request.start_offset,
-            end_offset=request.end_offset,
-            page_number=request.page_number,
-            position=_position_json(request.position),
-            role=RoleType.USER,
-            color=request.color,
-        ),
-        user=current_user,
-    )
-    if not highlight:
+    try:
+        highlight = highlight_crud.create(
+            db,
+            obj_in=HighlightCreate(
+                paper_id=request.paper_id,
+                raw_text=request.raw_text,
+                start_offset=request.start_offset,
+                end_offset=request.end_offset,
+                page_number=request.page_number,
+                position=_position_json(request.position),
+                role=RoleType.USER,
+                color=request.color,
+            ),
+            user=current_user,
+        )
+    except IntegrityError:  # no such paper
         raise HTTPException(
             status_code=400,
             detail="Failed to create highlight, please check the input data.",
@@ -100,19 +102,19 @@ def delete_highlight(
     current_user: CurrentUser = Depends(get_required_user),
 ) -> MessageResponse:
     """Delete a specific highlight"""
-    existing_highlight = highlight_crud.get(db, id=highlight_id, user=current_user)
-    if not existing_highlight:
-        raise HTTPException(
-            status_code=404, detail=f"Highlight with ID {highlight_id} not found."
-        )
+    existing_highlight = highlight_crud.require(
+        db,
+        highlight_id,
+        user=current_user,
+        not_found=f"Highlight with ID {highlight_id} not found.",
+    )
 
     if existing_highlight.role == RoleType.ASSISTANT:
         raise HTTPException(
             status_code=403, detail="Cannot delete assistant highlights."
         )
 
-    if not highlight_crud.remove(db, id=highlight_id):
-        raise HTTPException(status_code=500, detail="Failed to delete highlight.")
+    highlight_crud.remove(db, id=highlight_id)
     return MessageResponse(message="Highlight deleted successfully")
 
 
@@ -124,11 +126,12 @@ def update_highlight(
     current_user: CurrentUser = Depends(get_required_user),
 ) -> HighlightResponse:
     """Update an existing highlight"""
-    existing_highlight = highlight_crud.get(db, id=highlight_id, user=current_user)
-    if not existing_highlight:
-        raise HTTPException(
-            status_code=404, detail=f"Highlight with ID {highlight_id} not found."
-        )
+    existing_highlight = highlight_crud.require(
+        db,
+        highlight_id,
+        user=current_user,
+        not_found=f"Highlight with ID {highlight_id} not found.",
+    )
 
     if existing_highlight.role == RoleType.ASSISTANT:
         raise HTTPException(
@@ -139,7 +142,7 @@ def update_highlight(
         db,
         db_obj=existing_highlight,
         obj_in=HighlightUpdate(
-            paper_id=existing_highlight.paper_id,  # pyright: ignore[reportArgumentType]
+            paper_id=existing_highlight.paper_id,
             raw_text=request.raw_text,
             start_offset=request.start_offset,
             end_offset=request.end_offset,
@@ -147,11 +150,6 @@ def update_highlight(
             color=request.color,
         ),
     )
-    if not highlight:
-        raise HTTPException(
-            status_code=400,
-            detail="Failed to update highlight, please check the input data.",
-        )
 
     track_event("highlight_updated", user_id=str(current_user.id))
     return HighlightResponse.model_validate(highlight)

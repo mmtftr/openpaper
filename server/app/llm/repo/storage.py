@@ -34,6 +34,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from app.settings import get_settings
+
 logger = logging.getLogger(__name__)
 
 DONE_MARKER = ".done"
@@ -51,9 +53,8 @@ class SnapshotPathError(ValueError):
 
 
 def storage_root() -> Path:
-    """Root of the snapshot store. Read from the env on every call so tests
-    can point it at a tmpdir without reimporting the module."""
-    configured = os.environ.get("REPO_STORAGE_DIR")
+    """Root of the snapshot store (`REPO_STORAGE_DIR`)."""
+    configured = get_settings().REPO_STORAGE_DIR
     return Path(configured) if configured else _DEFAULT_STORAGE_DIR
 
 

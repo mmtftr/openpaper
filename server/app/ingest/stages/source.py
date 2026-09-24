@@ -64,8 +64,8 @@ async def store_source(
 
         s3 = s3_service
     if paper.id is None:
-        paper.id = uuid.uuid4()  # pyright: ignore[reportAttributeAccessIssue]
-    key = storage.source_key(paper.id, filename)  # pyright: ignore[reportArgumentType]
+        paper.id = uuid.uuid4()
+    key = storage.source_key(paper.id, filename)
     await asyncio.to_thread(
         storage.put_bytes, s3, key, pdf_bytes, storage.PDF_CONTENT_TYPE
     )
@@ -76,10 +76,10 @@ async def store_source(
         page_count=page_count,
         size_in_kb=len(pdf_bytes) // 1024,
     )
-    paper.s3_object_key = stored.s3_object_key  # pyright: ignore[reportAttributeAccessIssue]
-    paper.file_url = stored.file_url  # pyright: ignore[reportAttributeAccessIssue]
-    paper.page_count = stored.page_count  # pyright: ignore[reportAttributeAccessIssue]
-    paper.size_in_kb = stored.size_in_kb  # pyright: ignore[reportAttributeAccessIssue]
+    paper.s3_object_key = stored.s3_object_key
+    paper.file_url = stored.file_url
+    paper.page_count = stored.page_count
+    paper.size_in_kb = stored.size_in_kb
     session.add(paper)
     return stored
 

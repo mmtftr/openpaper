@@ -1,19 +1,15 @@
-import os
 import random
 import string
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
-from dotenv import load_dotenv
 from fastapi import Response
 
 from app.auth.dependencies import SESSION_COOKIE_NAME
+from app.settings import get_settings
 
-load_dotenv()
-
-# Environment variables
-SESSION_COOKIE_DOMAIN = os.getenv("SESSION_COOKIE_DOMAIN", None)
-SECURE_COOKIES = os.getenv("SECURE_COOKIES", "false").lower() == "true"
+SESSION_COOKIE_DOMAIN = get_settings().SESSION_COOKIE_DOMAIN
+SECURE_COOKIES = get_settings().secure_cookies
 
 
 def set_session_cookie(

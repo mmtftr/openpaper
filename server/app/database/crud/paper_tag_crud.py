@@ -2,9 +2,11 @@ import uuid
 from typing import List, Optional
 
 from pydantic import BaseModel
+from sqlalchemy import insert
 from sqlalchemy.orm import Session
 
 from app.database.crud.base_crud import CRUDBase
+from app.database.errors import NotFound
 from app.database.models import Paper, PaperTag, PaperTagAssociation
 from app.schemas.user import CurrentUser
 
@@ -49,32 +51,6 @@ class PaperTagCRUD(CRUDBase[PaperTag, PaperTagCreate, PaperTagUpdate]):
             .filter(PaperTag.name == name, PaperTag.user_id == user.id)
             .first()
         )
-
-    def add_tag_to_paper(
-        self, db: Session, *, paper_id: uuid.UUID, tag_id: uuid.UUID, user: CurrentUser
-    ) -> Optional[PaperTagAssociation]:
-        # Ensure paper belongs to the user
-        paper = (
-            db.query(Paper)
-            .filter(Paper.id == paper_id, Paper.user_id == user.id)
-            .first()
-        )
-        if not paper:
-            return None
-
-        # Ensure tag belongs to the user
-        tag = (
-            db.query(PaperTag)
-            .filter(PaperTag.id == tag_id, PaperTag.user_id == user.id)
-            .first()
-        )
-        if not tag:
-            return None
-
-        association = PaperTagAssociation(paper_id=paper_id, tag_id=tag_id)
-        db.add(association)
-        db.commit()
-        return association
 
     def remove_tag_from_paper(
         self, db: Session, *, paper_id: uuid.UUID, tag_id: uuid.UUID, user: CurrentUser
@@ -145,9 +121,7 @@ class PaperTagCRUD(CRUDBase[PaperTag, PaperTagCreate, PaperTagUpdate]):
         # Convert list of tuples to list of UUIDs
         found_paper_ids = {p[0] for p in papers}
         if len(found_paper_ids) != len(set(paper_ids)):
-            raise ValueError(
-                "One or more papers not found or do not belong to the user."
-            )
+            raise NotFound("One or more papers not found or do not belong to the user.")
 
         tags = (
             db.query(PaperTag.id)
@@ -156,7 +130,7 @@ class PaperTagCRUD(CRUDBase[PaperTag, PaperTagCreate, PaperTagUpdate]):
         )
         found_tag_ids = {t[0] for t in tags}
         if len(found_tag_ids) != len(set(tag_ids)):
-            raise ValueError("One or more tags not found or do not belong to the user.")
+            raise NotFound("One or more tags not found or do not belong to the user.")
 
         associations_to_create = []
         for paper_id in paper_ids:
@@ -173,7 +147,7 @@ class PaperTagCRUD(CRUDBase[PaperTag, PaperTagCreate, PaperTagUpdate]):
                     )
 
         if associations_to_create:
-            db.bulk_insert_mappings(PaperTagAssociation, associations_to_create)
+            db.execute(insert(PaperTagAssociation), associations_to_create)
             db.commit()
 
 

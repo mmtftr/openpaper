@@ -58,7 +58,7 @@ def session():
     engine = create_engine(DB_URL)
     with engine.connect() as conn:
         outer = conn.begin()
-        with Session(bind=conn, join_transaction_mode="create_savepoint") as s:  # pyright: ignore[reportCallIssue]
+        with Session(bind=conn, join_transaction_mode="create_savepoint") as s:
             yield s
         outer.rollback()
     engine.dispose()

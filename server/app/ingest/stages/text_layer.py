@@ -105,5 +105,5 @@ def apply_embedded_metadata(paper: Paper, embedded: EmbeddedMetadata) -> list[st
             written.append(field)
     if written:
         # A new dict, so SQLAlchemy sees the JSONB change.
-        paper.metadata_source = sources  # pyright: ignore[reportAttributeAccessIssue]
+        paper.metadata_source = sources
     return written

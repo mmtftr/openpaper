@@ -1,11 +1,8 @@
 import logging
-import os
 
 import logfire
 
 logger = logging.getLogger(__name__)
-
-DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
 
 
 def track_event(event_name, properties=None, user_id=None):

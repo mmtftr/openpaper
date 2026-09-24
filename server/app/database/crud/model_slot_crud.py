@@ -33,9 +33,9 @@ def set_model_slot(
     if row is None:
         row = ModelSlot(slot=slot)
         db.add(row)
-    row.provider = provider  # type: ignore[assignment]
-    row.model = model  # type: ignore[assignment]
-    row.reasoning_effort = reasoning_effort  # type: ignore[assignment]
+    row.provider = provider
+    row.model = model
+    row.reasoning_effort = reasoning_effort
     db.commit()
     db.refresh(row)
     return row

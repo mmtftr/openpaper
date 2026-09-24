@@ -37,7 +37,7 @@ pytestmark = pytest.mark.skipif(not DB_URL, reason="INGEST_TEST_DATABASE_URL not
 
 @pytest.fixture
 def session():
-    engine = create_engine(DB_URL)  # pyright: ignore[reportArgumentType]
+    engine = create_engine(DB_URL)
     with Session(engine) as session:
         yield session
         session.rollback()
@@ -60,7 +60,7 @@ def paper(session: Session) -> Paper:
 
 def ctx_for(paper: Paper) -> StageContext:
     return StageContext(
-        paper_id=paper.id,  # pyright: ignore[reportArgumentType]
+        paper_id=paper.id,
         stage="test",
         attempt=1,
         is_supplementary=False,
@@ -142,7 +142,7 @@ def test_text_layer_end_to_end():
     """run() reads the key through a read-only session; save() writes."""
     from tests.test_ingest_pdf_stages import FakeS3, make_pdf
 
-    engine = create_engine(DB_URL)  # pyright: ignore[reportArgumentType]
+    engine = create_engine(DB_URL)
     factory = sessionmaker(bind=engine)
     s3 = FakeS3()
     paper_id = uuid.uuid4()
@@ -159,7 +159,7 @@ def test_text_layer_end_to_end():
             is_supplementary=False,
             deadline=Deadline(30),
             session_factory=factory,
-            s3=s3,  # pyright: ignore[reportArgumentType]
+            s3=s3,
         )
         stage = TextLayer()
         output = asyncio.run(stage.run(ctx))

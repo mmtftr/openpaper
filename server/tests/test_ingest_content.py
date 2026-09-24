@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.api import paper_api
+from app.api.paper import detail as paper_detail
 from app.ingest import content
 from app.ingest.content import Figure, Page
 from app.llm.chat import paper as chat_paper
@@ -171,7 +171,7 @@ def test_markdown_payload_points_images_at_figure_rows(monkeypatch):
     monkeypatch.setattr(content, "pages", lambda db, pid: pages)
     monkeypatch.setattr(content, "figures", lambda db, pid: [first, later])
 
-    got = paper_api._paper_markdown_payload(None, SimpleNamespace(id=PAPER_ID))  # type: ignore[arg-type]
+    got = paper_detail._paper_markdown_payload(None, SimpleNamespace(id=PAPER_ID))  # type: ignore[arg-type]
 
     assert got.markdown == (
         f"![img-0.jpeg]({first.id})\n\n"

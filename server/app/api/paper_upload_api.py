@@ -15,7 +15,6 @@ Both take `project_id` (add the paper to that project) or
 
 import asyncio
 import logging
-import os
 import uuid
 from typing import Optional
 from urllib.parse import unquote, urlparse
@@ -37,12 +36,13 @@ from app.ingest.pdf.document import InvalidPdfError
 from app.ingest.stages.source import store_source
 from app.schemas.paper import UploadedPaper, UploadFromUrlRequest
 from app.schemas.user import CurrentUser
+from app.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
 paper_upload_router = APIRouter()
 
-MAX_UPLOAD_SIZE_MB = int(os.environ.get("MAX_UPLOAD_SIZE_MB", "50"))
+MAX_UPLOAD_SIZE_MB = get_settings().MAX_UPLOAD_SIZE_MB
 MAX_UPLOAD_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 URL_FETCH_TIMEOUT = httpx.Timeout(60.0, connect=10.0)
 
@@ -87,7 +87,7 @@ def _create_rows(
         db.add(ProjectPaper(paper_id=paper.id, project_id=project_id))
     service.enqueue_paper(
         db,
-        paper.id,  # pyright: ignore[reportArgumentType]
+        paper.id,
         is_supplementary=is_supplementary,
         source_succeeded=True,
     )

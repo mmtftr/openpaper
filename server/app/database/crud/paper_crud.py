@@ -1,20 +1,19 @@
-import logging
+"""CRUD for `papers` rows: by id (via `CRUDBase`) and a paper's
+supplementary materials. The owner's paper lists are in
+`app.database.queries.library`."""
+
 import uuid
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 from pydantic import BaseModel
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.database.crud.base_crud import CRUDBase
 from app.database.models import Paper, PaperStatus
-from app.ingest import content
 from app.schemas.user import CurrentUser
 
-logger = logging.getLogger(__name__)
 
-
-# Define Pydantic models for type safety
 class PaperBase(BaseModel):
     file_url: Optional[str] = None
     s3_object_key: Optional[str] = None
@@ -50,107 +49,7 @@ class PaperUpdate(PaperBase):
     supplementary_of_paper_id: Optional[uuid.UUID] = None
 
 
-class PaperDocumentMetadata(BaseModel):
-    raw_content: Optional[str] = None
-    page_offsets: Optional[dict[int, Tuple[int, int]]] = None
-
-
-# Paper CRUD that inherits from the base CRUD
-class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
-    """CRUD operations specifically for Document model"""
-
-    def read_raw_document_content(
-        self,
-        db: Session,
-        *,
-        paper_id: str,
-        current_user: CurrentUser,
-    ) -> PaperDocumentMetadata:
-        """The paper's full text (its pages' markdown, see
-        `content.full_text`) and each page's offsets in it."""
-        paper: Paper | None = self.get(db, paper_id, user=current_user)
-        if paper is None:
-            raise ValueError(f"Paper with ID {paper_id} not found.")
-
-        text, offsets = content.full_text(content.pages(db, paper.id))
-        if not text:
-            raise ValueError(f"Raw content for paper {paper_id} is not set.")
-
-        return PaperDocumentMetadata(raw_content=text, page_offsets=offsets)
-
-    def get_top_relevant_papers(
-        self, db: Session, *, user: CurrentUser, limit: int = 9
-    ) -> List[Paper]:
-        """
-        Get recent papers with priority logic:
-        1. Order by most recently uploaded
-        2. First get papers with 'reading' status
-        3. If under limit, fill with 'todo' status papers
-        4. Return up to limit papers
-        """
-        # First, get reading papers
-        reading_papers = (
-            db.query(Paper)
-            .filter(
-                Paper.user_id == user.id,
-                Paper.status == PaperStatus.reading,
-                Paper.supplementary_of_paper_id.is_(None),
-            )
-            .order_by(Paper.last_accessed_at.desc())
-            .limit(limit)
-            .all()
-        )
-
-        # If we have enough reading papers, return them
-        if len(reading_papers) >= limit:
-            return reading_papers
-
-        # Calculate how many more papers we need
-        remaining_limit = limit - len(reading_papers)
-
-        # Get todo papers to fill the remaining slots
-        todo_papers = (
-            db.query(Paper)
-            .filter(
-                Paper.user_id == user.id,
-                Paper.status == PaperStatus.todo,
-                Paper.supplementary_of_paper_id.is_(None),
-            )
-            .order_by(Paper.last_accessed_at.desc())
-            .limit(remaining_limit)
-            .all()
-        )
-
-        # Combine and return
-        return reading_papers + todo_papers
-
-    def get_library(
-        self,
-        db: Session,
-        *,
-        user: CurrentUser,
-        skip: int = 0,
-        limit: int = 500,
-        status: Optional[PaperStatus] = None,
-    ) -> List[Paper]:
-        """The owner's papers (not supplementary materials), newest first.
-
-        Papers still being ingested are included: they are readable at once.
-        """
-        return (
-            db.query(Paper)
-            .options(selectinload(Paper.tags))
-            .filter(
-                Paper.user_id == user.id,
-                (Paper.status == status if status else True),
-                Paper.supplementary_of_paper_id.is_(None),
-            )
-            .order_by(Paper.updated_at.desc())
-            .offset(skip)
-            .limit(limit)
-            .all()
-        )
-
+class PaperCRUD(CRUDBase[Paper, PaperCreate, PaperUpdate]):
     def list_supplementary_for(
         self,
         db: Session,
@@ -159,15 +58,14 @@ class PaperCRUD(CRUDBase["Paper", PaperCreate, PaperUpdate]):
     ) -> List[Paper]:
         """Return supplementary Paper rows for a given parent, owned by the user."""
         return (
-            db.query(self.model)
+            db.query(Paper)
             .filter(
-                self.model.supplementary_of_paper_id == parent_paper_id,
-                self.model.user_id == user.id,
+                Paper.supplementary_of_paper_id == parent_paper_id,
+                Paper.user_id == user.id,
             )
-            .order_by(self.model.created_at.asc())
+            .order_by(Paper.created_at.asc())
             .all()
         )
 
 
-# Create a single instance to use throughout the application
 paper_crud = PaperCRUD(Paper)

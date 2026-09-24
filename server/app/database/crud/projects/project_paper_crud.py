@@ -35,9 +35,10 @@ class ProjectPaperCRUD(
         obj_in: ProjectPaperCreate,
         user: Optional[CurrentUser] = None,
         project_id: Optional[uuid.UUID] = None,
-        auto_commit: bool = True,
     ) -> Optional[ProjectPaper]:
-        # Validate required parameters for this implementation
+        """Add a paper to one of the user's projects. None (logged) when the
+        project or the paper isn't the user's; an existing link is returned
+        as is."""
         if user is None:
             raise ValueError("user parameter is required for ProjectPaperCRUD.create")
         if project_id is None:
@@ -45,64 +46,51 @@ class ProjectPaperCRUD(
                 "project_id parameter is required for ProjectPaperCRUD.create"
             )
 
-        try:
-            # Check if the user owns this project
-            project = (
-                db.query(Project)
-                .filter(Project.id == project_id, Project.owner_id == user.id)
-                .first()
-            )
-            if not project:
-                logger.warning(
-                    f"User {user.id} does not have permission to add paper to project {project_id}"
-                )
-                return None
-
-            # Check if the paper exists and belongs to the user
-            paper = (
-                db.query(Paper)
-                .filter(Paper.id == obj_in.paper_id, Paper.user_id == user.id)
-                .first()
-            )
-            if not paper:
-                logger.warning(
-                    f"Paper with id {obj_in.paper_id} not found for user {user.id}"
-                )
-                return None
-
-            # Check if the paper is already in the project
-            existing_project_paper = (
-                db.query(ProjectPaper)
-                .filter(
-                    ProjectPaper.project_id == project_id,
-                    ProjectPaper.paper_id == obj_in.paper_id,
-                )
-                .first()
-            )
-            if existing_project_paper:
-                logger.warning(
-                    f"Paper {obj_in.paper_id} is already in project {project_id}"
-                )
-                return existing_project_paper
-
-            db_obj = ProjectPaper(project_id=project_id, paper_id=obj_in.paper_id)
-            db.add(db_obj)
-            if auto_commit:
-                db.commit()
-            else:
-                db.flush()
-            db.refresh(db_obj)
-
-            # Touch project updated_at so it sorts to top of recent projects
-            project_crud.touch(db, project_id)
-
-            return db_obj
-        except Exception as e:
-            db.rollback()
-            logger.error(
-                f"Error creating {self.model.__name__}: {str(e)}", exc_info=True
+        project = (
+            db.query(Project)
+            .filter(Project.id == project_id, Project.owner_id == user.id)
+            .first()
+        )
+        if not project:
+            logger.warning(
+                f"User {user.id} does not have permission to add paper to project {project_id}"
             )
             return None
+
+        paper = (
+            db.query(Paper)
+            .filter(Paper.id == obj_in.paper_id, Paper.user_id == user.id)
+            .first()
+        )
+        if not paper:
+            logger.warning(
+                f"Paper with id {obj_in.paper_id} not found for user {user.id}"
+            )
+            return None
+
+        existing_project_paper = (
+            db.query(ProjectPaper)
+            .filter(
+                ProjectPaper.project_id == project_id,
+                ProjectPaper.paper_id == obj_in.paper_id,
+            )
+            .first()
+        )
+        if existing_project_paper:
+            logger.warning(
+                f"Paper {obj_in.paper_id} is already in project {project_id}"
+            )
+            return existing_project_paper
+
+        db_obj = ProjectPaper(project_id=project_id, paper_id=obj_in.paper_id)
+        db.add(db_obj)
+        db.commit()
+        db.refresh(db_obj)
+
+        # Touch project updated_at so it sorts to top of recent projects
+        project_crud.touch(db, project_id)
+
+        return db_obj
 
     def get_all_papers_by_project_id(
         self, db: Session, *, project_id: uuid.UUID, user: CurrentUser

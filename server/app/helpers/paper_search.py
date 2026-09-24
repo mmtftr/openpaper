@@ -1,5 +1,4 @@
 import logging
-import os
 import time
 from enum import Enum
 from typing import List, Optional
@@ -8,11 +7,13 @@ from urllib.parse import quote
 import requests
 from pydantic import BaseModel, ConfigDict, model_validator
 
+from app.settings import get_settings
+
 logger = logging.getLogger(__name__)
 
 OPENALEX_MAX_RETRIES = 3
 OPENALEX_RETRY_DELAY = 1  # seconds
-OPENALEX_API_KEY = os.getenv("OPENALEX_API_KEY")
+OPENALEX_API_KEY = get_settings().OPENALEX_API_KEY
 
 
 def _with_openalex_auth(url: str) -> str:
@@ -69,7 +70,7 @@ def _request_with_retry(
     raise last_exception  # type: ignore
 
 
-SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
+SEMANTIC_SCHOLAR_API_KEY = get_settings().SEMANTIC_SCHOLAR_API_KEY
 
 DISABLE_SEMANTIC_SCHOLAR = (
     True  # Temporary flag to disable Semantic Scholar API calls due to 403 errors

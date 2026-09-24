@@ -521,7 +521,7 @@ def test_db_store_upserts_and_expires():
     from app.references.models import ReferenceResolution
     from app.references.service import DbReferenceStore
 
-    engine = create_engine(DB_URL)  # pyright: ignore[reportArgumentType]
+    engine = create_engine(DB_URL)
     key = f"test-{uuid.uuid4().hex}"
     try:
         with Session(engine) as db:

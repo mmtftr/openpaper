@@ -62,7 +62,7 @@ heartbeat every `HEARTBEAT_INTERVAL_SECONDS`; SIGTERM drains then requeues.
 the `Paper` (+ `source_filename` / `source_url` for the metadata stage) and
 calls `enqueue_paper(..., source_succeeded=True)` in one commit; if that
 commit fails the stored objects are deleted. Paper delete removes the
-`papers/{id}/` prefix plus the old pipeline's keys (`paper_api.delete_pdf`);
+`papers/{id}/` prefix plus the old pipeline's keys (`app/api/paper/delete.py`);
 it locks the paper's `ingest_stages` rows before deleting the paper (the
 worker's lock order), and the engine sweeps the prefix again when a stage
 finishes after the delete. Editing a paper's fields marks them `"user"`.

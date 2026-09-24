@@ -3,6 +3,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_required_user
@@ -34,10 +35,8 @@ class UpdateAnnotationRequest(BaseModel):
     content: str
 
 
-def _annotation_not_found(annotation_id: uuid.UUID) -> HTTPException:
-    return HTTPException(
-        status_code=404, detail=f"Annotation with ID {annotation_id} not found."
-    )
+def _not_found(annotation_id: uuid.UUID) -> str:
+    return f"Annotation with ID {annotation_id} not found."
 
 
 @annotation_router.post("", status_code=201)
@@ -47,17 +46,18 @@ def create_annotation(
     current_user: CurrentUser = Depends(get_required_user),
 ) -> AnnotationResponse:
     """Create a new annotation for a highlight"""
-    annotation = annotation_crud.create(
-        db,
-        obj_in=AnnotationCreate(
-            paper_id=request.paper_id,
-            highlight_id=request.highlight_id,
-            content=request.content,
-            role=RoleType.USER,
-        ),
-        user=current_user,
-    )
-    if not annotation:
+    try:
+        annotation = annotation_crud.create(
+            db,
+            obj_in=AnnotationCreate(
+                paper_id=request.paper_id,
+                highlight_id=request.highlight_id,
+                content=request.content,
+                role=RoleType.USER,
+            ),
+            user=current_user,
+        )
+    except IntegrityError:  # no such paper / highlight
         raise HTTPException(
             status_code=400,
             detail="Failed to create annotation, please check the input data.",
@@ -87,17 +87,16 @@ def delete_annotation(
     current_user: CurrentUser = Depends(get_required_user),
 ) -> MessageResponse:
     """Delete a specific annotation"""
-    existing_annotation = annotation_crud.get(db, id=annotation_id, user=current_user)
-    if not existing_annotation:
-        raise _annotation_not_found(annotation_id)
+    existing_annotation = annotation_crud.require(
+        db, annotation_id, user=current_user, not_found=_not_found(annotation_id)
+    )
 
     if existing_annotation.role == RoleType.ASSISTANT:
         raise HTTPException(
             status_code=403, detail="Cannot delete assistant annotations."
         )
 
-    if not annotation_crud.remove(db, id=annotation_id, user=current_user):
-        raise HTTPException(status_code=500, detail="Failed to delete annotation.")
+    annotation_crud.remove(db, id=annotation_id, user=current_user)
     return MessageResponse(message="Annotation deleted successfully")
 
 
@@ -109,9 +108,9 @@ def update_annotation(
     current_user: CurrentUser = Depends(get_required_user),
 ) -> AnnotationResponse:
     """Update an existing annotation"""
-    existing_annotation = annotation_crud.get(db, id=annotation_id, user=current_user)
-    if not existing_annotation:
-        raise _annotation_not_found(annotation_id)
+    existing_annotation = annotation_crud.require(
+        db, annotation_id, user=current_user, not_found=_not_found(annotation_id)
+    )
 
     if existing_annotation.role == RoleType.ASSISTANT:
         raise HTTPException(
@@ -122,17 +121,12 @@ def update_annotation(
         db,
         db_obj=existing_annotation,
         obj_in=AnnotationUpdate(
-            paper_id=uuid.UUID(str(existing_annotation.paper_id)),
-            highlight_id=uuid.UUID(str(existing_annotation.highlight_id)),
+            paper_id=existing_annotation.paper_id,
+            highlight_id=existing_annotation.highlight_id,
             content=request.content,
         ),
         user=current_user,
     )
-    if not annotation:
-        raise HTTPException(
-            status_code=400,
-            detail="Failed to update annotation, please check the input data.",
-        )
 
     track_event("annotation_updated", user_id=str(current_user.id))
     return AnnotationResponse.model_validate(annotation)

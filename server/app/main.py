@@ -1,9 +1,7 @@
 import logging
-import os
 
 import logfire
 import uvicorn  # type: ignore
-from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -16,7 +14,7 @@ from app.api.document_api import document_router
 from app.api.errors import ERROR_RESPONSES, install_error_handlers
 from app.api.highlight_api import highlight_router
 from app.api.message_api import message_router
-from app.api.paper_api import paper_router
+from app.api.paper import paper_router
 from app.api.paper_figure_api import paper_figure_router
 from app.api.paper_search_api import paper_search_router
 from app.api.paper_tag_api import paper_tag_router
@@ -28,6 +26,7 @@ from app.api.search_api import search_router
 from app.api.settings_api import settings_router
 from app.ingest.api import ingest_router
 from app.references.api import reference_router
+from app.settings import get_settings
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,8 +38,6 @@ for _noisy in ("httpx", "httpcore"):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
-
-load_dotenv()
 
 logfire.configure(
     service_name="openpaper-server",
@@ -78,12 +75,12 @@ _safe_instrument(
     "fastapi", lambda: logfire.instrument_fastapi(app, capture_headers=True)
 )
 
-client_domain = os.getenv("CLIENT_DOMAIN", "http://localhost:3000")
+settings = get_settings()
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[client_domain],
+    allow_origins=[settings.CLIENT_DOMAIN],
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
     expose_headers=["*"],
@@ -94,7 +91,7 @@ app.add_middleware(
 # Include the router in the main app
 app.include_router(router, prefix="/api")
 app.include_router(auth_router, prefix="/api/auth")  # Auth routes
-app.include_router(paper_router, prefix="/api/paper")
+app.include_router(paper_router)  # prefixed with /api/paper itself
 app.include_router(conversation_router, prefix="/api/conversation")
 app.include_router(message_router, prefix="/api/message")
 app.include_router(highlight_router, prefix="/api/highlight")
@@ -115,7 +112,7 @@ app.include_router(reference_router, prefix="/api/references")
 
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "8000"))
+    port = settings.PORT
     log_config = uvicorn.config.LOGGING_CONFIG  # type: ignore
     log_config["formatters"]["access"]["fmt"] = (
         "%(asctime)s - %(levelname)s - %(message)s"

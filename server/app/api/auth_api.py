@@ -1,5 +1,4 @@
 import logging
-import os
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -20,13 +19,11 @@ from app.database.database import get_db
 from app.database.models import User
 from app.database.telemetry import track_event
 from app.schemas.user import CurrentUser, UserUpdate
+from app.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
 auth_router = APIRouter()
-
-client_domain = os.getenv("CLIENT_DOMAIN", "http://localhost:3000")
-api_domain = os.getenv("API_DOMAIN", "http://localhost:8000")
 
 
 class AuthResponse(BaseModel):
@@ -234,9 +231,7 @@ def email_set_name(
         )
 
     # Update user with name
-    user_crud.update(
-        db, db_obj=db_user, obj_in=UserUpdate(name=request.name), user=db_user
-    )
+    user_crud.update(db, db_obj=db_user, obj_in=UserUpdate(name=request.name))
 
     return AuthResponse(success=True, message="Name set successfully")
 
@@ -297,8 +292,8 @@ def email_verify(
     # Set the session cookie on the response
     set_session_cookie(
         response,
-        token=session.token,  # pyright: ignore[reportArgumentType]
-        expires_at=session.expires_at,  # type: ignore
+        token=session.token,
+        expires_at=session.expires_at,
     )
 
     track_event("email_signin_completed", user_id=str(db_user.id))
@@ -306,5 +301,5 @@ def email_verify(
     return EmailVerifyResponse(
         success=True,
         message="Email verified successfully",
-        redirectUrl=f"{client_domain}/auth/callback?success=true",
+        redirectUrl=f"{get_settings().CLIENT_DOMAIN}/auth/callback?success=true",
     )

@@ -110,9 +110,9 @@ def _choice(spec: ModelSpec, effort: Optional[str]) -> SlotChoice:
 
 def _to_override(row: ModelSlot) -> SlotOverride:
     return SlotOverride(
-        provider=row.provider,  # type: ignore[arg-type]
-        model=row.model,  # type: ignore[arg-type]
-        reasoning_effort=row.reasoning_effort,  # type: ignore[arg-type]
+        provider=row.provider,
+        model=row.model,
+        reasoning_effort=row.reasoning_effort,
     )
 
 

@@ -8,11 +8,11 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from enum import StrEnum
 
 from app.core.errors import ConfigError
+from app.settings import get_settings
 
 
 class Resource(StrEnum):
@@ -53,9 +53,10 @@ class OcrConfig:
 
 def ocr_config() -> OcrConfig:
     """Mistral OCR settings from the environment (server/.env)."""
+    settings = get_settings()
     return OcrConfig(
-        api_key=(os.getenv("MISTRAL_API_KEY") or "").strip() or None,
-        endpoint=os.getenv("MISTRAL_OCR_ENDPOINT") or "https://api.mistral.ai/v1/ocr",
-        model=os.getenv("MISTRAL_OCR_MODEL") or "mistral-ocr-4-1",
-        batch_pages=int(os.getenv("MISTRAL_OCR_BATCH_PAGES") or 16),
+        api_key=settings.MISTRAL_API_KEY,
+        endpoint=settings.MISTRAL_OCR_ENDPOINT,
+        model=settings.MISTRAL_OCR_MODEL,
+        batch_pages=settings.MISTRAL_OCR_BATCH_PAGES,
     )

@@ -19,7 +19,6 @@ A failed repair never fails the stage (per-page fallback, as before).
 from __future__ import annotations
 
 import asyncio
-import os
 import uuid
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -38,9 +37,10 @@ from app.ingest.models import MarkdownSource, PaperPage
 from app.ingest.pdf import quality
 from app.ingest.stages.base import Stage, StageContext
 from app.llm import oneshot
+from app.settings import get_settings
 
 SLOT = "ingest.ocr_repair"
-REPAIR_DPI = int(os.environ.get("OPENAI_OCR_REPAIR_DPI", "220"))
+REPAIR_DPI = get_settings().OPENAI_OCR_REPAIR_DPI
 REPAIR_TIMEOUT_S = 120.0
 # Suspect pages of one paper re-OCR'd at once.
 REPAIR_PARALLEL = 4
