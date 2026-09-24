@@ -616,9 +616,6 @@ class Annotation(Base):
 
     # Role tracking
     role = Column(String, nullable=False, default="user")  # 'user' or 'assistant'
-    # Who created it: "user" or "ai" (the ingest `highlights` stage). AI
-    # highlights the owner has annotated survive regeneration.
-    origin = Column(Text, nullable=False, default="user", server_default="user")
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
 
     # Relationships

@@ -1,4 +1,12 @@
-"""Grounded reader outlines: OCR headings supply every navigation target."""
+"""Grounded reader outlines: OCR headings supply every navigation target.
+
+Two entry points share the extraction and cleanup:
+- `cached_outline(db, paper)` — the reader's `/api/paper/outline` today,
+  reading `papers.ocr` and caching into `papers.generated_outline`.
+- `candidates_from_pages` + `clean_outline` / `build_tree` — the ingest
+  `outline` stage (`app.ingest.stages.outline`), from `paper_pages` rows and
+  the PDF's bookmarks.
+"""
 
 import json
 import logging
@@ -6,6 +14,8 @@ import math
 import re
 import threading
 import unicodedata
+from dataclasses import dataclass, field
+from typing import Iterable
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import update
@@ -78,11 +88,25 @@ def _top_percent(block: dict, dimensions: dict) -> float | None:
     return None
 
 
+@dataclass(frozen=True)
+class OutlinePage:
+    """One page's inputs to the heading extraction.
+
+    `markdown` is the page's final text; `blocks` / `dimensions` are the
+    Mistral OCR page's layout blocks and image size (for positions), empty
+    when the page has no OCR layout.
+    """
+
+    page: int  # 1-based
+    markdown: str
+    blocks: list[dict] = field(default_factory=list)
+    dimensions: dict = field(default_factory=dict)
+
+
 def extract_candidates(paper: Paper) -> list[dict]:
-    """Reuse read_section's ATX parser; match title blocks only on the same page.
+    """Heading candidates from a paper's stored Mistral OCR (`papers.ocr`).
 
     Raw fallback text has no reliable page locations, so return no outline.
-    Markdown order preserves reading order even in multi-column PDFs.
     """
     ocr = getattr(paper, "ocr", None)
     if getattr(paper, "parser", None) != "mistral" or not isinstance(ocr, dict):
@@ -90,28 +114,44 @@ def extract_candidates(paper: Paper) -> list[dict]:
     pages = ocr.get("pages")
     if not isinstance(pages, list):
         return []
-    candidates = []
+    page_count = getattr(paper, "page_count", None)
+    inputs = []
     for page in pages:
         if not isinstance(page, dict):
             continue
         index = page.get("index")
         if type(index) is not int or index < 0:
             continue
-        page_count = getattr(paper, "page_count", None)
         if isinstance(page_count, int) and index >= page_count:
             continue
         markdown = page.get("markdown")
         if not isinstance(markdown, str):
             continue
         blocks = page.get("blocks")
-        blocks = (
-            [b for b in blocks if isinstance(b, dict)]
-            if isinstance(blocks, list)
-            else []
+        dimensions = page.get("dimensions")
+        inputs.append(
+            OutlinePage(
+                page=index + 1,
+                markdown=markdown,
+                blocks=[b for b in blocks if isinstance(b, dict)]
+                if isinstance(blocks, list)
+                else [],
+                dimensions=dimensions if isinstance(dimensions, dict) else {},
+            )
         )
+    return candidates_from_pages(inputs)
+
+
+def candidates_from_pages(pages: Iterable[OutlinePage]) -> list[dict]:
+    """Reuse read_section's ATX parser; match title blocks only on the same page.
+
+    Markdown order preserves reading order even in multi-column PDFs.
+    """
+    candidates = []
+    for page in pages:
         titles: dict[str, list[dict]] = {}
         junk = set()
-        for block in blocks:
+        for block in page.blocks:
             content = block.get("content")
             if not isinstance(content, str):
                 continue
@@ -120,9 +160,7 @@ def extract_candidates(paper: Paper) -> list[dict]:
                 titles.setdefault(key, []).append(block)
             elif block.get("type") in {"header", "footer", "caption", "aside_text"}:
                 junk.add(key)
-        dimensions = page.get("dimensions")
-        dimensions = dimensions if isinstance(dimensions, dict) else {}
-        for match in _HEADING_RE.finditer(markdown):
+        for match in _HEADING_RE.finditer(page.markdown):
             title = _plain_title(match.group(2))
             key = _key(title)
             if not key or len(title) > 500 or (key in junk and key not in titles):
@@ -141,8 +179,8 @@ def extract_candidates(paper: Paper) -> list[dict]:
                 {
                     "title": title,
                     "level": level,
-                    "page": index + 1,
-                    "top_percent": _top_percent(block, dimensions),
+                    "page": page.page,
+                    "top_percent": _top_percent(block, page.dimensions),
                 }
             )
     candidates.sort(key=lambda c: c["page"])
@@ -238,12 +276,44 @@ def generate_outline(paper: Paper) -> list[dict]:
     return _outline_from_candidates(extract_candidates(paper))
 
 
+# Bound the one-shot prompt on books or pathological OCR without losing
+# headings: above this many candidates the uncleaned tree is served.
+MAX_CLEANUP_CANDIDATES = 300
+
+
+def needs_cleanup(candidates: list[dict]) -> bool:
+    """Whether `candidates` go through the LLM cleanup at all."""
+    return 0 < len(candidates) <= MAX_CLEANUP_CANDIDATES
+
+
+def build_tree(entries: list[dict]) -> list[dict]:
+    """Nest flat `{title, level, page, top_percent}` entries into the
+    `OutlineEntry` tree (levels compacted; Abstract/References never parents)."""
+    return _tree(entries)
+
+
+async def clean_outline(candidates: list[dict]) -> list[dict]:
+    """The LLM-cleaned outline of `candidates` (async; the ingest stage).
+
+    Unlike `generate_outline`, a failed cleanup raises the provider's error
+    as is, so the stage's retry/backoff handles it.
+    """
+    if not needs_cleanup(candidates):
+        return _tree(candidates)
+    selection = await oneshot.complete(
+        "ingest.outline",
+        json.dumps(candidates, ensure_ascii=False),
+        output_type=OutlineSelection,  # pydantic-ai tool output
+        instructions=OUTLINE_PROMPT,
+    )
+    return validate_selection(candidates, selection)
+
+
 def _outline_from_candidates(candidates: list[dict]) -> list[dict]:
     if not candidates:
         return []
     fallback = _tree(candidates)
-    # Bound the one-shot prompt on books or pathological OCR without losing headings.
-    if len(candidates) > 300:
+    if not needs_cleanup(candidates):
         return fallback
     try:
         # The `ingest.outline` slot defaults to the inexpensive OpenAI/Azure
