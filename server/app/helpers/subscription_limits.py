@@ -10,7 +10,6 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, Optional
 
-from app.database.crud.audio_overview_crud import audio_overview_crud
 from app.database.crud.discover_crud import discover_search_crud
 from app.database.crud.message_crud import message_crud
 from app.database.crud.paper_crud import paper_crud
@@ -28,7 +27,6 @@ PAPER_UPLOAD_KEY = "paper_uploads"
 KB_SIZE_KEY = "knowledge_base_size"
 CHAT_CREDITS_KEY = "chat_credits_weekly"
 DATA_TABLES_KEY = "data_tables_weekly"
-AUDIO_OVERVIEWS_KEY = "audio_overviews_weekly"
 PROJECTS_KEY = "projects"
 DISCOVER_SEARCHES_KEY = "discover_searches_weekly"
 
@@ -38,7 +36,6 @@ SUBSCRIPTION_LIMITS = {
         PAPER_UPLOAD_KEY: 10,
         KB_SIZE_KEY: 200 * 1024,  # 200 MB in KB
         CHAT_CREDITS_KEY: 5000,
-        AUDIO_OVERVIEWS_KEY: 5,
         PROJECTS_KEY: 2,
         DATA_TABLES_KEY: 2,
         DISCOVER_SEARCHES_KEY: 10,
@@ -47,7 +44,6 @@ SUBSCRIPTION_LIMITS = {
         PAPER_UPLOAD_KEY: 500,
         KB_SIZE_KEY: 3 * 1024 * 1024,  # 3 GB in KB
         CHAT_CREDITS_KEY: 150000,
-        AUDIO_OVERVIEWS_KEY: 100,
         PROJECTS_KEY: 100,
         DATA_TABLES_KEY: 50,
         DISCOVER_SEARCHES_KEY: 100,
@@ -61,7 +57,6 @@ UNLIMITED_LIMITS = {
     PAPER_UPLOAD_KEY: 1_000_000,
     KB_SIZE_KEY: 1_000_000_000,  # ~1 TB in KB
     CHAT_CREDITS_KEY: 1_000_000_000,
-    AUDIO_OVERVIEWS_KEY: 1_000_000,
     PROJECTS_KEY: 1_000_000,
     DATA_TABLES_KEY: 1_000_000,
     DISCOVER_SEARCHES_KEY: 1_000_000,
@@ -154,50 +149,6 @@ def can_user_upload_paper(db: Session, user: CurrentUser) -> tuple[bool, Optiona
         return (
             False,
             f"You have reached your paper upload limit ({int(paper_limit)} papers) for the {plan_name} plan. Please upgrade your subscription to upload more papers, or delete existing papers to free up space.",
-        )
-
-    return True, None
-
-
-def can_user_create_audio_overview(
-    db: Session, user: CurrentUser
-) -> tuple[bool, Optional[str]]:
-    """
-    Check if a user can create a new audio overview based on their subscription limits.
-
-    Returns:
-        tuple: (can_create: bool, error_message: Optional[str])
-    """
-    plan = get_user_subscription_plan(db, user)
-    limits = get_effective_limits(db, user)
-
-    current_audio_overviews_used = get_user_audio_overviews_used_this_month(db, user)
-    audio_overview_limit = limits[AUDIO_OVERVIEWS_KEY]
-
-    # Handle unlimited plans
-    if audio_overview_limit == float("inf"):
-        return True, None
-
-    # If the user has reached their audio overview limit
-    if current_audio_overviews_used >= audio_overview_limit:
-        track_event(
-            "action_blocked_limit_reached",
-            user_id=str(user.id),
-            properties={
-                "current_audio_overviews_used": current_audio_overviews_used,
-                "audio_overview_limit": audio_overview_limit,
-                "type": "audio_overviews",
-                "plan": plan.value,
-            },
-            db=db,
-        )
-        plan_name = {
-            SubscriptionPlan.BASIC: "Basic",
-            SubscriptionPlan.RESEARCHER: "Researcher",
-        }.get(plan, "Basic")
-        return (
-            False,
-            f"You have reached your audio overview limit ({int(audio_overview_limit)} audio overviews per week) for the {plan_name} plan. Please upgrade your subscription to create more audio overviews.",
         )
 
     return True, None
@@ -425,13 +376,6 @@ def get_user_chat_credits_used_this_week(db: Session, user: CurrentUser) -> int:
     return message_crud.get_chat_credits_used_this_week(db, current_user=user)
 
 
-def get_user_audio_overviews_used_this_month(db: Session, user: CurrentUser) -> int:
-    """
-    Get the number of audio overviews used by the user this month.
-    """
-    return audio_overview_crud.get_audio_overviews_used_this_week(db, current_user=user)
-
-
 def get_user_usage_info(db: Session, user: CurrentUser) -> Dict:
     """
     Get comprehensive usage information for a user.
@@ -449,9 +393,6 @@ def get_user_usage_info(db: Session, user: CurrentUser) -> Dict:
 
     chat_credits_allowed = limits[CHAT_CREDITS_KEY]
     chat_credits_used = get_user_chat_credits_used_this_week(db, user)
-
-    audio_overviews_allowed = limits[AUDIO_OVERVIEWS_KEY]
-    audio_overviews_used_this_month = get_user_audio_overviews_used_this_month(db, user)
 
     data_tables_allowed = limits[DATA_TABLES_KEY]
     data_tables_used_this_week = data_table_job_crud.get_data_table_jobs_used_this_week(
@@ -478,11 +419,6 @@ def get_user_usage_info(db: Session, user: CurrentUser) -> Dict:
     chat_credits_usage_percentage = (
         (chat_credits_used / chat_credits_allowed) * 100
         if chat_credits_allowed != float("inf")
-        else 0
-    )
-    audio_overviews_usage_percentage = (
-        (audio_overviews_used_this_month / audio_overviews_allowed) * 100
-        if audio_overviews_allowed != float("inf")
         else 0
     )
     project_usage_percentage = (
@@ -540,18 +476,6 @@ def get_user_usage_info(db: Session, user: CurrentUser) -> Dict:
             },
             db=db,
         )
-    if audio_overviews_usage_percentage > HIGH_USAGE_THRESHOLD:
-        track_event(
-            "high_usage_limit",
-            user_id=str(user.id),
-            properties={
-                "metric": "audio_overviews",
-                "usage": audio_overviews_used_this_month,
-                "limit": audio_overviews_allowed,
-                "plan": plan.value,
-            },
-            db=db,
-        )
     if project_usage_percentage > HIGH_USAGE_THRESHOLD:
         track_event(
             "high_usage_limit",
@@ -597,12 +521,6 @@ def get_user_usage_info(db: Session, user: CurrentUser) -> Dict:
         else max(0, int(chat_credits_allowed) - chat_credits_used)
     )
 
-    audio_overviews_remaining = (
-        None
-        if audio_overviews_allowed == float("inf")
-        else max(0, int(audio_overviews_allowed) - audio_overviews_used_this_month)
-    )
-
     # Handle unlimited plans
     papers_remaining = (
         None
@@ -646,8 +564,6 @@ def get_user_usage_info(db: Session, user: CurrentUser) -> Dict:
             "knowledge_base_size_remaining": knowledge_base_remaining,
             "chat_credits_used": chat_credits_used,
             "chat_credits_remaining": chat_credits_remaining,
-            "audio_overviews_used": audio_overviews_used_this_month,
-            "audio_overviews_remaining": audio_overviews_remaining,
             "projects": current_project_count,
             "projects_remaining": projects_remaining,
             "data_tables_used": data_tables_used_this_week,

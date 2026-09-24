@@ -6,7 +6,6 @@ from uuid import UUID
 from app.database.crud.projects.project_base_crud import ProjectBaseCRUD
 from app.database.crud.user_crud import user as user_crud
 from app.database.models import (
-    AudioOverviewJob,
     ConversableType,
     Conversation,
     DataTableExtractionJob,
@@ -42,7 +41,6 @@ class AnnotatedProject(ProjectBase):
     id: Optional[str] = None
     num_papers: int = 0
     num_conversations: int = 0
-    num_audio_overviews: int = 0
     num_data_tables: int = 0
     num_roles: int = 0
     updated_at: Optional[str] = None
@@ -111,9 +109,6 @@ class ProjectCRUD(ProjectBaseCRUD[Project, ProjectCreate, ProjectUpdate]):
                     func.coalesce(func.count(Conversation.id.distinct()), 0).label(
                         "num_conversations"
                     ),
-                    func.coalesce(func.count(AudioOverviewJob.id.distinct()), 0).label(
-                        "num_audio_overviews"
-                    ),
                     func.coalesce(
                         func.count(DataTableExtractionJob.id.distinct()), 0
                     ).label("num_data_tables"),
@@ -127,14 +122,6 @@ class ProjectCRUD(ProjectBaseCRUD[Project, ProjectCreate, ProjectUpdate]):
                     Conversation,
                     (Conversation.conversable_id == Project.id)
                     & (Conversation.conversable_type == ConversableType.PROJECT.value),
-                )
-                .outerjoin(
-                    AudioOverviewJob,
-                    (AudioOverviewJob.conversable_id == Project.id)
-                    & (
-                        AudioOverviewJob.conversable_type
-                        == ConversableType.PROJECT.value
-                    ),
                 )
                 .outerjoin(
                     DataTableExtractionJob,
@@ -153,7 +140,6 @@ class ProjectCRUD(ProjectBaseCRUD[Project, ProjectCreate, ProjectUpdate]):
                 project,
                 num_papers,
                 num_conversations,
-                num_audio_overviews,
                 num_data_tables,
                 role,
                 num_roles,
@@ -164,7 +150,6 @@ class ProjectCRUD(ProjectBaseCRUD[Project, ProjectCreate, ProjectUpdate]):
                     description=project.description,
                     num_papers=num_papers,
                     num_conversations=num_conversations,
-                    num_audio_overviews=num_audio_overviews,
                     num_data_tables=num_data_tables,
                     num_roles=num_roles,
                     updated_at=str(project.updated_at) if project.updated_at else None,

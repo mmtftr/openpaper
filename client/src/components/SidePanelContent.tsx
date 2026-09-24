@@ -7,7 +7,6 @@ import { RenderedHighlightPosition } from '@/components/reader';
 import { Sparkle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AnnotationsView } from '@/components/AnnotationsView';
-import { AudioOverviewPanel } from '@/components/AudioOverview';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
@@ -138,16 +137,6 @@ export function SidePanelContent({
                             </Button>
                         </div>
                     </div>
-                </div>
-            )}
-
-            {rightSideFunction === 'Audio' && (
-                <div className={`flex flex-col ${heightClass} md:px-2 overflow-y-auto`}>
-                    <AudioOverviewPanel
-                        paper_id={id}
-                        paper_title={paperData.title}
-                        setExplicitSearchTerm={setExplicitSearchTerm}
-                    />
                 </div>
             )}
 

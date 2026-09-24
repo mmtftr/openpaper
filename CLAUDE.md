@@ -108,5 +108,5 @@ it. Non-obvious facts about that proxy:
 
 `DEFAULT_LLM_PROVIDER` is read by both the chat `ModelRegistry` and
 `BaseLLMClient`, so it also routes non-chat work (summaries, titles, data
-tables, audio overview) at the same time. `jobs/.env` is separate and stays
+tables) at the same time. `jobs/.env` is separate and stays
 on Azure.

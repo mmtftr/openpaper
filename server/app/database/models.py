@@ -153,9 +153,6 @@ class User(Base):
     annotations = relationship(
         "Annotation", back_populates="user", cascade="all, delete-orphan"
     )
-    audio_overview_jobs = relationship(
-        "AudioOverviewJob", back_populates="user", cascade="all, delete-orphan"
-    )
     paper_upload_jobs = relationship(
         "PaperUploadJob", back_populates="user", cascade="all, delete-orphan"
     )
@@ -493,26 +490,6 @@ class Paper(Base):
         "PaperNote", back_populates="paper", cascade="all, delete-orphan"
     )
 
-    audio_overviews = relationship(
-        "AudioOverview",
-        cascade="all, delete-orphan",
-        primaryjoin=lambda: and_(
-            Paper.id == foreign(AudioOverview.conversable_id),
-            AudioOverview.conversable_type == ConversableType.PAPER.value,
-        ),
-        overlaps="audio_overviews",
-    )
-
-    audio_overview_jobs = relationship(
-        "AudioOverviewJob",
-        cascade="all, delete-orphan",
-        primaryjoin=lambda: and_(
-            Paper.id == foreign(AudioOverviewJob.conversable_id),
-            AudioOverviewJob.conversable_type == ConversableType.PAPER.value,
-        ),
-        overlaps="audio_overview_jobs",
-    )
-
     paper_images = relationship(
         "PaperImage", back_populates="paper", cascade="all, delete-orphan"
     )
@@ -571,26 +548,6 @@ class Project(Base):
 
     project_roles = relationship("ProjectRole", back_populates="project")
     project_papers = relationship("ProjectPaper", back_populates="project")
-
-    audio_overviews = relationship(
-        "AudioOverview",
-        cascade="all, delete-orphan",
-        primaryjoin=lambda: and_(
-            Project.id == foreign(AudioOverview.conversable_id),
-            AudioOverview.conversable_type == ConversableType.PROJECT.value,
-        ),
-        overlaps="audio_overviews",
-    )
-
-    audio_overview_jobs = relationship(
-        "AudioOverviewJob",
-        cascade="all, delete-orphan",
-        primaryjoin=lambda: and_(
-            Project.id == foreign(AudioOverviewJob.conversable_id),
-            AudioOverviewJob.conversable_type == ConversableType.PROJECT.value,
-        ),
-        overlaps="audio_overview_jobs",
-    )
     invitations = relationship(
         "ProjectRoleInvitation", back_populates="project", cascade="all, delete-orphan"
     )
@@ -649,20 +606,6 @@ class ProjectPaper(Base):
 
     project = relationship("Project", back_populates="project_papers")
     paper = relationship("Paper", back_populates="project_papers")
-
-
-class ProjectAudioOverview(Base):
-    __tablename__ = "project_audio_overview"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project_id = Column(
-        UUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), nullable=False
-    )
-    audio_overview_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("audio_overviews.id", ondelete="CASCADE"),
-        nullable=False,
-    )
 
 
 class PaperImage(Base):
@@ -875,90 +818,6 @@ class Annotation(Base):
     # Relationships
     user = relationship("User", back_populates="annotations")
     highlight = relationship("Highlight", back_populates="annotations")
-
-
-class AudioOverviewJob(Base):
-    __tablename__ = "audio_overview_jobs"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-
-    conversable_id = Column(UUID(as_uuid=True), nullable=False)
-    conversable_type = Column(String, nullable=False, default=ConversableType.PAPER)
-    conversable = generic_relationship("conversable_type", "conversable_id")
-
-    status = Column(String, nullable=False, default=JobStatus.PENDING)
-    status_message = Column(String, nullable=True)
-    started_at = Column(DateTime(timezone=True), nullable=True)
-    completed_at = Column(DateTime(timezone=True), nullable=True)
-
-    user = relationship("User", back_populates="audio_overview_jobs")
-
-    # Specific relationship for papers (viewonly)
-    paper = relationship(
-        "Paper",
-        primaryjoin=lambda: and_(
-            foreign(AudioOverviewJob.conversable_id) == Paper.id,
-            AudioOverviewJob.conversable_type == ConversableType.PAPER.value,
-        ),
-        viewonly=True,
-    )
-
-    __table_args__ = (
-        CheckConstraint(
-            "(conversable_type = 'paper' AND conversable_id IS NOT NULL) OR "
-            "(conversable_type = 'project' AND conversable_id IS NOT NULL) OR "
-            "(conversable_type = 'everything' AND conversable_id IS NULL)",
-            name="check_audio_overview_job_conversable_consistency",
-        ),
-    )
-
-
-class AudioOverview(Base):
-    __tablename__ = "audio_overviews"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-
-    user_id = Column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-
-    s3_object_key = Column(
-        String, nullable=False
-    )  # Store the S3 object key of the wav file
-
-    transcript = Column(Text, nullable=True)
-
-    citations = Column(
-        JSONB, nullable=True
-    )  # Store citations in a JSONB format for flexibility. Typically, it would be a list of dicts with keys like `index` and `text`.
-
-    title = Column(String, nullable=True)
-
-    conversable_id = Column(UUID(as_uuid=True), nullable=False)
-    conversable_type = Column(String, nullable=False, default=ConversableType.PAPER)
-    conversable = generic_relationship("conversable_type", "conversable_id")
-
-    # Specific relationship for papers (viewonly)
-    paper = relationship(
-        "Paper",
-        primaryjoin=lambda: and_(
-            foreign(AudioOverview.conversable_id) == Paper.id,
-            AudioOverview.conversable_type == ConversableType.PAPER.value,
-        ),
-        viewonly=True,
-    )
-
-    __table_args__ = (
-        CheckConstraint(
-            "(conversable_type = 'paper' AND conversable_id IS NOT NULL) OR "
-            "(conversable_type = 'project' AND conversable_id IS NOT NULL) OR "
-            "(conversable_type = 'everything' AND conversable_id IS NULL)",
-            name="check_audio_overview_conversable_consistency",
-        ),
-    )
 
 
 class Subscription(Base):
