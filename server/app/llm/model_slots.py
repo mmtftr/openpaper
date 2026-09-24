@@ -49,21 +49,21 @@ SLOT_DEFAULTS: dict[str, SlotDefault] = {
     "chat.default": SlotDefault(
         None, ModelRole.DEFAULT, description="Paper chat (when no model is picked)"
     ),
+    # FAST slots are pinned to OpenAI/Azure: the codex proxy rejects its
+    # configured fast model (`gpt-5.4-mini`). Refactor Phase 6 unpins them.
     "chat.reconcile": SlotDefault(
-        None,
+        LLMProvider.OPENAI,
         ModelRole.FAST,
         description="Citation reconcile: map an OCR quote onto the PDF text",
     ),
     "chat.title": SlotDefault(
-        None, ModelRole.FAST, description="Conversation title"
+        LLMProvider.OPENAI, ModelRole.FAST, description="Conversation title"
     ),
     "quick_question": SlotDefault(
         None,
         ModelRole.DEFAULT,
         description="Code quick question (when no model is picked)",
     ),
-    # Pinned to OpenAI/Azure: the codex proxy rejects its configured fast
-    # model (`gpt-5.4-mini`).
     "discover": SlotDefault(
         LLMProvider.OPENAI,
         ModelRole.FAST,

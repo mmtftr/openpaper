@@ -40,8 +40,8 @@ def _registry(default=LLMProvider.CODEX_PROXY, *, with_openai=True):
     [
         ("chat.default", LLMProvider.CODEX_PROXY, "gpt-6-astra"),
         ("quick_question", LLMProvider.CODEX_PROXY, "gpt-6-astra"),
-        ("chat.reconcile", LLMProvider.CODEX_PROXY, "gpt-5.4-mini"),
-        ("chat.title", LLMProvider.CODEX_PROXY, "gpt-5.4-mini"),
+        ("chat.reconcile", LLMProvider.OPENAI, "gpt-5.4-mini-azure"),
+        ("chat.title", LLMProvider.OPENAI, "gpt-5.4-mini-azure"),
         ("discover", LLMProvider.OPENAI, "gpt-5.4-mini-azure"),
         ("ingest.outline", LLMProvider.OPENAI, "gpt-5.4-mini-azure"),
     ],

@@ -168,10 +168,10 @@ stream usage when `stream_options.include_usage` is set (pydantic-ai sets it).
    that mapping must not clamp or drop `max`/`xhigh` for the codex proxy. Also
    confirm pydantic-ai's OpenAI chat settings accept the literal `max`. Verify
    with a live call that reasoning tokens are non-zero.
-3. Remove the workaround: the outline cleanup (`app/llm/paper_outline.py`, or the
-   ingest `outline` stage / `ingest.outline` slot after the refactor) forces the
-   OpenAI/Azure provider only because the proxy's fast model was broken → use the
-   default provider again. Re-run a live outline generation + the outline tests.
+3. Remove the workaround: every FAST slot in `app/llm/model_slots.py`
+   (`chat.title`, `chat.reconcile`, `discover`, `ingest.outline`) is pinned to the
+   OpenAI/Azure provider only because the proxy's fast model was broken → unpin
+   them so they use the default provider again. Re-run a live outline generation + the outline tests.
 4. `CLAUDE.md` codex-proxy section: drop the "It rejects gpt-5.4-mini … routes to
    Azure explicitly" bullet; correct "reasoning_effort all verified live" — the
    proxy silently ignored `reasoning_effort` until 2026-09-24 and now forwards
