@@ -126,19 +126,22 @@ def _require_ready_repo(db: Session, paper_uuid: uuid.UUID) -> PaperRepo:
 def _mark_checked(session: Session, row: PaperRepo, **fields) -> None:
     """Write a status transition, retrying once and logging on failure.
 
-    `CRUDBase.update` swallows exceptions and returns None, so an unchecked
-    call can silently strand a row in `ingesting` and leave the UI polling
-    for fifteen minutes.
+    Best effort (the background job has nobody to report to), but a lost
+    write would strand the row in `ingesting` and leave the UI polling for
+    fifteen minutes, hence the retry.
     """
     for attempt in (1, 2):
-        if paper_repo_crud.mark(session, row=row, **fields) is not None:
+        try:
+            paper_repo_crud.mark(session, row=row, **fields)
             return
-        logger.warning(
-            "Repo status write failed (attempt %d) for row %s: %s",
-            attempt,
-            getattr(row, "id", "?"),
-            fields.get("status"),
-        )
+        except Exception as exc:
+            logger.warning(
+                "Repo status write failed (attempt %d) for row %s: %s (%s)",
+                attempt,
+                getattr(row, "id", "?"),
+                fields.get("status"),
+                exc,
+            )
         try:
             session.rollback()
         except Exception:
@@ -307,7 +310,7 @@ def connect_repo(
             raise HTTPException(
                 status_code=409, detail="A repository ingestion is already running."
             )
-        updated = paper_repo_crud.mark(
+        row = paper_repo_crud.mark(
             db,
             row=row,
             user=current_user,
@@ -320,7 +323,6 @@ def connect_repo(
             total_bytes=None,
             storage_prefix=None,
         )
-        row = updated or row
     else:
         row = paper_repo_crud.create(
             db,
@@ -332,10 +334,6 @@ def connect_repo(
             ),
             user=current_user,
         )
-        if row is None:
-            raise HTTPException(
-                status_code=500, detail="Failed to create the repository record"
-            )
 
     background_tasks.add_task(run_ingestion, str(paper_uuid), body.url)
     track_event(

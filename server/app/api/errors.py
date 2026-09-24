@@ -2,9 +2,10 @@
 
 Handlers signal failures with `raise HTTPException(status_code, detail="...")`
 (a plain string). FastAPI already renders that as `{"detail": "..."}`; the
-handler below gives unhandled exceptions the same shape. Request validation
-errors keep FastAPI's standard 422 body (`detail` is a list), which the
-OpenAPI schema describes as `HTTPValidationError`.
+handlers below give the data layer's domain errors (`NotFound` -> 404) and
+unhandled exceptions (500) the same shape. Request validation errors keep
+FastAPI's standard 422 body (`detail` is a list), which the OpenAPI schema
+describes as `HTTPValidationError`.
 """
 
 import logging
@@ -12,6 +13,8 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
+from app.database.errors import NotFound
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +31,10 @@ ERROR_RESPONSES: dict[int | str, dict] = {
 
 
 def install_error_handlers(app: FastAPI) -> None:
+    @app.exception_handler(NotFound)
+    async def _not_found(request: Request, exc: NotFound) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": exc.detail})
+
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
         logger.exception("Unhandled error on %s %s", request.method, request.url.path)

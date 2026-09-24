@@ -469,15 +469,16 @@ async def run_paper_chat(
     if stale_assistant_row is not None:
         # Drop the failed partial BEFORE the new run so history (model and
         # UI alike) shows one turn, not a failure followed by its retry.
-        # Non-fatal: `remove` returns None (and rolls back) on failure — the
-        # retry is still worth running, it just leaves the old row visible.
-        if (
+        # Non-fatal: the retry is still worth running, it just leaves the old
+        # row visible.
+        try:
             message_crud.remove(db, id=stale_assistant_row.id, user=current_user)
-            is None
-        ):
+        except Exception:
+            db.rollback()
             logger.warning(
                 "Could not delete failed assistant row %s before retry",
                 stale_assistant_row.id,
+                exc_info=True,
             )
     if reused_user_row is not None:
         # MERGE, never overwrite. A retry resends the text only, so an empty
@@ -663,6 +664,12 @@ async def run_paper_chat(
                     )
             except Exception as exc:
                 logger.warning("Citation reconciliation failed (non-fatal): %s", exc)
+                # A failed write leaves the session needing a rollback before
+                # the title step below can use it.
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
 
         # First-message title: idempotent; runs the FAST model, which can be
         # rejected by provider content filters — must stay non-fatal.

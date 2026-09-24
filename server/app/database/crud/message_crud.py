@@ -113,43 +113,6 @@ class MessageCRUD(CRUDBase[Message, MessageCreate, MessageUpdate]):
         # Reverse the results to get chronological order
         return list(reversed(messages))
 
-    def messages_to_dict(self, messages: list[Message]) -> list[Dict[str, Any]]:
-        """
-        Convert a list of Message objects to a list of dictionaries
-        """
-
-        formatted_messages = []
-        for message in messages:
-            message_dict = {
-                "id": str(message.id),
-                "role": message.role,
-                "content": message.content,
-                "references": message.references,
-                "bucket": message.bucket,
-                "sequence": message.sequence,
-            }
-            formatted_messages.append(message_dict)
-        return formatted_messages
-
-    def resequence_messages(
-        self,
-        db: Session,
-        *,
-        conversation_id: UUID,
-        current_user: CurrentUser,
-        gap: int = 10,
-    ) -> None:
-        """
-        Resequence all messages in a conversation with specified gaps
-        Useful when needing to insert messages between existing ones
-        """
-        messages = self.get_conversation_messages(
-            db, conversation_id=conversation_id, current_user=current_user
-        )
-        for i, message in enumerate(messages):
-            message.sequence = (i + 1) * gap
-        db.commit()
-
 
 # Create a single instance to use throughout the application
 message_crud = MessageCRUD(Message)

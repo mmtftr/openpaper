@@ -47,11 +47,6 @@ def create_project(
         ),
         user=current_user,
     )
-    if not project:
-        raise HTTPException(
-            status_code=400,
-            detail="Failed to create project, please check the input data.",
-        )
 
     track_event("project_created", user_id=str(current_user.id))
     return ProjectResponse.model_validate(project)
@@ -90,11 +85,12 @@ def get_project(
     current_user: CurrentUser = Depends(get_required_user),
 ) -> ProjectResponse:
     """Get a single project by ID"""
-    project = project_crud.get(db, id=project_id, user=current_user)
-    if not project:
-        raise HTTPException(
-            status_code=404, detail=f"Project with ID {project_id} not found."
-        )
+    project = project_crud.require(
+        db,
+        project_id,
+        user=current_user,
+        not_found=f"Project with ID {project_id} not found.",
+    )
     return ProjectResponse.model_validate(project)
 
 

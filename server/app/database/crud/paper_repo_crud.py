@@ -80,7 +80,7 @@ class PaperRepoCRUD(CRUDBase[PaperRepo, PaperRepoCreate, PaperRepoUpdate]):
         row: PaperRepo,
         user: Optional[CurrentUser] = None,
         **fields,
-    ) -> Optional[PaperRepo]:
+    ) -> PaperRepo:
         """Apply a status transition (and any accompanying columns)."""
         return self.update(db, db_obj=row, obj_in=PaperRepoUpdate(**fields), user=user)
 
@@ -91,38 +91,34 @@ class PaperRepoCRUD(CRUDBase[PaperRepo, PaperRepoCreate, PaperRepoUpdate]):
 
         A read-then-write claim lets two POSTs both decide they own the job
         and then overwrite each other's terminal status. This is a single
-        conditional UPDATE: exactly one caller gets a row back.
+        conditional UPDATE: exactly one caller gets a row back (None = someone
+        else holds it).
         """
         cutoff = datetime.now(timezone.utc) - STALE_INGEST_AFTER
-        try:
-            updated = (
-                db.query(PaperRepo)
-                .filter(
-                    PaperRepo.id == row_id,
-                    or_(
-                        PaperRepo.status.in_(
-                            [RepoStatus.PENDING.value, RepoStatus.ERROR.value]
-                        ),
-                        and_(
-                            PaperRepo.status == RepoStatus.INGESTING.value,
-                            PaperRepo.updated_at < cutoff,
-                        ),
+        updated = (
+            db.query(PaperRepo)
+            .filter(
+                PaperRepo.id == row_id,
+                or_(
+                    PaperRepo.status.in_(
+                        [RepoStatus.PENDING.value, RepoStatus.ERROR.value]
                     ),
-                )
-                .update(
-                    {
-                        PaperRepo.status: RepoStatus.INGESTING.value,
-                        PaperRepo.error: None,
-                        PaperRepo.updated_at: datetime.now(timezone.utc),
-                    },
-                    synchronize_session=False,
-                )
+                    and_(
+                        PaperRepo.status == RepoStatus.INGESTING.value,
+                        PaperRepo.updated_at < cutoff,
+                    ),
+                ),
             )
-            db.commit()
-        except Exception as exc:
-            db.rollback()
-            logger.error("Failed to claim repo ingestion %s: %s", row_id, exc)
-            return None
+            .update(
+                {
+                    PaperRepo.status: RepoStatus.INGESTING.value,
+                    PaperRepo.error: None,
+                    PaperRepo.updated_at: datetime.now(timezone.utc),
+                },
+                synchronize_session=False,
+            )
+        )
+        db.commit()
         if not updated:
             return None
         return db.query(PaperRepo).filter(PaperRepo.id == row_id).first()

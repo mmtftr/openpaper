@@ -16,10 +16,12 @@ from typing import List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database.crud.base_crud import CRUDBase
 from app.database.crud.sanitization import sanitize_for_postgres
+from app.database.errors import NotFound
 from app.database.models import Document, DocumentKind
 from app.schemas.user import CurrentUser
 
@@ -103,20 +105,13 @@ class DocumentCRUD(CRUDBase[Document, DocumentCreate, DocumentUpdate]):
             db.commit()
             db.refresh(doc)
             return doc
-        except Exception as e:
+        except IntegrityError:
             db.rollback()
             # Lost the race against another concurrent create — the existing
             # row is now visible.
             existing = self.get_main_for_paper(db, paper_id=paper_id, user=user)
             if existing is not None:
                 return existing
-            logger.error(
-                "Failed to create MAIN doc for paper %s user %s: %s",
-                paper_id,
-                user.id,
-                e,
-                exc_info=True,
-            )
             raise
 
     def get_by_name_for_paper(
@@ -203,7 +198,7 @@ class DocumentCRUD(CRUDBase[Document, DocumentCreate, DocumentUpdate]):
         """Rename a doc. Title-only — content goes through the revision-checked
         update so concurrent agent writes are safe."""
         if doc.user_id != user.id:
-            raise PermissionError("not your document")
+            raise NotFound("Document not found")
         new_title = (title or "").strip() or "Untitled"
         doc.title = new_title
         db.commit()
@@ -214,7 +209,7 @@ class DocumentCRUD(CRUDBase[Document, DocumentCreate, DocumentUpdate]):
         """Delete a NOTE doc. MAIN docs are not deletable — the route layer
         relies on this to return 400 instead of orphaning the paper's writeup."""
         if doc.user_id != user.id:
-            raise PermissionError("not your document")
+            raise NotFound("Document not found")
         if str(doc.kind) == DocumentKind.MAIN.value:
             raise ValueError("cannot delete the main doc")
         db.delete(doc)
@@ -237,8 +232,8 @@ class DocumentCRUD(CRUDBase[Document, DocumentCreate, DocumentUpdate]):
         """
         if doc.user_id != user.id:
             # Don't expose existence of other users' docs through error
-            # messages. The route layer handles the 404.
-            raise PermissionError("not your document")
+            # messages.
+            raise NotFound("Document not found")
 
         sanitized = sanitize_for_postgres(content)
 

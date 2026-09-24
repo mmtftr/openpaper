@@ -103,7 +103,7 @@ async def discover_search(
                     )
 
                     # Include the search ID in the done chunk
-                    chunk["search_id"] = str(saved.id) if saved else None
+                    chunk["search_id"] = str(saved.id)
 
                 yield f"{json.dumps(chunk)}{END_DELIMITER}"
 
@@ -158,9 +158,7 @@ def discover_get(
     current_user: CurrentUser = Depends(get_required_user),
 ) -> DiscoverSearchRecord:
     """Get a single discover search by ID."""
-    search = discover_search_crud.get_by_id(
-        db, search_id=str(search_id), user=current_user
-    )
+    search = discover_search_crud.get_by_id(db, search_id=search_id, user=current_user)
     if not search:
         raise HTTPException(status_code=404, detail="Search not found")
 

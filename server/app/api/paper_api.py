@@ -196,12 +196,6 @@ def set_paper_status(
         db=db, db_obj=target_paper, obj_in=paper_update, user=current_user
     )
 
-    if not updated_paper:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to update paper status for document ID {paper_id}",
-        )
-
     track_event(
         "paper_status_updated",
         properties={
@@ -246,12 +240,6 @@ def update_paper_fields(
         obj_in={**update_data, "metadata_source": sources},
         user=current_user,
     )
-
-    if not updated_paper:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to update paper fields for document ID {paper_id}",
-        )
 
     track_event(
         "paper_fields_updated",
@@ -436,9 +424,7 @@ def delete_pdf(
         .order_by(IngestStage.paper_id, IngestStage.name)
         .with_for_update(of=IngestStage)
     ).all()
-    removed_paper = paper_crud.remove(db, id=id, user=current_user)
-    if not removed_paper:
-        raise HTTPException(status_code=500, detail="Failed to delete document")
+    paper_crud.remove(db, id=id, user=current_user)
 
     try:
         for prefixes, keys in files:

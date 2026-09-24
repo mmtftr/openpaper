@@ -3,7 +3,7 @@ from typing import List
 from uuid import UUID
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_required_user
@@ -70,29 +70,23 @@ def bulk_add_tags(
     """
     Apply multiple tags to multiple papers.
     """
-    try:
-        paper_tag_crud.bulk_add_tags_to_papers(
-            db,
-            paper_ids=request.paper_ids,
-            tag_ids=request.tag_ids,
-            user=current_user,
-        )
+    paper_tag_crud.bulk_add_tags_to_papers(
+        db,
+        paper_ids=request.paper_ids,
+        tag_ids=request.tag_ids,
+        user=current_user,
+    )
 
-        track_event(
-            "tags_bulk_added_to_papers",
-            properties={
-                "n_papers": len(request.paper_ids),
-                "tag_ids": [str(t_id) for t_id in request.tag_ids],
-            },
-            user_id=str(current_user.id),
-        )
+    track_event(
+        "tags_bulk_added_to_papers",
+        properties={
+            "n_papers": len(request.paper_ids),
+            "tag_ids": [str(t_id) for t_id in request.tag_ids],
+        },
+        user_id=str(current_user.id),
+    )
 
-        return MessageResponse(message="Tags applied successfully.")
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        logger.error(f"Failed to apply tags in bulk: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to apply tags.")
+    return MessageResponse(message="Tags applied successfully.")
 
 
 @paper_tag_router.delete("/papers/{paper_id}/tags/{tag_id}", status_code=204)

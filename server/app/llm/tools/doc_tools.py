@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from app.database.crud.document_crud import RevisionMismatch, document_crud
 from app.database.crud.paper_crud import paper_crud
+from app.database.errors import NotFound
 from app.database.models import DocumentKind
 from app.schemas.user import CurrentUser
 
@@ -249,7 +250,7 @@ def write_doc(
             "current_revision": e.current_revision,
             "current_content": e.current_content,
         }
-    except PermissionError:
+    except NotFound:
         # Defensive — get_by_name_for_paper / get_or_create_main_for_paper
         # already filter by user.
         return {"error": "not your document"}
