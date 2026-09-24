@@ -62,13 +62,17 @@ heartbeat every `HEARTBEAT_INTERVAL_SECONDS`; SIGTERM drains then requeues.
 the `Paper` (+ `source_filename` / `source_url` for the metadata stage) and
 calls `enqueue_paper(..., source_succeeded=True)` in one commit; if that
 commit fails the stored objects are deleted. Paper delete removes the
-`papers/{id}/` prefix plus the old pipeline's keys (`paper_api.delete_pdf`).
+`papers/{id}/` prefix plus the old pipeline's keys (`paper_api.delete_pdf`);
+it locks the paper's `ingest_stages` rows before deleting the paper (the
+worker's lock order), and the engine sweeps the prefix again when a stage
+finishes after the delete. Editing a paper's fields marks them `"user"`.
 
 **Read side** (`content.py`) — what chat, search and the API read instead
 of the legacy `papers.ocr/raw_content/page_offset_map/parser`: `pages()`
 (final `markdown` per page), `full_text()` (pages joined by a blank line +
 per-page offsets), `text_layer()`, `figures()` (document order),
-`resolve_figure()` (row id / Mistral image id / label). `papers.ts_vector`
+`resolve_figure()` (row id first — what the API and chat tools hand out —
+then the legacy Mistral image id, then label). `papers.ts_vector`
 is kept by triggers from the title + pages' markdown (migration
 `ingest_v2_data_20260927`, which also copied the existing papers).
 

@@ -90,7 +90,13 @@ refers to their exact keys.
 - Failure → the shared classifier (§6): temporary → requeue with backoff
   (5 s, 30 s, 2 min, 10 min); rate-limited → requeue at Retry-After;
   permanent or missing config → `failed` with a readable message.
-- Worker start: anything left `running` (crash) goes back to `queued`.
+- Worker start: anything left `running` (crash) goes back to `queued`; every
+  30 s the same happens to `running` rows the worker has no task for.
+- An outcome write retries while the DB is unreachable (up to 60 s, then the
+  result is dropped and the row is requeued by that check). A crashed CPU
+  child (segfault/OOM) replaces the process pool and counts as a temporary
+  failure. A stage finishing after its paper was deleted sweeps
+  `papers/{id}/` (it may have uploaded after the delete).
 - API: retry a failed/blocked stage; reprocess a finished stage (resets it and
   everything downstream). Not allowed while that part of the graph is running.
 
