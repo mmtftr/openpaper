@@ -337,7 +337,9 @@ def get_pdf(
 
     try:
         if should_check_doi and is_cache_stale:
-            doi = get_doi(str(paper.title), list(paper.authors) if paper.authors else None)  # type: ignore
+            doi = get_doi(
+                str(paper.title), list(paper.authors) if paper.authors else None
+            )  # type: ignore
             if doi:
                 paper_crud.update(
                     db=db, db_obj=paper, obj_in=PaperUpdate(doi=doi), user=current_user

@@ -305,9 +305,7 @@ class ModelRegistry:
             if config.default_model not in listed_ids:
                 options.insert(0, _default_option(config.default_model))
             for option in options:
-                specs.append(
-                    _build_spec(option.id, option.name, provider, overrides)
-                )
+                specs.append(_build_spec(option.id, option.name, provider, overrides))
 
         env_default = os.getenv("DEFAULT_LLM_PROVIDER", LLMProvider.OPENAI.value)
         try:
@@ -358,9 +356,7 @@ class ModelRegistry:
         config = self._configs.get(target)
         if config is None:
             raise ValueError(f"Provider '{target.value}' is not configured")
-        wanted = (
-            config.fast_model if role == ModelRole.FAST else config.default_model
-        )
+        wanted = config.fast_model if role == ModelRole.FAST else config.default_model
         spec = self._by_key.get((target, wanted))
         if spec is None:
             # Role model not in the advertised list — still usable; derive.
@@ -378,6 +374,7 @@ class ModelRegistry:
         must release them once the run's streams are closed.
         """
         from app.llm._pai_compat import attach_transport_closer
+
         config = self._configs.get(spec.provider)
         if config is None:
             raise ValueError(f"Provider '{spec.provider.value}' is not configured")
@@ -393,9 +390,7 @@ class ModelRegistry:
                 if spec.api == "responses"
                 else make_openai_chat_model
             )
-            model = maker(
-                spec.id, api_key=config.api_key, base_url=config.base_url
-            )
+            model = maker(spec.id, api_key=config.api_key, base_url=config.base_url)
             return attach_transport_closer(model, model.client.close)
 
         if spec.provider == LLMProvider.ANTHROPIC:

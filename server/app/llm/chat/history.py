@@ -343,8 +343,8 @@ def _replay_sanitizer(spec: Optional[Any]):
 
     `spec=None` means "capabilities unknown": keep the legacy behavior.
     """
-    supports_vision = True if spec is None else bool(
-        getattr(spec, "supports_vision", True)
+    supports_vision = (
+        True if spec is None else bool(getattr(spec, "supports_vision", True))
     )
     target_api = getattr(spec, "api", None) if spec is not None else None
 
@@ -424,9 +424,7 @@ def _prefix_sums(costs: Sequence[int]) -> List[int]:
     return out
 
 
-def _grid_lines(
-    costs: Sequence[int], is_user: Sequence[bool], chunk: int
-) -> List[int]:
+def _grid_lines(costs: Sequence[int], is_user: Sequence[bool], chunk: int) -> List[int]:
     """Fixed boundary candidates for a replay window, oldest first.
 
     Grid line 0 is the start of the conversation. Grid line k (k >= 1) is
@@ -456,9 +454,7 @@ def _grid_lines(
     return lines
 
 
-def _pick_start(
-    lines: Sequence[int], prefix: Sequence[int], end: int, cap: int
-) -> int:
+def _pick_start(lines: Sequence[int], prefix: Sequence[int], end: int, cap: int) -> int:
     """Oldest grid line whose cost through `end` (exclusive) fits `cap`.
 
     `end` itself is the last resort, so `cap = 0` degenerates to an EMPTY
@@ -606,9 +602,7 @@ def load_model_history(
             # Prefer the exact prompt the model saw (includes the user's
             # reference-citation block) when the runtime stored it.
             bucket = getattr(message, "bucket", None) or {}
-            prompt = (
-                bucket.get(MODEL_PROMPT_KEY) if isinstance(bucket, dict) else None
-            )
+            prompt = bucket.get(MODEL_PROMPT_KEY) if isinstance(bucket, dict) else None
             pending_user_text = str(prompt) if prompt else content
         elif message.role == "assistant":
             _flush_pending()

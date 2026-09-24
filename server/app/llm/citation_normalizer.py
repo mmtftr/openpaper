@@ -21,25 +21,90 @@ from typing import Optional
 
 _LATEX_UNICODE = {
     # Greek (lowercase + common uppercase)
-    "alpha": "α", "beta": "β", "gamma": "γ", "delta": "δ", "epsilon": "ε",
-    "zeta": "ζ", "eta": "η", "theta": "θ", "iota": "ι", "kappa": "κ",
-    "lambda": "λ", "mu": "μ", "nu": "ν", "xi": "ξ", "pi": "π",
-    "rho": "ρ", "sigma": "σ", "tau": "τ", "upsilon": "υ", "phi": "φ",
-    "chi": "χ", "psi": "ψ", "omega": "ω",
-    "Alpha": "Α", "Beta": "Β", "Gamma": "Γ", "Delta": "Δ", "Theta": "Θ",
-    "Lambda": "Λ", "Sigma": "Σ", "Phi": "Φ", "Psi": "Ψ", "Omega": "Ω",
+    "alpha": "α",
+    "beta": "β",
+    "gamma": "γ",
+    "delta": "δ",
+    "epsilon": "ε",
+    "zeta": "ζ",
+    "eta": "η",
+    "theta": "θ",
+    "iota": "ι",
+    "kappa": "κ",
+    "lambda": "λ",
+    "mu": "μ",
+    "nu": "ν",
+    "xi": "ξ",
+    "pi": "π",
+    "rho": "ρ",
+    "sigma": "σ",
+    "tau": "τ",
+    "upsilon": "υ",
+    "phi": "φ",
+    "chi": "χ",
+    "psi": "ψ",
+    "omega": "ω",
+    "Alpha": "Α",
+    "Beta": "Β",
+    "Gamma": "Γ",
+    "Delta": "Δ",
+    "Theta": "Θ",
+    "Lambda": "Λ",
+    "Sigma": "Σ",
+    "Phi": "Φ",
+    "Psi": "Ψ",
+    "Omega": "Ω",
     # Common operators & relations
-    "in": "∈", "notin": "∉", "subset": "⊂", "supset": "⊃", "cup": "∪",
-    "cap": "∩", "leq": "≤", "geq": "≥", "neq": "≠", "approx": "≈",
-    "sim": "∼", "to": "→", "rightarrow": "→", "leftarrow": "←",
-    "infty": "∞", "partial": "∂", "nabla": "∇", "forall": "∀", "exists": "∃",
-    "times": "×", "cdot": "·", "pm": "±", "mp": "∓", "sum": "∑", "prod": "∏",
-    "int": "∫", "sqrt": "√",
-    "dots": "…", "ldots": "…", "cdots": "…", "vdots": "…", "ddots": "…",
-    "ll": "≪", "gg": "≫", "equiv": "≡", "propto": "∝", "perp": "⊥",
-    "circ": "∘", "star": "⋆", "bullet": "•", "oplus": "⊕", "otimes": "⊗",
-    "Rightarrow": "⇒", "Leftarrow": "⇐", "Leftrightarrow": "⇔",
-    "leftrightarrow": "↔", "mapsto": "↦", "land": "∧", "lor": "∨", "neg": "¬",
+    "in": "∈",
+    "notin": "∉",
+    "subset": "⊂",
+    "supset": "⊃",
+    "cup": "∪",
+    "cap": "∩",
+    "leq": "≤",
+    "geq": "≥",
+    "neq": "≠",
+    "approx": "≈",
+    "sim": "∼",
+    "to": "→",
+    "rightarrow": "→",
+    "leftarrow": "←",
+    "infty": "∞",
+    "partial": "∂",
+    "nabla": "∇",
+    "forall": "∀",
+    "exists": "∃",
+    "times": "×",
+    "cdot": "·",
+    "pm": "±",
+    "mp": "∓",
+    "sum": "∑",
+    "prod": "∏",
+    "int": "∫",
+    "sqrt": "√",
+    "dots": "…",
+    "ldots": "…",
+    "cdots": "…",
+    "vdots": "…",
+    "ddots": "…",
+    "ll": "≪",
+    "gg": "≫",
+    "equiv": "≡",
+    "propto": "∝",
+    "perp": "⊥",
+    "circ": "∘",
+    "star": "⋆",
+    "bullet": "•",
+    "oplus": "⊕",
+    "otimes": "⊗",
+    "Rightarrow": "⇒",
+    "Leftarrow": "⇐",
+    "Leftrightarrow": "⇔",
+    "leftrightarrow": "↔",
+    "mapsto": "↦",
+    "land": "∧",
+    "lor": "∨",
+    "neg": "¬",
 }
 
 
@@ -59,9 +124,7 @@ _BACKSLASH_LETTER = re.compile(r"\\([a-zA-Z]+)(?![a-zA-Z])")
 # with a backslash. pymupdf has the literal char, so drop the backslash.
 _BACKSLASH_PUNCT = re.compile(r"\\([%$&#_{}\[\]~^])")
 _LATEX_BRACES = re.compile(r"\{([^{}]*)\}")
-_HEADING_PREFIX = re.compile(
-    r"^\s*#{1,6}\s+(?:\d+(?:\.\d+)*\s+)?", re.MULTILINE
-)
+_HEADING_PREFIX = re.compile(r"^\s*#{1,6}\s+(?:\d+(?:\.\d+)*\s+)?", re.MULTILINE)
 _BULLET_PREFIX = re.compile(r"^\s*[-*+]\s+", re.MULTILINE)
 _TABLE_PIPE = re.compile(r"\s*\|\s*")
 _TABLE_SEP_ROW = re.compile(r"^\s*[-:|\s]+\s*$", re.MULTILINE)
@@ -86,20 +149,39 @@ _MULTI_WS = re.compile(r"\s+")
 # Curly / typographic punctuation → ASCII. Applied symmetrically to both the
 # OCR-markdown needle and pymupdf haystack so a `'` in one side matches a `'`
 # in the other.
-_PUNCT_FOLD = str.maketrans({
-    "‘": "'", "’": "'", "‚": "'", "‛": "'",
-    "“": '"', "”": '"', "„": '"', "‟": '"',
-    "′": "'", "″": '"',
-    "–": "-", "—": "-", "−": "-",
-    "­": "",  # soft hyphen
-    "​": "", "‌": "", "‍": "",  # zero-width spaces
-    "﻿": "",  # BOM / zero-width no-break space
-    # Bullet / dot variants — pymupdf and Mistral OCR don't agree on which
-    # codepoint to use; fold all to one form so bullet lists align.
-    "·": "•", "∙": "•", "⋅": "•",
-    # Ligatures that pymupdf sometimes emits separately.
-    "ﬁ": "fi", "ﬂ": "fl", "ﬀ": "ff", "ﬃ": "ffi", "ﬄ": "ffl",
-})
+_PUNCT_FOLD = str.maketrans(
+    {
+        "‘": "'",
+        "’": "'",
+        "‚": "'",
+        "‛": "'",
+        "“": '"',
+        "”": '"',
+        "„": '"',
+        "‟": '"',
+        "′": "'",
+        "″": '"',
+        "–": "-",
+        "—": "-",
+        "−": "-",
+        "­": "",  # soft hyphen
+        "​": "",
+        "‌": "",
+        "‍": "",  # zero-width spaces
+        "﻿": "",  # BOM / zero-width no-break space
+        # Bullet / dot variants — pymupdf and Mistral OCR don't agree on which
+        # codepoint to use; fold all to one form so bullet lists align.
+        "·": "•",
+        "∙": "•",
+        "⋅": "•",
+        # Ligatures that pymupdf sometimes emits separately.
+        "ﬁ": "fi",
+        "ﬂ": "fl",
+        "ﬀ": "ff",
+        "ﬃ": "ffi",
+        "ﬄ": "ffl",
+    }
+)
 
 
 def _canonicalize(s: str) -> str:
@@ -131,9 +213,7 @@ def normalize_for_match(s: str) -> str:
     # `\in\mathbb{R}` don't fuse to `\inR` and mask the next \-command.
     s = _LATEX_TYPEFACE_WRAPPER.sub(lambda m: f" {m.group(1)} ", s)
     s = _LATEX_CMD.sub(lambda m: f" {m.group(1)} ", s)
-    s = _BACKSLASH_LETTER.sub(
-        lambda m: _LATEX_UNICODE.get(m.group(1), m.group(1)), s
-    )
+    s = _BACKSLASH_LETTER.sub(lambda m: _LATEX_UNICODE.get(m.group(1), m.group(1)), s)
     # Drop backslash escapes for punctuation: `\%` → `%`, `\$` → `$`, etc.
     s = _BACKSLASH_PUNCT.sub(lambda m: m.group(1), s)
     s = _LATEX_SUBSCRIPT.sub(lambda m: m.group(1), s)
@@ -210,7 +290,7 @@ def find_in_pdf_text(quote: str, page_text: str) -> Optional[str]:
     # Try the needle with a period inserted after a top-level section number.
     sn = _SECTION_NUM_PREFIX.match(needle)
     if sn and "." not in sn.group(1):
-        with_period = f"{sn.group(1)}. {needle[sn.end():]}"
+        with_period = f"{sn.group(1)}. {needle[sn.end() :]}"
         if with_period in haystack:
             return with_period
 

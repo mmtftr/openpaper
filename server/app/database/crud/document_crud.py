@@ -210,9 +210,7 @@ class DocumentCRUD(CRUDBase[Document, DocumentCreate, DocumentUpdate]):
         db.refresh(doc)
         return doc
 
-    def delete_doc(
-        self, db: Session, *, doc: Document, user: CurrentUser
-    ) -> None:
+    def delete_doc(self, db: Session, *, doc: Document, user: CurrentUser) -> None:
         """Delete a NOTE doc. MAIN docs are not deletable — the route layer
         relies on this to return 400 instead of orphaning the paper's writeup."""
         if doc.user_id != user.id:

@@ -143,8 +143,16 @@ def test_history_serves_off_shape_legacy_citations_unvalidated():
     "status,expected",
     [
         (
-            RetryStatus(state="retrying", attempt=2, max_attempts=3, delay_ms=2000, error="429"),
-            {"state": "retrying", "attempt": 2, "maxAttempts": 3, "delayMs": 2000, "error": "429"},
+            RetryStatus(
+                state="retrying", attempt=2, max_attempts=3, delay_ms=2000, error="429"
+            ),
+            {
+                "state": "retrying",
+                "attempt": 2,
+                "maxAttempts": 3,
+                "delayMs": 2000,
+                "error": "429",
+            },
         ),
         (
             RetryStatus(state="retrying", attempt=2, max_attempts=3, delay_ms=2000),

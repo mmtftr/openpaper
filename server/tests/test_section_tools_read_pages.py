@@ -27,18 +27,14 @@ def _mistral_paper(page_texts: List[str]) -> SimpleNamespace:
         id=PAPER_ID,
         parser="mistral",
         ocr={
-            "pages": [
-                {"index": i, "markdown": md} for i, md in enumerate(page_texts)
-            ]
+            "pages": [{"index": i, "markdown": md} for i, md in enumerate(page_texts)]
         },
         raw_content="",
         page_offset_map=None,
     )
 
 
-def _pymupdf_paper(
-    page_texts: List[str], *, str_keys: bool = False
-) -> SimpleNamespace:
+def _pymupdf_paper(page_texts: List[str], *, str_keys: bool = False) -> SimpleNamespace:
     """Flat raw_content plus the 1-indexed offset map, as pymupdf papers store it."""
     offsets: Dict[Any, List[int]] = {}
     cursor = 0

@@ -442,8 +442,6 @@ class ProjectPaper(Base):
     paper = relationship("Paper", back_populates="project_papers")
 
 
-
-
 class RepoStatus(str, Enum):
     PENDING = "pending"
     INGESTING = "ingesting"

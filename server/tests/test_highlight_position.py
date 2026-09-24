@@ -39,17 +39,43 @@ USER_POSITION = {
         _rect(95.9609375, 148.3671875, 720.2318725585938, 174.8671875, 816, 1056, 1),
         _rect(161.3984375, 177.625, 654.492431640625, 204.125, 816, 1056, 1),
     ],
-    "boundingRect": _rect(95.9609375, 148.3671875, 720.2318725585938, 204.125, 816, 1056, 1),
+    "boundingRect": _rect(
+        95.9609375, 148.3671875, 720.2318725585938, 204.125, 816, 1056, 1
+    ),
 }
 
 # Anchored by the jobs service (`jobs/src/highlight_anchor.py`): PDF points,
 # float page dimensions, never `usePdfCoordinates`.
 AI_POSITION = {
     "rects": [
-        _rect(369.1292419433594, 487.31536865234375, 503.9973449707031, 496.221923828125, 612.0, 792.0, 6),
-        _rect(108.0, 498.224365234375, 504.3529968261719, 507.13092041015625, 612.0, 792.0, 6),
+        _rect(
+            369.1292419433594,
+            487.31536865234375,
+            503.9973449707031,
+            496.221923828125,
+            612.0,
+            792.0,
+            6,
+        ),
+        _rect(
+            108.0,
+            498.224365234375,
+            504.3529968261719,
+            507.13092041015625,
+            612.0,
+            792.0,
+            6,
+        ),
     ],
-    "boundingRect": _rect(108.0, 487.31536865234375, 504.3529968261719, 507.13092041015625, 612.0, 792.0, 6),
+    "boundingRect": _rect(
+        108.0,
+        487.31536865234375,
+        504.3529968261719,
+        507.13092041015625,
+        612.0,
+        792.0,
+        6,
+    ),
 }
 
 # A single-rect AI highlight (the most common multi-line count is 2-3, but
@@ -62,7 +88,12 @@ AI_SINGLE_RECT_POSITION = {
 # The client type allows PDF-native coordinates; the reader honours it.
 PDF_COORDS_POSITION = {**AI_SINGLE_RECT_POSITION, "usePdfCoordinates": True}
 
-STORED_SHAPES = [USER_POSITION, AI_POSITION, AI_SINGLE_RECT_POSITION, PDF_COORDS_POSITION]
+STORED_SHAPES = [
+    USER_POSITION,
+    AI_POSITION,
+    AI_SINGLE_RECT_POSITION,
+    PDF_COORDS_POSITION,
+]
 
 
 @pytest.mark.parametrize("stored", STORED_SHAPES)
@@ -83,7 +114,9 @@ def test_use_pdf_coordinates_is_absent_unless_set():
 def test_to_json_drops_an_explicit_null_flag():
     """The client PATCHes back the position it fetched; a null flag must not
     get written into the row."""
-    position = ScaledPosition.model_validate({**USER_POSITION, "usePdfCoordinates": None})
+    position = ScaledPosition.model_validate(
+        {**USER_POSITION, "usePdfCoordinates": None}
+    )
     assert position.to_json() == USER_POSITION
 
 
@@ -94,7 +127,11 @@ def test_to_json_drops_an_explicit_null_flag():
         {"boundingRect": USER_POSITION["boundingRect"]},  # no rects
         {
             **USER_POSITION,
-            "boundingRect": {k: v for k, v in USER_POSITION["boundingRect"].items() if k != "pageNumber"},
+            "boundingRect": {
+                k: v
+                for k, v in USER_POSITION["boundingRect"].items()
+                if k != "pageNumber"
+            },
         },
         {**USER_POSITION, "rects": [{"x1": "left"}]},
     ],

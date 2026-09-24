@@ -179,9 +179,7 @@ async def upload_pdf_from_url(
     )
 
     if not paper_upload_job:
-        raise HTTPException(
-            status_code=500, detail="Failed to create paper upload job"
-        )
+        raise HTTPException(status_code=500, detail="Failed to create paper upload job")
 
     # Get filename from URL
     filename = url.split("/")[-1]
@@ -249,9 +247,7 @@ async def upload_pdf(
     )
 
     if not paper_upload_job:
-        raise HTTPException(
-            status_code=500, detail="Failed to create paper upload job"
-        )
+        raise HTTPException(status_code=500, detail="Failed to create paper upload job")
 
     # Pass file contents and filename instead of the UploadFile object
     background_tasks.add_task(

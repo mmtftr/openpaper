@@ -162,9 +162,7 @@ def _last_user_message(run_input: RequestData) -> UIMessage:
     # Text and data parts only — a FileUIPart would be forwarded to the
     # provider as a fetched/inlined attachment (unbilled, unpersisted).
     message.parts = [
-        part
-        for part in message.parts
-        if isinstance(part, (TextUIPart, DataUIPart))
+        part for part in message.parts if isinstance(part, (TextUIPart, DataUIPart))
     ]
     return message
 
@@ -203,7 +201,10 @@ def _is_duplicate_submission(rows: List[Any], client_message_id: str) -> bool:
         if row.role != "user":
             continue
         bucket = getattr(row, "bucket", None) or {}
-        if isinstance(bucket, dict) and bucket.get(CLIENT_MESSAGE_ID_KEY) == client_message_id:
+        if (
+            isinstance(bucket, dict)
+            and bucket.get(CLIENT_MESSAGE_ID_KEY) == client_message_id
+        ):
             return True
     return False
 
@@ -361,9 +362,7 @@ async def run_paper_chat(
     # A duplicate of a COMPLETED turn is a client retry bug and gets a 409.
     rows, reused_user_row, stale_assistant_row = _plan_trailing_reuse(rows, user_query)
     if _is_duplicate_submission(rows, user_message.id):
-        raise ChatRequestError(
-            "This message was already submitted.", status_code=409
-        )
+        raise ChatRequestError("This message was already submitted.", status_code=409)
     # A retry that resends the text alone must not silently ask a different
     # question: the references are the prompt's evidence block, and the
     # reused row still has them. Prefer the stored prompt verbatim (ground
@@ -472,7 +471,10 @@ async def run_paper_chat(
         # UI alike) shows one turn, not a failure followed by its retry.
         # Non-fatal: `remove` returns None (and rolls back) on failure — the
         # retry is still worth running, it just leaves the old row visible.
-        if message_crud.remove(db, id=stale_assistant_row.id, user=current_user) is None:
+        if (
+            message_crud.remove(db, id=stale_assistant_row.id, user=current_user)
+            is None
+        ):
             logger.warning(
                 "Could not delete failed assistant row %s before retry",
                 stale_assistant_row.id,
@@ -598,9 +600,7 @@ async def run_paper_chat(
                 # provider's prompt-cache prefix breaks on the next turn.
                 # Sandbox output is already bounded at the source (24k chars
                 # per call, 240k per turn — see repo/sandbox.py).
-                bucket[BUCKET_DUMP_KEY] = strip_figure_bytes(
-                    strip_instructions(dump)
-                )
+                bucket[BUCKET_DUMP_KEY] = strip_figure_bytes(strip_instructions(dump))
             assistant_row = message_crud.create(
                 db,
                 obj_in=MessageCreate(
@@ -652,9 +652,7 @@ async def run_paper_chat(
                         message_crud.update(
                             db,
                             db_obj=assistant_row,
-                            obj_in=MessageUpdate(
-                                references={"citations": reconciled}
-                            ),
+                            obj_in=MessageUpdate(references={"citations": reconciled}),
                             user=current_user,
                         )
                     yield DataChunk(
@@ -896,9 +894,7 @@ def _schedule_teardown(coro: Any) -> Optional["asyncio.Task"]:
     forever and they would pile up across disconnects.
     """
     try:
-        task = asyncio.ensure_future(
-            asyncio.wait_for(coro, TEARDOWN_DEADLINE_SECONDS)
-        )
+        task = asyncio.ensure_future(asyncio.wait_for(coro, TEARDOWN_DEADLINE_SECONDS))
     except RuntimeError as exc:  # pragma: no cover - loop already gone
         # Nothing left to schedule on (interpreter/loop shutdown). Do not
         # mask whatever exception is propagating through the caller's
@@ -954,9 +950,7 @@ async def _stop_pump(
                 except BaseException as exc:  # pragma: no cover - defensive
                     logger.warning("Teardown escalation failed: %s", exc)
             try:
-                await asyncio.wait_for(
-                    asyncio.shield(pump_task), PUMP_TEARDOWN_TIMEOUT
-                )
+                await asyncio.wait_for(asyncio.shield(pump_task), PUMP_TEARDOWN_TIMEOUT)
                 return True
             except asyncio.CancelledError:
                 # Ambiguous: either the pump finished (cancelled, which the
@@ -1014,9 +1008,7 @@ async def _close_stream_stack(
         await close_model_transport(model)
 
     if pump_task is not None:
-        stopped = await _stop_pump(
-            pump_task, chunk_queue, escalate=close_transport
-        )
+        stopped = await _stop_pump(pump_task, chunk_queue, escalate=close_transport)
         if not stopped:
             # The pump may still be inside `__anext__` on these very
             # generators. Closing one under active iteration raises
@@ -1026,8 +1018,7 @@ async def _close_stream_stack(
             # already closed (the escalation above), so nothing is left
             # streaming or billing.
             logger.error(
-                "Skipping stream close: chat pump still running (streams "
-                "left to GC)"
+                "Skipping stream close: chat pump still running (streams left to GC)"
             )
             return
     # Both may be None when the failure happened before they were built.

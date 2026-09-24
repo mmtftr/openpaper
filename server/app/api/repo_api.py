@@ -135,7 +135,9 @@ def _mark_checked(session: Session, row: PaperRepo, **fields) -> None:
             return
         logger.warning(
             "Repo status write failed (attempt %d) for row %s: %s",
-            attempt, getattr(row, "id", "?"), fields.get("status"),
+            attempt,
+            getattr(row, "id", "?"),
+            fields.get("status"),
         )
         try:
             session.rollback()
@@ -143,7 +145,8 @@ def _mark_checked(session: Session, row: PaperRepo, **fields) -> None:
             pass
     logger.error(
         "Giving up on repo status write for row %s (%s)",
-        getattr(row, "id", "?"), fields.get("status"),
+        getattr(row, "id", "?"),
+        fields.get("status"),
     )
 
 
@@ -185,7 +188,9 @@ def run_ingestion(paper_id: str, url: str) -> None:
         except Exception as exc:
             logger.error(
                 "Unexpected repo ingestion failure for paper %s: %s",
-                paper_id, exc, exc_info=True,
+                paper_id,
+                exc,
+                exc_info=True,
             )
             _mark_checked(
                 session,
@@ -206,7 +211,8 @@ def run_ingestion(paper_id: str, url: str) -> None:
         if still_there is None:
             logger.info(
                 "Repo row for paper %s disappeared during ingestion; "
-                "discarding the snapshot", paper_id,
+                "discarding the snapshot",
+                paper_id,
             )
             storage.delete_paper_snapshots(paper_id)
             return
@@ -216,7 +222,8 @@ def run_ingestion(paper_id: str, url: str) -> None:
             # snapshot — drop only ours, never the whole paper directory.
             logger.info(
                 "Repo row for paper %s was replaced during ingestion; "
-                "discarding this job's snapshot", paper_id,
+                "discarding this job's snapshot",
+                paper_id,
             )
             storage.delete_snapshot(paper_id, result.commit_sha)
             return
@@ -241,7 +248,10 @@ def run_ingestion(paper_id: str, url: str) -> None:
             logger.warning("Skipping snapshot prune for paper %s: %s", paper_id, exc)
         logger.info(
             "Repo ready for paper %s: %s/%s@%s (%d files)",
-            paper_id, result.owner, result.repo, result.commit_sha[:8],
+            paper_id,
+            result.owner,
+            result.repo,
+            result.commit_sha[:8],
             result.file_count,
         )
     finally:
@@ -437,7 +447,9 @@ def get_repo_file(
         content=content,
         size=size,
         github_url=github_blob_url(
-            str(row.owner or ""), str(row.repo or ""), str(row.commit_sha or ""),
+            str(row.owner or ""),
+            str(row.repo or ""),
+            str(row.commit_sha or ""),
             requested,
         ),
     )

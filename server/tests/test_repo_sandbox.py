@@ -56,9 +56,11 @@ def live_sandbox(snapshot):
 def test_mount_is_readable_and_state_persists(live_sandbox):
     first = _run(live_sandbox, "x = open('/repo/main.py').read()\nprint(len(x))")
     assert first["output"].strip() == str(len(SOURCE))
-    assert first["files"] == []          # raw open() isn't a prelude helper
+    assert first["files"] == []  # raw open() isn't a prelude helper
     # The mount must be passed on EVERY feed — a later read proves it is.
-    second = _run(live_sandbox, "print('MARKER' in x)\nprint(open('/repo/main.py').read()[:5])")
+    second = _run(
+        live_sandbox, "print('MARKER' in x)\nprint(open('/repo/main.py').read()[:5])"
+    )
     assert "True" in second["output"]
 
 
@@ -118,7 +120,9 @@ def test_poisoned_session_is_detected_and_rebuilt(snapshot, monkeypatch):
         # ...and is genuinely fresh: the old variable is gone.
         assert "NameError" in _run(sandbox, "print(marker)")["output"]
         # The mount survives the rebuild (it is re-passed per feed).
-        assert "MARKER" in _run(sandbox, "print(open('/repo/main.py').read())")["output"]
+        assert (
+            "MARKER" in _run(sandbox, "print(open('/repo/main.py').read())")["output"]
+        )
     finally:
         sandbox.close()
 
@@ -148,7 +152,11 @@ def test_full_read_window_fits_in_one_call(tmp_path: Path):
     (root / "big.py").write_text(body, encoding="utf-8")
     snapshot = RepoSnapshot(
         paper_id="66666666-6666-6666-6666-666666666666",
-        owner="o", repo="r", ref="main", commit_sha="a" * 40, root=root,
+        owner="o",
+        repo="r",
+        ref="main",
+        commit_sha="a" * 40,
+        root=root,
         files=[{"path": "big.py", "size": len(body)}],
     )
     sandbox = RepoSandbox(snapshot)
@@ -231,8 +239,8 @@ def test_open_finishing_after_close_releases_its_resources(snapshot, monkeypatch
     monkeypatch.setattr(sandbox_module, "_checkout", lambda pool: _Session())
 
     sandbox = RepoSandbox(snapshot)
-    sandbox.close()        # the turn was torn down first...
-    sandbox._open_sync()   # ...then the executor thread finished opening
+    sandbox.close()  # the turn was torn down first...
+    sandbox._open_sync()  # ...then the executor thread finished opening
     assert released == {"session": True, "mount": True}
     assert sandbox._session is None and sandbox._mount is None
 

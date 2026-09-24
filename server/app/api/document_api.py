@@ -225,9 +225,7 @@ def update_document(
     if len(body.content.encode("utf-8")) > MAX_DOCUMENT_CONTENT_BYTES:
         raise HTTPException(
             status_code=413,
-            detail=(
-                f"Document exceeds {MAX_DOCUMENT_CONTENT_BYTES} byte cap"
-            ),
+            detail=(f"Document exceeds {MAX_DOCUMENT_CONTENT_BYTES} byte cap"),
         )
 
     doc = document_crud.get(db, id=document_id, user=current_user)

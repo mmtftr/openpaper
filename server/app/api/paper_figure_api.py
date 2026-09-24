@@ -93,7 +93,9 @@ def resolve_figure(
     response_class=Response,
     responses={
         200: {
-            "content": {"image/png": {"schema": {"type": "string", "format": "binary"}}},
+            "content": {
+                "image/png": {"schema": {"type": "string", "format": "binary"}}
+            },
             "description": "The figure bitmap. `X-Figure-Label` / `X-Figure-Page` "
             "headers carry its label and page when known.",
         }
@@ -127,9 +129,7 @@ def get_paper_figure(
 
     s3_key = figure.get("s3_key")
     if not s3_key:
-        raise HTTPException(
-            status_code=404, detail="Figure not yet rendered"
-        )
+        raise HTTPException(status_code=404, detail="Figure not yet rendered")
 
     try:
         png_bytes = s3_service.get_object_bytes(str(s3_key))

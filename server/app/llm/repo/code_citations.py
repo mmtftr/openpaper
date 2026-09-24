@@ -280,9 +280,7 @@ def _find_within_lines(
     return None
 
 
-def _match_anchored_at(
-    lines: List[str], text: str, start: int
-) -> Optional[int]:
+def _match_anchored_at(lines: List[str], text: str, start: int) -> Optional[int]:
     """If `text` starts exactly at line `start`, return its END line.
 
     Used for the gutter hint: the model quoted `read()` output, so the line
@@ -354,9 +352,7 @@ def verify_code_citation(
             continue
         end_line = _match_anchored_at(lines, text, hint)
         if end_line is not None:
-            return _verified(
-                out, snapshot, hint, end_line, matched_via="line-numbered"
-            )
+            return _verified(out, snapshot, hint, end_line, matched_via="line-numbered")
 
     # Abridged quote ("head of the span ..."): verify the head alone. The
     # claimed range is kept when the head sits at its start — the elision
@@ -388,15 +384,16 @@ def verify_code_citation(
             continue
         end_position = min(position + len(candidate) - 1, len(owners) - 1)
         return _verified(
-            out, snapshot, owners[position], owners[end_position],
+            out,
+            snapshot,
+            owners[position],
+            owners[end_position],
             matched_via="elided-repaired",
         )
     return _unverified(out, snapshot)
 
 
-def _clamped_range(
-    citation: Dict[str, Any], total: int
-) -> Tuple[Optional[int], int]:
+def _clamped_range(citation: Dict[str, Any], total: int) -> Tuple[Optional[int], int]:
     try:
         start = int(citation.get("start_line") or 0)
     except (TypeError, ValueError):

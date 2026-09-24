@@ -396,9 +396,7 @@ class RepoPrelude:
                         out, self._scanned_bytes, files_with_hits, hits
                     )
                 try:
-                    if compiled.search(
-                        line, timeout=min(GREP_LINE_TIMEOUT, remaining)
-                    ):
+                    if compiled.search(line, timeout=min(GREP_LINE_TIMEOUT, remaining)):
                         matched.append(index)
                 except TimeoutError:
                     if self._deadline - time.monotonic() <= 0:
@@ -446,9 +444,8 @@ class RepoPrelude:
                     return "\n".join(out)
 
         if not out:
-            return (
-                f"grep: no matches for {pattern_text!r} under {path}"
-                + (f" (glob={glob})" if suffix else "")
+            return f"grep: no matches for {pattern_text!r} under {path}" + (
+                f" (glob={glob})" if suffix else ""
             )
         return "\n".join(out) + f"\n[{hits} matches in {files_with_hits} files]"
 
@@ -462,9 +459,7 @@ def _clamp_grep_line(text: str) -> str:
     return text[:GREP_MAX_LINE_CHARS] + " …[line truncated]"
 
 
-def _budget_message(
-    out: List[str], scanned: int, files: int, hits: int
-) -> str:
+def _budget_message(out: List[str], scanned: int, files: int, hits: int) -> str:
     trip = _TOO_BROAD.format(scanned=scanned, files=files)
     if out:
         return "\n".join(out) + f"\n[{hits} matches so far]\n{trip}"

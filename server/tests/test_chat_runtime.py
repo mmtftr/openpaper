@@ -102,7 +102,9 @@ class TestEvidenceFilter:
         assert _drive(f, chunks) == "ab"
 
     def test_char_by_char_never_leaks_delimiter(self):
-        text = f'Answer.\n\n{EVIDENCE_START}\n@cite[1|page=2]\n"quote"\n{EVIDENCE_END}\n'
+        text = (
+            f'Answer.\n\n{EVIDENCE_START}\n@cite[1|page=2]\n"quote"\n{EVIDENCE_END}\n'
+        )
         f = EvidenceFilter()
         emitted = _drive(f, list(text))
         assert "---" not in emitted
@@ -134,8 +136,7 @@ class TestEvidenceFilter:
     def test_multiple_blocks(self):
         f = EvidenceFilter()
         text = (
-            f"one{EVIDENCE_START}a{EVIDENCE_END}"
-            f"two{EVIDENCE_START}b{EVIDENCE_END}three"
+            f"one{EVIDENCE_START}a{EVIDENCE_END}two{EVIDENCE_START}b{EVIDENCE_END}three"
         )
         assert _drive(f, [text]) == "onetwothree"
 
@@ -332,17 +333,15 @@ class TestExtractCitations:
 
     def test_multiline_quote_is_joined(self):
         text = (
-            f"{EVIDENCE_START}\n"
-            '@cite[1|page=1]\n"line one\nline two"\n'
-            f"{EVIDENCE_END}"
+            f'{EVIDENCE_START}\n@cite[1|page=1]\n"line one\nline two"\n{EVIDENCE_END}'
         )
         cits = extract_citations(text)
         assert cits[0]["reference"] == '"line one line two"'
 
     def test_duplicate_keys_keep_first(self):
         text = (
-            f"{EVIDENCE_START}\n@cite[1]\n\"A\"\n{EVIDENCE_END}"
-            f"{EVIDENCE_START}\n@cite[1]\n\"B\"\n@cite[2]\n\"C\"\n{EVIDENCE_END}"
+            f'{EVIDENCE_START}\n@cite[1]\n"A"\n{EVIDENCE_END}'
+            f'{EVIDENCE_START}\n@cite[1]\n"B"\n@cite[2]\n"C"\n{EVIDENCE_END}'
         )
         cits = extract_citations(text)
         assert [(c["key"], c["reference"]) for c in cits] == [
@@ -521,7 +520,9 @@ class TestLoadModelHistory:
     def test_zero_window_degrades_everything(self):
         rows = [
             _row("user", "q1"),
-            _row("assistant", "a1-text", bucket=_bucketed(_simple_turn_dump("q1", "a1"))),
+            _row(
+                "assistant", "a1-text", bucket=_bucketed(_simple_turn_dump("q1", "a1"))
+            ),
         ]
         history = load_model_history(rows, replay_chars=0)
         assert len(history) == 2
@@ -562,9 +563,7 @@ class TestLoadModelHistory:
         for i in range(6):
             rows.append(_row("user", f"q{i}" + "Q" * 500))
             rows.append(_row("assistant", f"a{i}" + "A" * 500))
-        history = load_model_history(
-            rows, replay_chars=0, text_chars=0, text_chunk=1
-        )
+        history = load_model_history(rows, replay_chars=0, text_chars=0, text_chunk=1)
         texts = [
             p.content
             for m in history
@@ -619,13 +618,17 @@ class TestLoadModelHistory:
                 ModelRequest(parts=[UserPromptPart(content="q")]),
                 ModelResponse(
                     parts=[
-                        ToolCallPart(tool_name="read_pages", args={"start": 1}, tool_call_id="t")
+                        ToolCallPart(
+                            tool_name="read_pages", args={"start": 1}, tool_call_id="t"
+                        )
                     ]
                 ),
                 ModelRequest(
                     parts=[
                         RetryPromptPart(
-                            content="missing end", tool_name="read_pages", tool_call_id="t"
+                            content="missing end",
+                            tool_name="read_pages",
+                            tool_call_id="t",
                         )
                     ]
                 ),
@@ -634,9 +637,7 @@ class TestLoadModelHistory:
         )
         rows = [_row("user", "q"), _row("assistant", "done", bucket=_bucketed(dump))]
         history = load_model_history(rows)
-        assert any(
-            isinstance(p, RetryPromptPart) for m in history for p in m.parts
-        )
+        assert any(isinstance(p, RetryPromptPart) for m in history for p in m.parts)
 
 
 # =====================================================================
@@ -904,9 +905,7 @@ class TestSandboxOutputsArePersistedWhole:
 
 def _spec(*, supports_vision: bool = True, api: str = "responses") -> SimpleNamespace:
     """Minimal stand-in for the ModelSpec the runtime passes to replay."""
-    return SimpleNamespace(
-        id="test-model", supports_vision=supports_vision, api=api
-    )
+    return SimpleNamespace(id="test-model", supports_vision=supports_vision, api=api)
 
 
 class TestVisionAwareReplay:
@@ -979,9 +978,7 @@ class TestVisionAwareReplay:
             fetched.append(key)
             return self.IMAGE_BYTES
 
-        monkeypatch.setattr(
-            history_module.s3_service, "get_object_bytes", fake_get
-        )
+        monkeypatch.setattr(history_module.s3_service, "get_object_bytes", fake_get)
 
     def _binary_parts(self, history) -> List[Any]:
         from pydantic_ai.messages import BinaryContent
@@ -1023,8 +1020,7 @@ class TestVisionAwareReplay:
             part
             for message in history
             for part in message.parts
-            if isinstance(part, UserPromptPart)
-            and isinstance(part.content, list)
+            if isinstance(part, UserPromptPart) and isinstance(part.content, list)
         ]
         assert prompts, "the figure's user-prompt part disappeared"
         assert prompts[0].content == [IMAGE_PLACEHOLDER]
@@ -1155,7 +1151,9 @@ class TestResponsesReasoningIdsOnChatModels:
 
 class TestStripReplayedImages:
     def test_figure_binary_is_replaced_in_place(self):
-        dump = [{"content": [{"kind": "binary", "media_type": "image/png", "data": "x"}]}]
+        dump = [
+            {"content": [{"kind": "binary", "media_type": "image/png", "data": "x"}]}
+        ]
         assert strip_replayed_images(dump) == [{"content": [IMAGE_PLACEHOLDER]}]
 
     def test_image_url_is_replaced(self):
@@ -1242,9 +1240,7 @@ class TestStripReplayedImagesRoundTrips:
                 ModelResponse(
                     parts=[
                         FilePart(
-                            content=BinaryImage(
-                                data=b"\x89PNG", media_type="image/png"
-                            )
+                            content=BinaryImage(data=b"\x89PNG", media_type="image/png")
                         ),
                         TextPart(content="here is the chart"),
                     ]
@@ -1305,7 +1301,10 @@ class TestFigureBudgetAccounting:
                 ]
             )
         )
-        return [_row("user", "q1"), _row("assistant", "a1-text", bucket=_bucketed(dump))]
+        return [
+            _row("user", "q1"),
+            _row("assistant", "a1-text", bucket=_bucketed(dump)),
+        ]
 
     def _patch_sizes(self, monkeypatch, size_kb):
         from app.llm.chat import history as history_module
@@ -1368,9 +1367,7 @@ class TestFigureBudgetAccounting:
             "get_file_size_in_kb",
             lambda key: looked_up.append(key) or 500,
         )
-        load_model_history(
-            self._figure_rows(), spec=_spec(supports_vision=False)
-        )
+        load_model_history(self._figure_rows(), spec=_spec(supports_vision=False))
         assert looked_up == []
 
 
@@ -1390,12 +1387,20 @@ class TestSerializeUIMessages:
         assert len(out) == 1
         assert out[0]["id"] == rid
         assert out[0]["role"] == "user"
-        assert out[0]["parts"] == [{"type": "text", "text": "hi there", "state": "done"}]
+        assert out[0]["parts"] == [
+            {"type": "text", "text": "hi there", "state": "done"}
+        ]
         assert "bucket" not in out[0]
 
     def test_user_row_with_references(self):
         out = serialize_ui_messages(
-            [_row("user", "hi", references={"citations": [{"key": 1, "reference": "x"}]})]
+            [
+                _row(
+                    "user",
+                    "hi",
+                    references={"citations": [{"key": 1, "reference": "x"}]},
+                )
+            ]
         )
         assert _parts_by_type(out[0]) == ["text", "data-citations"]
         assert out[0]["parts"][1]["id"] == "citations"
@@ -1489,9 +1494,7 @@ class TestSerializeUIMessages:
     def test_dump_user_message_is_dropped(self):
         dump = _simple_turn_dump("the user prompt", "a")
         out = serialize_ui_messages([_row("assistant", "a", bucket=_bucketed(dump))])
-        assert all(
-            "the user prompt" not in json.dumps(p) for p in out[0]["parts"]
-        )
+        assert all("the user prompt" not in json.dumps(p) for p in out[0]["parts"])
 
     def test_corrupt_dump_falls_back_to_text(self):
         out = serialize_ui_messages(
@@ -1658,9 +1661,7 @@ class TestPlanTrailingReuse:
             "partial",
             bucket={"interrupted": True, "error": {"message": "boom"}},
         )
-        history, reused, stale = self._plan(
-            [old_user, old_assistant, user, failed]
-        )
+        history, reused, stale = self._plan([old_user, old_assistant, user, failed])
         assert history == [old_user, old_assistant]
         assert (reused, stale) == (user, failed)
 
@@ -1669,7 +1670,9 @@ class TestPlanTrailingReuse:
         disconnect after the answer completed) — deleting it would destroy a
         real answer, so the resubmission starts a fresh turn instead."""
         user = _row("user", self.QUESTION)
-        stopped = _row("assistant", "a real, complete answer", bucket={"interrupted": True})
+        stopped = _row(
+            "assistant", "a real, complete answer", bucket={"interrupted": True}
+        )
         rows = [user, stopped]
         assert self._plan(rows) == (rows, None, None)
 
@@ -1722,9 +1725,7 @@ class TestFamilyDefaults:
             "supports_prompt_cache_key": True,
         }
 
-    @pytest.mark.parametrize(
-        "provider", [LLMProvider.ANTHROPIC, LLMProvider.GEMINI]
-    )
+    @pytest.mark.parametrize("provider", [LLMProvider.ANTHROPIC, LLMProvider.GEMINI])
     def test_native_providers(self, provider):
         assert _family_defaults(provider, "claude-sonnet-5") == {"api": "native"}
 
@@ -1736,9 +1737,7 @@ class TestKnownCapsAndOverrides:
         assert spec.supports_vision is True
 
     def test_deepseek_caps(self):
-        spec = _build_spec(
-            "DeepSeek-V4-Flash-0731", "DeepSeek", LLMProvider.OPENAI, {}
-        )
+        spec = _build_spec("DeepSeek-V4-Flash-0731", "DeepSeek", LLMProvider.OPENAI, {})
         assert spec.supports_vision is False
         assert spec.supports_reasoning_effort is False
         assert spec.api == "responses"
@@ -1752,9 +1751,7 @@ class TestKnownCapsAndOverrides:
         assert spec.api == "chat"
 
     def test_gemma_caps(self):
-        spec = _build_spec(
-            "gemma-4-31b-it", "Gemma 4 31B", LLMProvider.GEMINI, {}
-        )
+        spec = _build_spec("gemma-4-31b-it", "Gemma 4 31B", LLMProvider.GEMINI, {})
         assert spec.supports_vision is True
         assert spec.api == "native"
 
@@ -1768,9 +1765,7 @@ class TestKnownCapsAndOverrides:
     def test_model_overrides_env_parsed(self, monkeypatch):
         from app.llm import model_registry as mr
 
-        monkeypatch.setenv(
-            "MODEL_OVERRIDES", json.dumps({"my-model": {"api": "chat"}})
-        )
+        monkeypatch.setenv("MODEL_OVERRIDES", json.dumps({"my-model": {"api": "chat"}}))
         assert mr._env_overrides() == {"my-model": {"api": "chat"}}
 
     def test_model_overrides_invalid_json_ignored(self, monkeypatch, caplog):
@@ -1829,8 +1824,7 @@ class TestResolve:
             == "Proxy shared"
         )
         assert (
-            reg.resolve(LLMProvider.OPENAI, "shared-id").display_name
-            == "OpenAI shared"
+            reg.resolve(LLMProvider.OPENAI, "shared-id").display_name == "OpenAI shared"
         )
 
     def test_id_only_takes_first_in_registry_order(self):
@@ -2034,7 +2028,7 @@ class TestMangledEvidenceMarkerFallback:
     and the streaming filter, so citations survive marker mangling."""
 
     MANGLED = (
-        'The answer is X [^1].\n\n---\n\n**EVIDENCE**\n'
+        "The answer is X [^1].\n\n---\n\n**EVIDENCE**\n"
         '@cite[1|page=5]\n"the quote"\n---END-EVIDENCE---'
     )
 
@@ -2048,7 +2042,9 @@ class TestMangledEvidenceMarkerFallback:
 
     def test_stream_filter_suppresses_from_cite_line(self):
         f = EvidenceFilter()
-        out = "".join([f.push(self.MANGLED[i : i + 5]) for i in range(0, len(self.MANGLED), 5)])
+        out = "".join(
+            [f.push(self.MANGLED[i : i + 5]) for i in range(0, len(self.MANGLED), 5)]
+        )
         out += f.flush()
         # The mangled header already streamed by trigger time — only the
         # citation block itself must be suppressed.
@@ -2061,7 +2057,7 @@ class TestMangledEvidenceMarkerFallback:
         assert (f.push(text) + f.flush()) == text
 
     def test_trailing_cite_line_at_eos_is_suppressed(self):
-        text = 'answer\n@cite[2|page=4]'
+        text = "answer\n@cite[2|page=4]"
         assert strip_evidence_blocks(text) == "answer"
         f = EvidenceFilter()
         assert (f.push(text) + f.flush()).strip() == "answer"

@@ -90,7 +90,7 @@ class MessageCRUD(CRUDBase[Message, MessageCreate, MessageUpdate]):
         conversation_id: UUID,
         current_user: CurrentUser,
         page: int = 1,
-        page_size: int = 10
+        page_size: int = 10,
     ) -> list[Message]:
         """
         Get messages for a conversation:
@@ -137,7 +137,7 @@ class MessageCRUD(CRUDBase[Message, MessageCreate, MessageUpdate]):
         *,
         conversation_id: UUID,
         current_user: CurrentUser,
-        gap: int = 10
+        gap: int = 10,
     ) -> None:
         """
         Resequence all messages in a conversation with specified gaps

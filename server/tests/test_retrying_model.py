@@ -146,7 +146,9 @@ class _Harness:
     def stream(self, consume=None):
         async def run():
             async with self.model.request_stream(
-                [], None, None  # type: ignore[arg-type]
+                [],
+                None,
+                None,  # type: ignore[arg-type]
             ) as response:
                 if consume is not None:
                     await consume(response)
@@ -204,7 +206,9 @@ class TestIsRetryable:
 
     def test_other_unexpected_model_behavior_is_not_retryable(self):
         """Deterministic misbehavior would just cost 3x."""
-        assert is_retryable(UnexpectedModelBehavior("Exceeded maximum retries")) is False
+        assert (
+            is_retryable(UnexpectedModelBehavior("Exceeded maximum retries")) is False
+        )
         assert is_retryable(UnexpectedModelBehavior("Invalid JSON")) is False
 
     def test_content_filter_error_is_not_retryable(self):
@@ -221,9 +225,7 @@ class TestRetryAfter:
         assert retry_after_seconds(_http_error(429, headers={"retry-after": "7"})) == 7
 
     def test_seconds_header_from_httpx_response(self):
-        error = _http_error(
-            429, headers={"retry-after": "4"}, httpx_response=True
-        )
+        error = _http_error(429, headers={"retry-after": "4"}, httpx_response=True)
         assert retry_after_seconds(error) == 4
 
     def test_millisecond_header_wins(self):
@@ -233,13 +235,17 @@ class TestRetryAfter:
     def test_http_date_form_is_parsed(self):
         """RFC 9110 allows a date instead of a delta, and providers send it."""
         when = datetime.now(timezone.utc) + timedelta(seconds=42)
-        error = _http_error(429, headers={"retry-after": format_datetime(when, usegmt=True)})
+        error = _http_error(
+            429, headers={"retry-after": format_datetime(when, usegmt=True)}
+        )
         delay = retry_after_seconds(error)
         assert delay is not None and 40 <= delay <= 43
 
     def test_http_date_in_the_past_is_ignored(self):
         when = datetime.now(timezone.utc) - timedelta(seconds=30)
-        error = _http_error(429, headers={"retry-after": format_datetime(when, usegmt=True)})
+        error = _http_error(
+            429, headers={"retry-after": format_datetime(when, usegmt=True)}
+        )
         assert retry_after_seconds(error) is None
 
     def test_unparseable_header_is_ignored(self):
@@ -370,7 +376,9 @@ class TestRequestRetries:
         assert harness.sleeps == [6.0, MAX_BACKOFF_SECONDS]
 
     def test_retry_after_smaller_than_backoff_is_ignored(self):
-        wrapped = FakeModel(request_errors=[_http_error(429, headers={"retry-after": "0.2"})])
+        wrapped = FakeModel(
+            request_errors=[_http_error(429, headers={"retry-after": "0.2"})]
+        )
         harness = _Harness(wrapped)
         harness.call()
         assert harness.sleeps == [1.0]
@@ -496,6 +504,4 @@ class TestRequestStreamRetries:
             def base_url(self) -> str:
                 return "https://example.invalid/v1"
 
-        assert (
-            _Harness(WithBaseUrl()).model.base_url == "https://example.invalid/v1"
-        )
+        assert _Harness(WithBaseUrl()).model.base_url == "https://example.invalid/v1"

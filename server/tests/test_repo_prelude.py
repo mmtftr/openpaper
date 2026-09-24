@@ -26,7 +26,8 @@ def snapshot(tmp_path: Path):
     root = tmp_path / "snap"
     (root / "pipeline").mkdir(parents=True)
     (root / "pipeline" / "run.py").write_text(
-        "\n".join(f"line {i}" for i in range(1, 51)) + "\ndef compute_direction():\n    return 1\n",
+        "\n".join(f"line {i}" for i in range(1, 51))
+        + "\ndef compute_direction():\n    return 1\n",
         encoding="utf-8",
     )
     (root / "README.md").write_text("# Title\n\nsome docs\n", encoding="utf-8")
@@ -186,8 +187,7 @@ def test_helper_budgets_are_per_feed_not_per_call(snapshot):
 
     snapshot.start_call()
     outputs = [
-        snapshot.grep("line", glob="*.py")
-        for _ in range(MAX_HELPER_CALLS_PER_FEED + 5)
+        snapshot.grep("line", glob="*.py") for _ in range(MAX_HELPER_CALLS_PER_FEED + 5)
     ]
     assert any("[budget]" in out for out in outputs)
     # ...and the very next feed starts with a fresh allowance.
@@ -198,7 +198,7 @@ def test_helper_budgets_are_per_feed_not_per_call(snapshot):
 def test_scan_budget_is_shared_between_read_and_grep(snapshot, monkeypatch):
     monkeypatch.setattr("app.llm.repo.prelude.GREP_SCAN_BYTE_BUDGET", 100)
     snapshot.start_call()
-    snapshot.read("/repo/pipeline/run.py")     # 400 bytes per the manifest
+    snapshot.read("/repo/pipeline/run.py")  # 400 bytes per the manifest
     assert "[budget]" in snapshot.read("/repo/README.md")
 
 
@@ -343,7 +343,7 @@ def test_prune_never_deletes_a_live_staging_dir(monkeypatch, tmp_path: Path):
 
     storage.prune_other_snapshots(paper_id, keep)
     assert not stale.exists()
-    assert staging.exists()      # a concurrent ingest is writing here
+    assert staging.exists()  # a concurrent ingest is writing here
 
 
 def test_delete_paper_snapshots_is_total_and_safe(monkeypatch, tmp_path: Path):

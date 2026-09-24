@@ -46,14 +46,18 @@ def _plain_title(value: str) -> str:
 
 
 def _key(value: str) -> str:
-    return "".join(c for c in unicodedata.normalize("NFKC", value).casefold() if c.isalnum())
+    return "".join(
+        c for c in unicodedata.normalize("NFKC", value).casefold() if c.isalnum()
+    )
 
 
 def _title_words(value: str) -> str:
     # Permit numbering/formatting cleanup, but never a newly invented heading.
     value = re.sub(
         r"^(?:(?:Section|Appendix)\s+)?(?:\d+(?:\s*\.\s*\d+)*|[A-Z](?:\.\d+)*)"
-        r"(?:[.):]\s*|\s+)", "", _plain_title(value),
+        r"(?:[.):]\s*|\s+)",
+        "",
+        _plain_title(value),
     )
     return _key(value)
 
@@ -63,7 +67,11 @@ def _top_percent(block: dict, dimensions: dict) -> float | None:
         height = float(dimensions["height"])
         top = float(block["top_left_y"])
         bottom = float(block["bottom_right_y"])
-        if all(math.isfinite(n) for n in (height, top, bottom)) and 0 <= top <= bottom <= height and height > 0:
+        if (
+            all(math.isfinite(n) for n in (height, top, bottom))
+            and 0 <= top <= bottom <= height
+            and height > 0
+        ):
             return round(100 * top / height, 3)
     except (KeyError, TypeError, ValueError, OverflowError):
         pass
@@ -96,7 +104,11 @@ def extract_candidates(paper: Paper) -> list[dict]:
         if not isinstance(markdown, str):
             continue
         blocks = page.get("blocks")
-        blocks = [b for b in blocks if isinstance(b, dict)] if isinstance(blocks, list) else []
+        blocks = (
+            [b for b in blocks if isinstance(b, dict)]
+            if isinstance(blocks, list)
+            else []
+        )
         titles: dict[str, list[dict]] = {}
         junk = set()
         for block in blocks:
@@ -120,11 +132,19 @@ def extract_candidates(paper: Paper) -> list[dict]:
             matching = titles.get(key, [])
             block = matching.pop(0) if matching else {}
             number = re.match(r"^(\d+(?:\.\d+)*|[A-Z](?:\.\d+)+)[.)]?\s", title)
-            level = min(6, number.group(1).count(".") + 1) if number else len(match.group(1))
-            candidates.append({
-                "title": title, "level": level, "page": index + 1,
-                "top_percent": _top_percent(block, dimensions),
-            })
+            level = (
+                min(6, number.group(1).count(".") + 1)
+                if number
+                else len(match.group(1))
+            )
+            candidates.append(
+                {
+                    "title": title,
+                    "level": level,
+                    "page": index + 1,
+                    "top_percent": _top_percent(block, dimensions),
+                }
+            )
     candidates.sort(key=lambda c: c["page"])
     return [dict(candidate_id=i, **candidate) for i, candidate in enumerate(candidates)]
 
@@ -132,7 +152,13 @@ def extract_candidates(paper: Paper) -> list[dict]:
 def _tree(entries: list[dict]) -> list[dict]:
     roots: list[dict] = []
     stack: list[tuple[int, dict]] = []
-    standalone = {"abstract", "acknowledgements", "acknowledgments", "references", "bibliography"}
+    standalone = {
+        "abstract",
+        "acknowledgements",
+        "acknowledgments",
+        "references",
+        "bibliography",
+    }
     for entry in entries:
         node = {k: v for k, v in entry.items() if k != "candidate_id"}
         requested_level = node["level"]
@@ -151,7 +177,9 @@ def _tree(entries: list[dict]) -> list[dict]:
     return roots
 
 
-def validate_selection(candidates: list[dict], selection: OutlineSelection) -> list[dict]:
+def validate_selection(
+    candidates: list[dict], selection: OutlineSelection
+) -> list[dict]:
     """Keep the model's selection and levels, repairing rather than rejecting.
 
     A single bad entry (an out-of-order id, a skipped level, an over-eager
@@ -169,7 +197,9 @@ def validate_selection(candidates: list[dict], selection: OutlineSelection) -> l
             continue
         candidate = candidates[entry.candidate_id]
         level = min(entry.level, previous_level + 1)
-        grounded = _title_words(entry.title) and _title_words(entry.title) == _title_words(candidate["title"])
+        grounded = _title_words(entry.title) and _title_words(
+            entry.title
+        ) == _title_words(candidate["title"])
         title = _plain_title(entry.title) if grounded else candidate["title"]
         selected.append({**candidate, "title": title, "level": level})
         previous_id, previous_level = entry.candidate_id, level
@@ -228,7 +258,9 @@ def _outline_from_candidates(candidates: list[dict]) -> list[dict]:
         )
         return validate_selection(candidates, selection)
     except Exception as exc:
-        logger.warning("Outline cleanup failed; serving OCR headings uncached", exc_info=True)
+        logger.warning(
+            "Outline cleanup failed; serving OCR headings uncached", exc_info=True
+        )
         raise OutlineCleanupUnavailable(fallback) from exc
 
 

@@ -32,9 +32,7 @@ def _registry():
         LLMProvider.CODEX_PROXY: _ProviderConfig(
             "k", "http://proxy/v1", "gpt-6-astra", "gpt-5.4-mini"
         ),
-        LLMProvider.OPENAI: _ProviderConfig(
-            "k", None, "gpt-5.5", "gpt-5.4-mini-azure"
-        ),
+        LLMProvider.OPENAI: _ProviderConfig("k", None, "gpt-5.5", "gpt-5.4-mini-azure"),
     }
     specs = [
         ModelSpec(
@@ -44,7 +42,9 @@ def _registry():
             api="chat",
             supports_reasoning_effort=True,
         ),
-        ModelSpec("gpt-5.5", LLMProvider.OPENAI, "GPT-5.5", supports_reasoning_effort=True),
+        ModelSpec(
+            "gpt-5.5", LLMProvider.OPENAI, "GPT-5.5", supports_reasoning_effort=True
+        ),
         ModelSpec(
             "DeepSeek-V4-Flash-0731",
             LLMProvider.OPENAI,
@@ -167,7 +167,9 @@ def store(monkeypatch):
         )
         return rows[slot]
 
-    monkeypatch.setattr(settings_api, "list_model_slots", lambda db: list(rows.values()))
+    monkeypatch.setattr(
+        settings_api, "list_model_slots", lambda db: list(rows.values())
+    )
     monkeypatch.setattr(settings_api, "get_model_slot", lambda db, slot: rows.get(slot))
     monkeypatch.setattr(settings_api, "set_model_slot", set_model_slot)
     monkeypatch.setattr(settings_api, "get_registry", _registry)
@@ -213,7 +215,11 @@ def test_get_lists_every_slot_with_defaults(client):
 def test_put_sets_then_resets_an_override(client, store):
     resp = client.put(
         "/api/settings/models/discover",
-        json={"provider": "codex_proxy", "model": "gpt-6-astra", "reasoning_effort": "high"},
+        json={
+            "provider": "codex_proxy",
+            "model": "gpt-6-astra",
+            "reasoning_effort": "high",
+        },
     )
     assert resp.status_code == 200
     slot = resp.json()
@@ -235,7 +241,9 @@ def test_put_sets_then_resets_an_override(client, store):
 
 def test_put_invalidates_the_cache(client, monkeypatch):
     invalidated = []
-    monkeypatch.setattr(settings_api, "invalidate_overrides", lambda: invalidated.append(1))
+    monkeypatch.setattr(
+        settings_api, "invalidate_overrides", lambda: invalidated.append(1)
+    )
     client.put("/api/settings/models/chat.title", json={"provider": "codex_proxy"})
     assert invalidated == [1]
 
@@ -250,7 +258,11 @@ def test_put_invalidates_the_cache(client, monkeypatch):
         # DeepSeek has no reasoning effort.
         (
             "discover",
-            {"provider": "openai", "model": "DeepSeek-V4-Flash-0731", "reasoning_effort": "low"},
+            {
+                "provider": "openai",
+                "model": "DeepSeek-V4-Flash-0731",
+                "reasoning_effort": "low",
+            },
             400,
         ),
         ("discover", {"reasoning_effort": "extreme"}, 422),
@@ -273,7 +285,8 @@ def test_get_flags_a_stale_override(client, store):
         updated_at=None,
     )
     slot = next(
-        s for s in client.get("/api/settings/models").json()["slots"]
+        s
+        for s in client.get("/api/settings/models").json()["slots"]
         if s["slot"] == "chat.title"
     )
     assert slot["override_error"]

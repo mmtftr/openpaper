@@ -44,12 +44,25 @@ CHAT_MAX_RETRIES = 0
 
 _AZURE_UNSUPPORTED_STRICT_KEYWORDS = frozenset(
     {
-        "minLength", "maxLength", "pattern", "format",
-        "minimum", "maximum", "multipleOf",
-        "patternProperties", "unevaluatedProperties", "propertyNames",
-        "minProperties", "maxProperties",
-        "unevaluatedItems", "contains", "minContains", "maxContains",
-        "minItems", "maxItems", "uniqueItems",
+        "minLength",
+        "maxLength",
+        "pattern",
+        "format",
+        "minimum",
+        "maximum",
+        "multipleOf",
+        "patternProperties",
+        "unevaluatedProperties",
+        "propertyNames",
+        "minProperties",
+        "maxProperties",
+        "unevaluatedItems",
+        "contains",
+        "minContains",
+        "maxContains",
+        "minItems",
+        "maxItems",
+        "uniqueItems",
     }
 )
 
@@ -214,4 +227,3 @@ async def close_model_transport(model: Optional[Any]) -> None:
         await closer()
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning("Failed to close model transport: %s", exc)
-

@@ -102,20 +102,14 @@ class PaperChatBody(BaseModel):
     llm_provider: Optional[str] = None
     model: Optional[str] = None
     reasoning_effort: Optional[Literal["low", "medium", "high", "xhigh"]] = None
-    context_mode: Optional[
-        Literal["adaptive", "comprehensive", "full", "raw"]
-    ] = None
+    context_mode: Optional[Literal["adaptive", "comprehensive", "full", "raw"]] = None
     # PDF text selections attached by the user. Bounded: they flow into the
     # model prompt.
-    user_references: Optional[list[str]] = Field(
-        default=None, max_length=20
-    )
+    user_references: Optional[list[str]] = Field(default=None, max_length=20)
 
     @field_validator("user_references")
     @classmethod
-    def _cap_reference_length(
-        cls, value: Optional[list[str]]
-    ) -> Optional[list[str]]:
+    def _cap_reference_length(cls, value: Optional[list[str]]) -> Optional[list[str]]:
         if value and any(len(ref) > 5000 for ref in value):
             raise ValueError("Each reference is limited to 5000 characters.")
         return value

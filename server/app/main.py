@@ -41,6 +41,8 @@ logfire.configure(
     service_name="openpaper-server",
     send_to_logfire="if-token-present",
 )
+
+
 def _safe_instrument(label: str, instrument) -> None:
     """Best-effort observability hookup.
 
@@ -129,12 +131,12 @@ app.include_router(settings_router, prefix="/api/settings")
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
     log_config = uvicorn.config.LOGGING_CONFIG  # type: ignore
-    log_config["formatters"]["access"][
-        "fmt"
-    ] = "%(asctime)s - %(levelname)s - %(message)s"
-    log_config["formatters"]["default"][
-        "fmt"
-    ] = "%(asctime)s - %(levelname)s - %(message)s"
+    log_config["formatters"]["access"]["fmt"] = (
+        "%(asctime)s - %(levelname)s - %(message)s"
+    )
+    log_config["formatters"]["default"]["fmt"] = (
+        "%(asctime)s - %(levelname)s - %(message)s"
+    )
     # Set higher log level to see more details
     uvicorn.run(
         "app.main:app",

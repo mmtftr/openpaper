@@ -1,6 +1,6 @@
 """Write the API's OpenAPI schema as JSON (used by the client's `yarn gen:api`).
 
-    uv run python -m app.scripts.export_openapi ../client/src/lib/api/openapi.json
+uv run python -m app.scripts.export_openapi ../client/src/lib/api/openapi.json
 """
 
 import json

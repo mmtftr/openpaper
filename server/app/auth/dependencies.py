@@ -70,7 +70,7 @@ def get_current_user(
 
 
 async def get_required_user(
-    current_user: Annotated[Optional[CurrentUser], Depends(get_current_user)]
+    current_user: Annotated[Optional[CurrentUser], Depends(get_current_user)],
 ) -> CurrentUser:
     """
     Require a logged-in user for protected routes.

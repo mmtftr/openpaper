@@ -130,9 +130,7 @@ def get_tags_for_paper(
     """
     Get all tags for a specific paper.
     """
-    tags = paper_tag_crud.get_tags_for_paper(
-        db, paper_id=paper_id, user=current_user
-    )
+    tags = paper_tag_crud.get_tags_for_paper(db, paper_id=paper_id, user=current_user)
     return [PaperTagResponse.model_validate(t) for t in tags]
 
 

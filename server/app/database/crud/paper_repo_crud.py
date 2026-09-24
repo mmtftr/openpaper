@@ -82,9 +82,7 @@ class PaperRepoCRUD(CRUDBase[PaperRepo, PaperRepoCreate, PaperRepoUpdate]):
         **fields,
     ) -> Optional[PaperRepo]:
         """Apply a status transition (and any accompanying columns)."""
-        return self.update(
-            db, db_obj=row, obj_in=PaperRepoUpdate(**fields), user=user
-        )
+        return self.update(db, db_obj=row, obj_in=PaperRepoUpdate(**fields), user=user)
 
     def claim_for_ingestion(
         self, db: Session, *, row_id: uuid.UUID

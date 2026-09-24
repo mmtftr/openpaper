@@ -11,7 +11,9 @@ SNAPSHOT = Path(__file__).resolve().parents[2] / "client/src/lib/api/openapi.jso
 
 
 def test_client_openapi_snapshot_is_current():
-    assert SNAPSHOT.exists(), "missing client/src/lib/api/openapi.json — run `yarn gen:api`"
+    assert SNAPSHOT.exists(), (
+        "missing client/src/lib/api/openapi.json — run `yarn gen:api`"
+    )
     assert SNAPSHOT.read_text() == openapi_json(), (
         "client/src/lib/api/openapi.json is stale — run `cd client && yarn gen:api`"
     )

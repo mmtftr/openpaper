@@ -219,9 +219,7 @@ def build_code_context(
             total_lines=total,
             body=body,
             selection=selection,
-            truncated=body_cut
-            or selection_cut
-            or _any_line_clamped(lines, 1, total),
+            truncated=body_cut or selection_cut or _any_line_clamped(lines, 1, total),
         )
 
     head_end = min(HEAD_LINES, total)
@@ -278,7 +276,7 @@ def build_quick_question_prompt(
         )
     sections.append(
         f'<file path="{code.file_path}" total_lines="{code.total_lines}"'
-        f"{' truncated=\"true\"' if code.truncated else ''}>\n"
+        f"{' truncated="true"' if code.truncated else ''}>\n"
         f"{code.body}\n</file>"
     )
     sections.append(
@@ -347,9 +345,7 @@ def load_quick_question_code(*, paper_id: str, file_path: str) -> SnapshotFile:
     try:
         from app.database.crud.paper_repo_crud import paper_repo_crud
 
-        row = paper_repo_crud.get_ready_for_paper(
-            session, paper_id=uuid.UUID(paper_id)
-        )
+        row = paper_repo_crud.get_ready_for_paper(session, paper_id=uuid.UUID(paper_id))
     finally:
         session.close()
 
@@ -426,9 +422,7 @@ async def run_quick_question(
     except ValueError as exc:
         raise QuickQuestionError(str(exc), 404)
 
-    snapshot_file = load_quick_question_code(
-        paper_id=paper_id, file_path=file_path
-    )
+    snapshot_file = load_quick_question_code(paper_id=paper_id, file_path=file_path)
     resolved_path = snapshot_file.path
     code = build_code_context(
         snapshot_file.content,

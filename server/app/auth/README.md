@@ -33,6 +33,7 @@ from fastapi import Depends
 from app.auth.dependencies import get_required_user
 from app.schemas.user import CurrentUser
 
+
 @router.get("/protected-route")
 async def protected_route(current_user: CurrentUser = Depends(get_required_user)):
     # Only authenticated users can access this

@@ -101,9 +101,9 @@ def truncate_tool_output(output: Any, cap: int = TOOL_OUTPUT_WIRE_CAP) -> Any:
     if isinstance(output, dict):
         files = output.get("files")
         if isinstance(files, list):
-            marker["files"] = [
-                entry for entry in files if isinstance(entry, str)
-            ][:MAX_TRUNCATED_FILES]
+            marker["files"] = [entry for entry in files if isinstance(entry, str)][
+                :MAX_TRUNCATED_FILES
+            ]
         text = output.get("output")
         if isinstance(text, str):
             return _text_preview(marker, text, cap)
@@ -234,9 +234,9 @@ class EvidenceFilter:
 
                 keep = _held_suffix_len(buf, EVIDENCE_START)
                 for length in range(min(len(buf), len(_CITE_PREFIX) - 1), keep, -1):
-                    if _CITE_PREFIX.startswith(
-                        buf[-length:]
-                    ) and self._line_start_at(buf, len(buf) - length):
+                    if _CITE_PREFIX.startswith(buf[-length:]) and self._line_start_at(
+                        buf, len(buf) - length
+                    ):
                         keep = length
                         break
                 if keep:
@@ -392,7 +392,9 @@ class OpenPaperAdapter(VercelAIAdapter[AgentDepsT, OutputDataT]):
     # (model / conversation / paper) died.
     error_context: Optional[Dict[str, Any]] = None
 
-    def build_event_stream(self) -> UIEventStream[RequestData, BaseChunk, AgentDepsT, OutputDataT]:
+    def build_event_stream(
+        self,
+    ) -> UIEventStream[RequestData, BaseChunk, AgentDepsT, OutputDataT]:
         # `VercelAIAdapter` calls this once from `transform_stream` (the
         # instance that actually sees the run's events) and AGAIN from
         # `encode_stream` (which only needs `encode_event`). Memoize so

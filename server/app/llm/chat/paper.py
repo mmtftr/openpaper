@@ -331,8 +331,8 @@ def _build_system_prompt(
     if mode == "full":
         return base + "\n\n" + FULL_MODE_PRELOAD.format(preloaded_content=preload)
     if mode == "comprehensive":
-        return base + "\n\n" + COMPREHENSIVE_MODE_PRELOAD.format(
-            preloaded_content=preload
+        return (
+            base + "\n\n" + COMPREHENSIVE_MODE_PRELOAD.format(preloaded_content=preload)
         )
     return base + "\n\n" + ADAPTIVE_MODE_PRELOAD.format(preloaded_content=preload)
 
@@ -545,8 +545,7 @@ def build_paper_agent(
                 "Fetch a figure or table by label, such as Figure 2 or "
                 "Table 4. Returns metadata (label, page, caption) "
                 + (
-                    "plus the rendered image so you can read the figure "
-                    "directly. "
+                    "plus the rendered image so you can read the figure directly. "
                     if supports_vision
                     else "— this model doesn't support image input, so "
                     "only the caption/label/page is returned, not the "
@@ -714,9 +713,7 @@ def _resolve_figure_with_image(
         return {"error": f"No figure matching '{label}'"}
     s3_key = figure.get("s3_key")
     if not s3_key:
-        return {
-            "error": f"Figure '{figure.get('label') or label}' is not yet rendered"
-        }
+        return {"error": f"Figure '{figure.get('label') or label}' is not yet rendered"}
     try:
         image_bytes = s3_service.get_object_bytes(str(s3_key))
     except Exception as exc:

@@ -11,7 +11,6 @@ RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 resend.api_key = RESEND_API_KEY
 
 
-
 def load_email_template(template_name: str) -> str:
     """Load HTML email template from templates directory"""
     # Get the directory of the current file

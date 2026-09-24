@@ -167,10 +167,18 @@ def backfill(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Backfill Mistral OCR on existing papers")
-    parser.add_argument("--dry-run", action="store_true", help="List papers without re-OCR'ing")
-    parser.add_argument("--limit", type=int, default=None, help="Cap the number of papers")
-    parser.add_argument("--paper-id", type=str, default=None, help="Backfill a single paper by id")
+    parser = argparse.ArgumentParser(
+        description="Backfill Mistral OCR on existing papers"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="List papers without re-OCR'ing"
+    )
+    parser.add_argument(
+        "--limit", type=int, default=None, help="Cap the number of papers"
+    )
+    parser.add_argument(
+        "--paper-id", type=str, default=None, help="Backfill a single paper by id"
+    )
     args = parser.parse_args()
 
     backfill(

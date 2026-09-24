@@ -116,9 +116,7 @@ def _run_tool(monkeypatch, result: Any) -> Dict[str, Any]:
     monkeypatch.setattr(
         paper_module,
         "track_event",
-        lambda name, properties, **kwargs: events.append(
-            {"name": name, **properties}
-        ),
+        lambda name, properties, **kwargs: events.append({"name": name, **properties}),
     )
 
     def _tool(**kwargs: Any) -> Any:

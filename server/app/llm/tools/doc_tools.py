@@ -77,9 +77,7 @@ def list_docs(
         default_title=MAIN_DOC_NAME,
     )
 
-    docs = document_crud.list_for_paper(
-        db, paper_id=paper_uuid, user=current_user
-    )
+    docs = document_crud.list_for_paper(db, paper_id=paper_uuid, user=current_user)
     return {
         "docs": [
             {

@@ -30,7 +30,9 @@ def test_empty_paper_lists_are_200_not_404(monkeypatch, route):
     monkeypatch.setattr(
         paper_api.paper_crud, "get_multi_uploads_completed", lambda *a, **k: []
     )
-    monkeypatch.setattr(paper_api.paper_crud, "get_top_relevant_papers", lambda *a, **k: [])
+    monkeypatch.setattr(
+        paper_api.paper_crud, "get_top_relevant_papers", lambda *a, **k: []
+    )
     response = _client(paper_api.paper_router, "/api/paper").get(f"/api/paper/{route}")
     assert response.status_code == 200
     assert response.json() == {"papers": []}

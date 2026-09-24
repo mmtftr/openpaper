@@ -90,16 +90,16 @@ def test_github_blob_url_percent_encodes_each_segment():
     [
         ("repo-sha/src/main.py", "src/main.py"),
         ("repo-sha/README.md", "README.md"),
-        ("repo-sha/../../../etc/passwd", None),          # tar slip
-        ("/etc/passwd", None),                            # absolute
-        ("repo-sha/.git/config", None),                   # skipped dir
+        ("repo-sha/../../../etc/passwd", None),  # tar slip
+        ("/etc/passwd", None),  # absolute
+        ("repo-sha/.git/config", None),  # skipped dir
         ("repo-sha/node_modules/pkg/index.js", None),
         ("repo-sha/a/__pycache__/x.pyc", None),
-        ("repo-sha", None),                               # top dir itself
-        ("repo-sha/bad|name.py", None),                   # citation delimiter
+        ("repo-sha", None),  # top dir itself
+        ("repo-sha/bad|name.py", None),  # citation delimiter
         ("repo-sha/bad]name.py", None),
-        ("repo-sha/bad\x01name.py", None),                # control char
-        ("repo-sha/" + "d/" * 200 + "f.py", None),        # absurdly long
+        ("repo-sha/bad\x01name.py", None),  # control char
+        ("repo-sha/" + "d/" * 200 + "f.py", None),  # absurdly long
     ],
 )
 def test_safe_relative_path(name, expected):
@@ -135,12 +135,12 @@ def test_extract_keeps_text_and_drops_the_rest(tmp_path: Path):
         [
             ("r-sha/main.py", "print('hi')\n"),
             ("r-sha/docs/guide.md", "# Guide\n"),
-            ("r-sha/logo.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 40),   # binary ext
-            ("r-sha/blob.dat", b"abc\x00def"),                          # NUL sniff
-            ("r-sha/big.py", "x" * (MAX_FILE_BYTES + 10)),              # oversize
-            ("r-sha/.git/config", "[core]\n"),                          # skip dir
-            ("r-sha/../escape.py", "pwned\n"),                          # tar slip
-            ("r-sha/link.py", "main.py", "symlink"),                    # symlink
+            ("r-sha/logo.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 40),  # binary ext
+            ("r-sha/blob.dat", b"abc\x00def"),  # NUL sniff
+            ("r-sha/big.py", "x" * (MAX_FILE_BYTES + 10)),  # oversize
+            ("r-sha/.git/config", "[core]\n"),  # skip dir
+            ("r-sha/../escape.py", "pwned\n"),  # tar slip
+            ("r-sha/link.py", "main.py", "symlink"),  # symlink
         ]
     )
     files, skipped = _extract_pruned(reader, tmp_path)
@@ -281,6 +281,7 @@ def test_archive_stream_refuses_credentials_and_odd_ports():
         "https://user:pass@objects.githubusercontent.com/pkg",
         "https://objects.githubusercontent.com:8080/pkg",
     ):
+
         def handler(request: httpx.Request, loc=location) -> httpx.Response:
             return httpx.Response(302, headers={"location": loc})
 
@@ -294,9 +295,7 @@ def test_extract_rejects_a_decompression_bomb(tmp_path: Path, monkeypatch):
     """The compressed cap does not bound decompression work: a skipped
     oversize member is still inflated in full to reach the next header."""
     monkeypatch.setattr("app.llm.repo.ingest.MAX_UNCOMPRESSED_BYTES", 5_000)
-    reader = _tarball(
-        [("r-sha/huge.bin", b"\x00" * 20_000), ("r-sha/a.py", "x")]
-    )
+    reader = _tarball([("r-sha/huge.bin", b"\x00" * 20_000), ("r-sha/a.py", "x")])
     with pytest.raises(IngestError, match="expands to more than"):
         _extract_pruned(reader, tmp_path)
 

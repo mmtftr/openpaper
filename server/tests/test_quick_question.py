@@ -46,9 +46,7 @@ SMALL_FILE = "\n".join(f"line {i}" for i in range(1, 21))
 
 
 def test_small_file_is_sent_whole_and_line_numbered():
-    code = build_code_context(
-        SMALL_FILE, file_path="a.py", start_line=3, end_line=5
-    )
+    code = build_code_context(SMALL_FILE, file_path="a.py", start_line=3, end_line=5)
     assert code.truncated is False
     assert code.total_lines == 20
     assert " 1| line 1" in code.body
@@ -78,7 +76,10 @@ def test_end_line_past_eof_is_clamped_not_rejected():
 def test_non_integer_range_is_422():
     with pytest.raises(QuickQuestionError) as excinfo:
         build_code_context(
-            SMALL_FILE, file_path="a.py", start_line="x", end_line=5  # type: ignore[arg-type]
+            SMALL_FILE,
+            file_path="a.py",
+            start_line="x",
+            end_line=5,  # type: ignore[arg-type]
         )
     assert excinfo.value.status_code == 422
 
@@ -103,8 +104,14 @@ def test_large_file_is_windowed_around_the_selection():
     assert f"{HEAD_LINES}| code line {HEAD_LINES}" in code.body
     # The window around the selection is present...
     assert "1500| code line 1500" in code.body
-    assert f"{1500 - WINDOW_CONTEXT_LINES}| code line {1500 - WINDOW_CONTEXT_LINES}" in code.body
-    assert f"{1510 + WINDOW_CONTEXT_LINES}| code line {1510 + WINDOW_CONTEXT_LINES}" in code.body
+    assert (
+        f"{1500 - WINDOW_CONTEXT_LINES}| code line {1500 - WINDOW_CONTEXT_LINES}"
+        in code.body
+    )
+    assert (
+        f"{1510 + WINDOW_CONTEXT_LINES}| code line {1510 + WINDOW_CONTEXT_LINES}"
+        in code.body
+    )
     # ...and the gaps are explicitly marked, not silently dropped.
     assert code.body.count(TRUNCATION_MARKER) == 2
     # Lines outside head and window are gone.
@@ -164,7 +171,9 @@ def test_prompt_delimits_paper_file_selection_and_question():
 
 
 def test_prompt_flags_truncation_to_the_model():
-    code = build_code_context(_big_file(), file_path="b.py", start_line=1500, end_line=1501)
+    code = build_code_context(
+        _big_file(), file_path="b.py", start_line=1500, end_line=1501
+    )
     prompt = build_quick_question_prompt(
         paper_preload="", code=code, question="Explain"
     )
@@ -185,8 +194,13 @@ def ready_snapshot(monkeypatch, tmp_path: Path):
     (tree / "pkg" / "mod.py").write_text(SMALL_FILE, encoding="utf-8")
     storage.write_manifest(
         storage.snapshot_dir(PAPER_ID, SHA),
-        {"owner": "o", "repo": "r", "ref": "main", "commit_sha": SHA,
-         "files": [{"path": "pkg/mod.py", "size": len(SMALL_FILE)}]},
+        {
+            "owner": "o",
+            "repo": "r",
+            "ref": "main",
+            "commit_sha": SHA,
+            "files": [{"path": "pkg/mod.py", "size": len(SMALL_FILE)}],
+        },
     )
     (storage.snapshot_dir(PAPER_ID, SHA) / storage.DONE_MARKER).write_text(
         "ok", encoding="utf-8"
@@ -222,9 +236,7 @@ def test_load_returns_the_file_from_the_snapshot(ready_snapshot):
 
 
 def test_load_tolerates_a_repo_prefixed_path(ready_snapshot):
-    loaded = load_quick_question_code(
-        paper_id=PAPER_ID, file_path="/repo/pkg/mod.py"
-    )
+    loaded = load_quick_question_code(paper_id=PAPER_ID, file_path="/repo/pkg/mod.py")
     assert loaded.path == "pkg/mod.py"
 
 
@@ -267,7 +279,7 @@ def test_a_stray_evidence_block_never_reaches_the_client():
     filter_ = EvidenceFilter()
     visible = filter_.push(
         "The loop normalizes the direction.\n"
-        "---EVIDENCE---\n@cite[1|file=a.py|lines=1-2]\n\"code\"\n---END-EVIDENCE---"
+        '---EVIDENCE---\n@cite[1|file=a.py|lines=1-2]\n"code"\n---END-EVIDENCE---'
     )
     visible += filter_.flush()
     assert "The loop normalizes the direction." in visible
@@ -280,7 +292,12 @@ def test_evidence_stripping_survives_delta_splits():
 
     filter_ = EvidenceFilter()
     out = ""
-    for piece in ["Answer text.", "\n---EVI", "DENCE---\n@cite[1]\n\"x\"\n---END-EV", "IDENCE---"]:
+    for piece in [
+        "Answer text.",
+        "\n---EVI",
+        'DENCE---\n@cite[1]\n"x"\n---END-EV',
+        "IDENCE---",
+    ]:
         out += filter_.push(piece)
     out += filter_.flush()
     assert out.strip() == "Answer text."
@@ -309,7 +326,9 @@ def test_many_long_lines_are_capped_in_total():
     from app.llm.chat.quick_question import CODE_BODY_CHAR_LIMIT, build_code_context
 
     content = "\n".join("y" * 1_500 for _ in range(3000))
-    code = build_code_context(content, file_path="big.py", start_line=1500, end_line=1500)
+    code = build_code_context(
+        content, file_path="big.py", start_line=1500, end_line=1500
+    )
     assert code.truncated is True
     assert len(code.body) <= CODE_BODY_CHAR_LIMIT + 100
 
@@ -679,7 +698,9 @@ def test_the_lookup_slot_is_released_when_the_helper_returns(prelude):
     tools = _tools(prelude)
     assert "1| " in asyncio.run(tools.read_file("/repo/pkg/mod.py", 1, None))
     # Every permit is back: the full pool can be taken without blocking.
-    permits = [qqt._slots.acquire(blocking=False) for _ in range(qqt.MAX_CONCURRENT_LOOKUPS)]
+    permits = [
+        qqt._slots.acquire(blocking=False) for _ in range(qqt.MAX_CONCURRENT_LOOKUPS)
+    ]
     for _ in permits:
         qqt._slots.release()
     assert all(permits)

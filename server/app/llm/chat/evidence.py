@@ -131,9 +131,7 @@ def parse_evidence_block(evidence_text: str) -> list[dict]:
             # Start new citation. Match `@cite[N]`, `@cite[N|page=P]`, or
             # any combination of `page=P` and `paper_id=ID` separated by
             # `|`. `key` is case-insensitive on the leading digit only.
-            match = re.search(
-                r"@cite\[(\d+)((?:\|[^\]]+)*)\]", line, re.IGNORECASE
-            )
+            match = re.search(r"@cite\[(\d+)((?:\|[^\]]+)*)\]", line, re.IGNORECASE)
             if match:
                 number = int(match.group(1))
                 current_citation = {"key": number, "reference": ""}
@@ -369,7 +367,11 @@ async def reconcile_citations(
         return None
 
     family_index = dict(family_index or {})
-    if parent_paper is not None and parent_paper_id and parent_paper_id not in family_index:
+    if (
+        parent_paper is not None
+        and parent_paper_id
+        and parent_paper_id not in family_index
+    ):
         family_index[parent_paper_id] = parent_paper
 
     def _resolve_paper(cit: Dict[str, Any]) -> Tuple[Optional[Paper], Optional[str]]:
@@ -377,9 +379,7 @@ async def reconcile_citations(
         if tagged:
             if str(tagged) in family_index:
                 chosen = family_index[str(tagged)]
-                return chosen, (
-                    str(tagged) if str(tagged) != parent_paper_id else None
-                )
+                return chosen, (str(tagged) if str(tagged) != parent_paper_id else None)
             # Hallucinated / unknown paper_id: leave the citation verbatim
             # rather than rewriting its quote against the WRONG paper's text.
             return None, None
@@ -405,7 +405,10 @@ async def reconcile_citations(
             continue
 
         candidate_paper, supplementary_id = _resolve_paper(cit)
-        if candidate_paper is None or str(getattr(candidate_paper, "parser", "") or "") != "mistral":
+        if (
+            candidate_paper is None
+            or str(getattr(candidate_paper, "parser", "") or "") != "mistral"
+        ):
             out.append(dict(cit))
             continue
 

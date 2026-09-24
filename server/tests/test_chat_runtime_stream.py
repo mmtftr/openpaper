@@ -188,8 +188,9 @@ class _Fixture:
                 # TypeError.
                 return None
 
-        def fake_build_agent(*, model, spec, system_prompt, paper, context_mode,
-                             repo_snapshot):
+        def fake_build_agent(
+            *, model, spec, system_prompt, paper, context_mode, repo_snapshot
+        ):
             fixture.agent_model = model
             return Agent(model, output_type=str, instructions=system_prompt)
 
@@ -206,9 +207,7 @@ class _Fixture:
 
         mp.setattr(runtime_module, "get_registry", lambda: FakeRegistry())
         mp.setattr(runtime_module, "build_paper_agent", fake_build_agent)
-        mp.setattr(
-            runtime_module, "build_paper_chat_context", lambda *a, **k: context
-        )
+        mp.setattr(runtime_module, "build_paper_chat_context", lambda *a, **k: context)
         mp.setattr(
             runtime_module.conversation_crud, "get", lambda *a, **k: conversation
         )
@@ -218,9 +217,7 @@ class _Fixture:
         mp.setattr(
             runtime_module,
             "SessionLocal",
-            lambda: SimpleNamespace(
-                close=lambda: None, get=lambda model, row_id: None
-            ),
+            lambda: SimpleNamespace(close=lambda: None, get=lambda model, row_id: None),
         )
         mp.setattr(
             runtime_module,
@@ -236,7 +233,9 @@ class _Fixture:
             lambda **kwargs: None,
         )
 
-    def stream(self, *, text: str = "why does this work?", message_id: str = "client-1"):
+    def stream(
+        self, *, text: str = "why does this work?", message_id: str = "client-1"
+    ):
         return run_paper_chat(
             db=self.db,
             current_user=self.user,
@@ -367,9 +366,9 @@ class TestRetryStatusOnTheWire:
         assert _parse([retry_chunk])[0]["data"]["state"] == "retrying"
         tail = _parse(rest)
         assert "".join(c["delta"] for c in _of_type(tail, "text-delta")) == ANSWER
-        assert [c["data"]["state"] for c in _of_type(tail, RETRY_STATUS_CHUNK_TYPE)] == [
-            "recovered"
-        ]
+        assert [
+            c["data"]["state"] for c in _of_type(tail, RETRY_STATUS_CHUNK_TYPE)
+        ] == ["recovered"]
         assert model.entries == 2
 
     def test_happy_path_emits_no_retry_chunks(self, monkeypatch):
@@ -399,9 +398,7 @@ class TestFailedTurn:
         finish = _of_type(chunks, "finish")
         assert finish and finish[0]["finishReason"] == "error"
         # Two retries were announced, and never a recovery.
-        states = [
-            c["data"]["state"] for c in _of_type(chunks, RETRY_STATUS_CHUNK_TYPE)
-        ]
+        states = [c["data"]["state"] for c in _of_type(chunks, RETRY_STATUS_CHUNK_TYPE)]
         assert states == ["retrying", "retrying"]
 
     def test_error_is_persisted_on_an_empty_assistant_row(self, monkeypatch):
@@ -682,9 +679,7 @@ class TestReusedUserRowIsMerged:
 
         assert len(fixture.crud.updated) == 1
         _, update = fixture.crud.updated[0]
-        assert update.references == {
-            "citations": [{"key": 1, "reference": "a quote"}]
-        }
+        assert update.references == {"citations": [{"key": 1, "reference": "a quote"}]}
         assert update.bucket["model_prompt"] == f"{question}\n\nEVIDENCE BLOCK"
         # The new submission id still takes effect.
         assert update.bucket["client_message_id"] == "client-1"
@@ -885,9 +880,7 @@ class TestPumpTeardown:
 
         return ImmortalAdapter
 
-    def test_unstoppable_pump_is_abandoned_within_the_budget(
-        self, monkeypatch, caplog
-    ):
+    def test_unstoppable_pump_is_abandoned_within_the_budget(self, monkeypatch, caplog):
         """When the pump cannot be stopped, teardown must still RETURN — and
         must not aclose() generators the pump may still be iterating."""
         closed: List[str] = []

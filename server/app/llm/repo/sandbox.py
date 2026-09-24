@@ -93,8 +93,9 @@ BUSY_MESSAGE = (
 
 # `run_python` feeds can take 25 s. They must NOT share the paper tools'
 # executor, where they would starve every other tool call in the process.
-_sandbox_executor = ThreadPoolExecutor(max_workers=MAX_PROCESSES + 1,
-                                       thread_name_prefix="repo-sandbox")
+_sandbox_executor = ThreadPoolExecutor(
+    max_workers=MAX_PROCESSES + 1, thread_name_prefix="repo-sandbox"
+)
 
 _pool: Optional[Monty] = None
 _pool_lock = threading.Lock()
@@ -479,9 +480,7 @@ def shutdown_pool() -> None:
             _pool = None
 
 
-def load_snapshot(
-    *, paper_id: str, commit_sha: str
-) -> Optional[RepoSnapshot]:
+def load_snapshot(*, paper_id: str, commit_sha: str) -> Optional[RepoSnapshot]:
     """Build a RepoSnapshot from a published manifest, or None if unusable."""
     from app.llm.repo import storage
 

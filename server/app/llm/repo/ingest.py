@@ -58,20 +58,84 @@ DOWNLOAD_TIMEOUT = httpx.Timeout(READ_TIMEOUT, connect=CONNECT_TIMEOUT)
 API_TIMEOUT = httpx.Timeout(20.0, connect=CONNECT_TIMEOUT)
 
 SKIP_DIRS = {
-    ".git", ".github", "__pycache__", ".venv", "venv", "node_modules",
-    ".mypy_cache", ".ruff_cache", ".pytest_cache", "dist", "build",
-    ".idea", ".vscode", "site", "_build", ".tox", "htmlcov", ".next",
-    ".turbo", ".gradle", "target", "vendor",
+    ".git",
+    ".github",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "node_modules",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".pytest_cache",
+    "dist",
+    "build",
+    ".idea",
+    ".vscode",
+    "site",
+    "_build",
+    ".tox",
+    "htmlcov",
+    ".next",
+    ".turbo",
+    ".gradle",
+    "target",
+    "vendor",
 }
 
 BINARY_EXTS = {
-    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".svg", ".pdf",
-    ".zip", ".gz", ".tar", ".bz2", ".xz", ".7z", ".whl", ".so", ".dylib",
-    ".dll", ".exe", ".bin", ".pyc", ".pyo", ".pt", ".pth", ".ckpt", ".onnx",
-    ".safetensors", ".npy", ".npz", ".h5", ".parquet", ".db", ".sqlite",
-    ".woff", ".woff2", ".ttf", ".eot", ".otf", ".mp4", ".mp3", ".wav",
-    ".mov", ".avi", ".jsonl", ".lock", ".ipynb_checkpoints", ".pkl",
-    ".pickle", ".bmp", ".tiff", ".class", ".jar", ".wasm",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".ico",
+    ".svg",
+    ".pdf",
+    ".zip",
+    ".gz",
+    ".tar",
+    ".bz2",
+    ".xz",
+    ".7z",
+    ".whl",
+    ".so",
+    ".dylib",
+    ".dll",
+    ".exe",
+    ".bin",
+    ".pyc",
+    ".pyo",
+    ".pt",
+    ".pth",
+    ".ckpt",
+    ".onnx",
+    ".safetensors",
+    ".npy",
+    ".npz",
+    ".h5",
+    ".parquet",
+    ".db",
+    ".sqlite",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".eot",
+    ".otf",
+    ".mp4",
+    ".mp3",
+    ".wav",
+    ".mov",
+    ".avi",
+    ".jsonl",
+    ".lock",
+    ".ipynb_checkpoints",
+    ".pkl",
+    ".pickle",
+    ".bmp",
+    ".tiff",
+    ".class",
+    ".jar",
+    ".wasm",
 }
 
 # Owner/repo grammar per GitHub's own rules. Deliberately strict: the SSRF
@@ -141,7 +205,12 @@ def parse_repo_url(url: str) -> RepoRef:
     # components are about to be interpolated into a URL and a filesystem
     # path, so assert it rather than trust the regex.
     for component in (owner, repo):
-        if not component or component in {".", ".."} or "/" in component or ".." in component:
+        if (
+            not component
+            or component in {".", ".."}
+            or "/" in component
+            or ".." in component
+        ):
             raise IngestError(f"Invalid repository path component: {component!r}")
     return RepoRef(owner=owner, repo=repo)
 
@@ -184,7 +253,9 @@ def resolve_head(ref: RepoRef) -> Tuple[str, str]:
                 ) from exc
             branch = str(payload.get("default_branch") or "").strip()
             if not branch:
-                raise IngestError(f"Could not determine the default branch of {ref.slug}.")
+                raise IngestError(
+                    f"Could not determine the default branch of {ref.slug}."
+                )
 
             head = client.get(
                 f"{GITHUB_API}/repos/{ref.owner}/{ref.repo}/commits/{branch}",
@@ -296,7 +367,10 @@ def _extract_pruned(
     """Prune while extracting. Returns (files, skip counters)."""
     files: List[Dict[str, Any]] = []
     skipped = {
-        "binary": 0, "oversize": 0, "unsafe_path": 0, "non_regular": 0,
+        "binary": 0,
+        "oversize": 0,
+        "unsafe_path": 0,
+        "non_regular": 0,
         "scanned": 0,
     }
     kept_bytes = 0
@@ -311,9 +385,7 @@ def _extract_pruned(
                     "entries — too large to inspect."
                 )
             if deadline is not None and time.monotonic() > deadline:
-                raise IngestError(
-                    "Repository ingestion took too long and was stopped."
-                )
+                raise IngestError("Repository ingestion took too long and was stopped.")
             # Checked from the member HEADER, before the body is inflated, so
             # a decompression bomb is rejected without doing its work.
             declared_bytes += max(0, int(getattr(member, "size", 0) or 0))
@@ -415,9 +487,7 @@ def open_archive_stream(client: httpx.Client, url: str):
             location = response.headers.get("location", "")
             if not _redirect_allowed(location):
                 host = urlparse(location).hostname or "?"
-                raise IngestError(
-                    f"Refusing to follow archive redirect to {host}."
-                )
+                raise IngestError(f"Refusing to follow archive redirect to {host}.")
             # Release the first response before opening the hop.
             manager.__exit__(None, None, None)
             manager = client.stream("GET", location, follow_redirects=False)
@@ -492,7 +562,12 @@ def ingest_repo(*, paper_id: str, url: str) -> IngestResult:
 
     logger.info(
         "Ingested %s@%s for paper %s: %d files, %d bytes in %.1fs",
-        ref.slug, sha[:8], paper_id, len(files), total_bytes, time.time() - started,
+        ref.slug,
+        sha[:8],
+        paper_id,
+        len(files),
+        total_bytes,
+        time.time() - started,
     )
     return IngestResult(
         owner=ref.owner,
@@ -513,7 +588,11 @@ def _cleanup(tmp_dir: Path) -> None:
 
 
 def github_blob_url(
-    owner: str, repo: str, sha: str, path: str, start: Optional[int] = None,
+    owner: str,
+    repo: str,
+    sha: str,
+    path: str,
+    start: Optional[int] = None,
     end: Optional[int] = None,
 ) -> str:
     """Permalink to the exact bytes we ingested."""

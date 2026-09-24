@@ -296,7 +296,9 @@ def email_verify(
 
     # Set the session cookie on the response
     set_session_cookie(
-        response, token=session.token, expires_at=session.expires_at  # type: ignore
+        response,
+        token=session.token,
+        expires_at=session.expires_at,  # type: ignore
     )
 
     track_event("email_signin_completed", user_id=str(db_user.id))

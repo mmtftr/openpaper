@@ -62,8 +62,7 @@ BUDGET_SPENT = (
 )
 
 LOOKUP_FAILED = (
-    "{tool}: the lookup failed and returned nothing. Answer from what you "
-    "already have."
+    "{tool}: the lookup failed and returned nothing. Answer from what you already have."
 )
 
 DEFAULT_GREP_RESULTS = 30
@@ -138,18 +137,14 @@ class QuickQuestionRepoTools:
     scoped to a single request.
     """
 
-    def __init__(
-        self, prelude: RepoPrelude, *, max_lookups: int = MAX_LOOKUPS
-    ) -> None:
+    def __init__(self, prelude: RepoPrelude, *, max_lookups: int = MAX_LOOKUPS) -> None:
         self._prelude = prelude
         self._max_lookups = max(0, int(max_lookups))
         self._lock = asyncio.Lock()
         # Lookups charged against the budget (telemetry reads this).
         self.calls = 0
 
-    async def _lookup(
-        self, tool: str, fn: Callable[..., str], *args: Any
-    ) -> str:
+    async def _lookup(self, tool: str, fn: Callable[..., str], *args: Any) -> str:
         if self.calls >= self._max_lookups:
             return BUDGET_SPENT.format(max=self._max_lookups)
         self.calls += 1
@@ -193,9 +188,7 @@ class QuickQuestionRepoTools:
         depth = max(1, min(_as_int(max_depth, 3), MAX_TREE_DEPTH))
         return await self._lookup("tree", self._prelude.tree, target, depth)
 
-    async def read_file(
-        self, path: str, start: int, end: Optional[int]
-    ) -> str:
+    async def read_file(self, path: str, start: int, end: Optional[int]) -> str:
         target = str(path or "").strip()
         if not target:
             return "read_file: path is required, e.g. '/repo/pkg/module.py'."
@@ -237,9 +230,7 @@ def _as_int(value: Any, fallback: int) -> int:
         return fallback
 
 
-def register_repo_tools(
-    agent: Agent[Any, str], tools: QuickQuestionRepoTools
-) -> None:
+def register_repo_tools(agent: Agent[Any, str], tools: QuickQuestionRepoTools) -> None:
     """Register the three read-only lookups on a quick-question agent.
 
     `tool_plain` (not `tool`): the quick-question agent has no deps — the

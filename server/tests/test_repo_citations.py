@@ -73,7 +73,7 @@ def test_parse_evidence_block_reads_file_and_lines():
     [
         ("lines=42", (42, 42)),
         ("lines=42-57", (42, 57)),
-        ("lines=57-42", (57, 57)),      # inverted range collapses
+        ("lines=57-42", (57, 57)),  # inverted range collapses
         ("lines=L42-L57", (42, 57)),
         ("lines=abc", (None, None)),
         ("lines=0", (None, None)),
@@ -94,7 +94,7 @@ def test_file_marker_tolerates_the_repo_prefix():
 def test_extract_citations_handles_mixed_page_and_file_citations():
     text = (
         "Prose.\n---EVIDENCE---\n"
-        "@cite[1|page=3]\n\"from the paper\"\n"
+        '@cite[1|page=3]\n"from the paper"\n'
         "@cite[2|file=pipeline/run.py|lines=4-6]\ndef get_refusal_direction(harmful, harmless):\n"
         "---END-EVIDENCE---\n"
     )
@@ -130,7 +130,7 @@ def test_moved_citation_has_its_line_numbers_repaired(snapshot):
     citation = {
         "key": 1,
         "file": "pipeline/run.py",
-        "start_line": 90,       # nowhere near the truth
+        "start_line": 90,  # nowhere near the truth
         "end_line": 95,
         "reference": "return diff / diff.norm()",
     }
@@ -252,12 +252,21 @@ def test_real_code_with_pipes_is_not_mistaken_for_a_gutter(tmp_path: Path):
     (root / "a.py").write_text(source, encoding="utf-8")
     snap = RepoSnapshot(
         paper_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-        owner="o", repo="r", ref="main", commit_sha="c" * 40,
-        root=root, files=[{"path": "a.py", "size": len(source)}],
+        owner="o",
+        repo="r",
+        ref="main",
+        commit_sha="c" * 40,
+        root=root,
+        files=[{"path": "a.py", "size": len(source)}],
     )
     out = verify_code_citation(
-        {"key": 1, "file": "a.py", "start_line": 1, "end_line": 2,
-         "reference": "FLAGS = 1 | 2\nMASK = 3 | 4"},
+        {
+            "key": 1,
+            "file": "a.py",
+            "start_line": 1,
+            "end_line": 2,
+            "reference": "FLAGS = 1 | 2\nMASK = 3 | 4",
+        },
         snap,
     )
     assert out["verified"] is True
@@ -274,8 +283,12 @@ def test_quote_with_json_escaped_inner_quotes_is_matched(tmp_path: Path):
     (root / "a.py").write_text(source, encoding="utf-8")
     snap = RepoSnapshot(
         paper_id="88888888-8888-8888-8888-888888888888",
-        owner="o", repo="r", ref="main", commit_sha="a" * 40,
-        root=root, files=[{"path": "a.py", "size": len(source)}],
+        owner="o",
+        repo="r",
+        ref="main",
+        commit_sha="a" * 40,
+        root=root,
+        files=[{"path": "a.py", "size": len(source)}],
     )
     citation = {
         "key": 1,
@@ -298,12 +311,21 @@ def test_unknown_escapes_are_preserved(tmp_path: Path):
     (root / "a.py").write_text(source, encoding="utf-8")
     snap = RepoSnapshot(
         paper_id="99999999-9999-9999-9999-999999999999",
-        owner="o", repo="r", ref="main", commit_sha="b" * 40,
-        root=root, files=[{"path": "a.py", "size": len(source)}],
+        owner="o",
+        repo="r",
+        ref="main",
+        commit_sha="b" * 40,
+        root=root,
+        files=[{"path": "a.py", "size": len(source)}],
     )
     out = verify_code_citation(
-        {"key": 1, "file": "a.py", "start_line": 1, "end_line": 1,
-         "reference": 'PATTERN = r"\\d+\\s*"'},
+        {
+            "key": 1,
+            "file": "a.py",
+            "start_line": 1,
+            "end_line": 1,
+            "reference": 'PATTERN = r"\\d+\\s*"',
+        },
         snap,
     )
     assert out["verified"] is True
@@ -376,8 +398,13 @@ def test_a_too_short_quote_cannot_verify_an_arbitrary_range(snapshot):
     """An in-bounds line range is not evidence — a one-character quote must
     not earn a trusted permalink for lines nobody checked."""
     out = verify_code_citation(
-        {"key": 1, "file": "pipeline/run.py", "start_line": 2, "end_line": 40,
-         "reference": "x"},
+        {
+            "key": 1,
+            "file": "pipeline/run.py",
+            "start_line": 2,
+            "end_line": 40,
+            "reference": "x",
+        },
         snapshot,
     )
     assert out["verified"] is False
@@ -396,8 +423,13 @@ def test_unknown_file_is_unverified_with_no_link(snapshot):
 
 def test_bare_basename_resolves_when_unambiguous(snapshot):
     out = verify_code_citation(
-        {"key": 1, "file": "run.py", "start_line": 1, "end_line": 1,
-         "reference": "import torch"},
+        {
+            "key": 1,
+            "file": "run.py",
+            "start_line": 1,
+            "end_line": 1,
+            "reference": "import torch",
+        },
         snapshot,
     )
     assert out["file"] == "pipeline/run.py"
@@ -425,14 +457,17 @@ def test_reconciler_handles_code_citations_before_the_page_shortcircuit(snapshot
     """A code citation has no `page`; the legacy short-circuit would have
     passed it through verbatim (unverified, unlinked)."""
     citations = [
-        {"key": 1, "file": "pipeline/run.py", "start_line": 6, "end_line": 6,
-         "reference": "return diff / diff.norm()"},
+        {
+            "key": 1,
+            "file": "pipeline/run.py",
+            "start_line": 6,
+            "end_line": 6,
+            "reference": "return diff / diff.norm()",
+        },
         {"key": 2, "page": None, "reference": "legacy citation"},
     ]
     out = asyncio.run(
-        reconcile_citations(
-            citations, None, family_index={}, repo_snapshot=snapshot
-        )
+        reconcile_citations(citations, None, family_index={}, repo_snapshot=snapshot)
     )
     assert out[0]["verified"] is True
     assert out[0]["github_url"].endswith("#L6")

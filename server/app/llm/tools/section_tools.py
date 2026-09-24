@@ -221,9 +221,7 @@ def render_outline_text(outline: Dict[str, Any]) -> str:
 # --------------------------------------------------------------
 
 
-def _read_section_mistral(
-    paper: Paper, name: str, text_only: bool
-) -> Dict[str, Any]:
+def _read_section_mistral(paper: Paper, name: str, text_only: bool) -> Dict[str, Any]:
     pages = _pages_from_paper(paper)
     if not pages:
         return {"error": "Paper has no parsed pages"}
@@ -297,9 +295,7 @@ def _read_section_mistral(
     return response
 
 
-def _read_section_pymupdf(
-    paper: Paper, name: str, text_only: bool
-) -> Dict[str, Any]:
+def _read_section_pymupdf(paper: Paper, name: str, text_only: bool) -> Dict[str, Any]:
     raw = str(getattr(paper, "raw_content", "") or "")
     if not raw:
         return {"error": "Paper has no raw_content"}
@@ -344,9 +340,7 @@ def _read_section_pymupdf(
     return response
 
 
-def _page_for_offset(
-    page_starts: List[int], offset: int, total_pages: int
-) -> int:
+def _page_for_offset(page_starts: List[int], offset: int, total_pages: int) -> int:
     """Find the 1-indexed page number containing the given absolute offset."""
     for i, start in enumerate(page_starts):
         if i + 1 < len(page_starts) and offset < page_starts[i + 1]:
@@ -366,7 +360,9 @@ def read_section(
     target_paper_id: Optional[str] = None,
     allowed_paper_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    effective_id = _resolve_target_paper_id(paper_id, target_paper_id, allowed_paper_ids)
+    effective_id = _resolve_target_paper_id(
+        paper_id, target_paper_id, allowed_paper_ids
+    )
     paper = _get_paper_or_raise(effective_id, current_user, db, allowed_paper_ids)
     if _is_mistral(paper):
         return _read_section_mistral(paper, name, text_only)
@@ -559,7 +555,9 @@ def read_pages(
     response always says which pages came back (`pages_returned`) and, when
     the cap stopped it early, where to resume (`next_page`).
     """
-    effective_id = _resolve_target_paper_id(paper_id, target_paper_id, allowed_paper_ids)
+    effective_id = _resolve_target_paper_id(
+        paper_id, target_paper_id, allowed_paper_ids
+    )
     paper = _get_paper_or_raise(effective_id, current_user, db, allowed_paper_ids)
 
     if start < 1 or end < start:
@@ -684,8 +682,13 @@ def search_paper(
         return {"error": f"Invalid regex: {e}"}
     try:
         return _search_paper(
-            paper_id, pattern, current_user, db, context_lines,
-            target_paper_id, allowed_paper_ids,
+            paper_id,
+            pattern,
+            current_user,
+            db,
+            context_lines,
+            target_paper_id,
+            allowed_paper_ids,
         )
     except TimeoutError:
         return {
@@ -716,13 +719,19 @@ def _search_paper(
             except ValueError:
                 continue
             all_hits.extend(
-                _search_single_paper(p, pattern, context_lines, paper_id_for_tagging=str(pid))
+                _search_single_paper(
+                    p, pattern, context_lines, paper_id_for_tagging=str(pid)
+                )
             )
         return _cap_hits(all_hits)
 
-    effective_id = _resolve_target_paper_id(paper_id, target_paper_id, allowed_paper_ids)
+    effective_id = _resolve_target_paper_id(
+        paper_id, target_paper_id, allowed_paper_ids
+    )
     paper = _get_paper_or_raise(effective_id, current_user, db, allowed_paper_ids)
-    hits = _search_single_paper(paper, pattern, context_lines, paper_id_for_tagging=None)
+    hits = _search_single_paper(
+        paper, pattern, context_lines, paper_id_for_tagging=None
+    )
     return _cap_hits(hits)
 
 
@@ -751,10 +760,14 @@ def get_figure(
     target_paper_id: Optional[str] = None,
     allowed_paper_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    effective_id = _resolve_target_paper_id(paper_id, target_paper_id, allowed_paper_ids)
+    effective_id = _resolve_target_paper_id(
+        paper_id, target_paper_id, allowed_paper_ids
+    )
     paper = _get_paper_or_raise(effective_id, current_user, db, allowed_paper_ids)
     if not _is_mistral(paper):
-        return {"error": "Figures are unavailable for this paper (parsed in fallback mode)"}
+        return {
+            "error": "Figures are unavailable for this paper (parsed in fallback mode)"
+        }
 
     from app.api.paper_figure_api import resolve_figure
 
