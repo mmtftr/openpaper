@@ -7,6 +7,7 @@ from app.api.annotation_api import annotation_router
 from app.api.api import router
 from app.api.auth_api import auth_router
 from app.api.conversation_api import conversation_router
+from app.api.errors import ERROR_RESPONSES, install_error_handlers
 from app.api.discover_api import discover_router
 from app.api.document_api import document_router
 from app.api.highlight_api import highlight_router
@@ -78,7 +79,9 @@ app = FastAPI(
     title="Open Paper",
     description="A web application for uploading and annotating papers.",
     version="1.0.0",
+    responses=ERROR_RESPONSES,
 )
+install_error_handlers(app)
 _safe_instrument(
     "fastapi",
     lambda: logfire.instrument_fastapi(
