@@ -46,6 +46,7 @@ dependencies = [
     "httpx2==2.13.0",
     "pydantic-monty==0.0.21",
     "regex>=2026.4.4",
+    "pymupdf>=1.25.5",
 ]
 
 [project.scripts]
