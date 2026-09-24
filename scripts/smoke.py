@@ -66,7 +66,7 @@ def mint_session() -> str:
 
 def chat_turn(api: httpx.Client, paper_id: str) -> None:
     t0 = step("chat turn")
-    conv = expect(api.post(f"/api/conversation/paper/{paper_id}", params={"title": "smoke"}), 201).json()
+    conv = expect(api.post(f"/api/conversation/paper/{paper_id}"), 201).json()
     try:
         body = {
             "trigger": "submit-message",
@@ -100,7 +100,15 @@ def chat_turn(api: httpx.Client, paper_id: str) -> None:
             fail(f"empty answer; parts seen: {sorted(k for k in kinds if k)}")
         if "finish" not in kinds:
             fail(f"stream ended without a finish part; parts seen: {sorted(k for k in kinds if k)}")
-        ok(t0, f"{len(answer)} chars, citation={'[^' in answer or '[' in answer}")
+        title = None
+        for _ in range(20):  # the title is generated after the turn
+            title = expect(api.get(f"/api/conversation/{conv['id']}"), 200).json().get("title")
+            if title:
+                break
+            time.sleep(0.5)
+        if not title:
+            fail("conversation title was not generated")
+        ok(t0, f"{len(answer)} chars, title={title!r}")
     finally:
         api.delete(f"/api/conversation/{conv['id']}")
 
