@@ -82,8 +82,16 @@ select = ["E4", "E7", "E9", "F", "I"]
 include = ["app", "tests"]
 venvPath = "."
 venv = ".venv"
-pythonVersion = "3.12"
+pythonVersion = "3.12"  # the Docker image's Python
 typeCheckingMode = "basic"
+# Tests hand SimpleNamespace/None fakes to typed params and rely on asserts
+# rather than narrowing Optionals, so those rules are off under tests/ only.
+# SQLAlchemy 1.x-style `Column` attributes (typed via sqlalchemy2-stubs) get
+# line-level `# pyright: ignore[...]` in app/ until the Phase 5 typed models.
+executionEnvironments = [
+    { root = "tests", reportArgumentType = "none", reportOptionalMemberAccess = "none", reportOptionalSubscript = "none", reportTypedDictNotRequiredAccess = "none", reportSelfClsParameterName = "none" },
+    { root = "app" },
+]
 
 [tool.uv]
 exclude-newer = "2026-09-17T23:59:59Z"

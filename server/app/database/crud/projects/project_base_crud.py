@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 class ProjectBaseCRUD(CRUDBase[ModelType, CreateSchemaType, UpdateSchemaType]):
     def _get_base_query(self, db: Session) -> Query:
-        if self.model == Project:
+        if self.model is Project:
             return db.query(self.model)
         else:
             return db.query(self.model).join(
@@ -83,7 +83,7 @@ class ProjectBaseCRUD(CRUDBase[ModelType, CreateSchemaType, UpdateSchemaType]):
             obj = query.filter(self.model.id == id, Project.owner_id == user.id).first()
 
             if obj:
-                if self.model == Project:
+                if self.model is Project:
                     project_id = obj.id
 
                     db.query(ProjectPaper).filter(

@@ -146,12 +146,14 @@ class _Fixture:
         self.events: List[tuple] = []
         self.user = SimpleNamespace(id=uuid.uuid4())
         self.db = SimpleNamespace(rollback=lambda: None)
-        self.spec = ModelSpec(
+        # Any: some tests swap in a SimpleNamespace spec.
+        self.spec: Any = ModelSpec(
             id="scripted-model",
             provider=LLMProvider.OPENAI,
             display_name="Scripted",
         )
         self.built_models: List[Any] = []
+        self.agent_model: Any = None  # set by the fake build_paper_agent
         self._install()
 
     def _install(self):

@@ -34,7 +34,7 @@ import logging
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from pydantic_ai import Agent, UsageLimits
 from pydantic_ai.ui.vercel_ai.request_types import RequestData
@@ -397,7 +397,7 @@ async def run_quick_question(
     provider: Optional[str],
     model: Optional[str],
     reasoning_effort: Optional[str],
-) -> AsyncIterator[str]:
+) -> AsyncGenerator[str, None]:
     """Validate, run the agent, and yield encoded SSE strings.
 
     Raises QuickQuestionError for every pre-stream failure so the endpoint
@@ -541,14 +541,16 @@ async def run_quick_question(
             pass
         # Close the NATIVE stream directly: closing only the outer protocol
         # generator leaves the provider HTTP stream running (and billing).
+        # (pyright: pydantic-ai types both streams as AsyncIterator; they are
+        # async generators, so aclose() exists.)
         try:
             if native_stream is not None:
-                await native_stream.aclose()
+                await native_stream.aclose()  # pyright: ignore[reportAttributeAccessIssue]
         except BaseException as exc:
             logger.warning("Failed to close quick-question stream: %s", exc)
         try:
             if event_stream is not None:
-                await event_stream.aclose()
+                await event_stream.aclose()  # pyright: ignore[reportAttributeAccessIssue]
         except BaseException:
             # transform_stream yields finish chunks from its `finally`;
             # aclose() reports that as RuntimeError. The native stream is

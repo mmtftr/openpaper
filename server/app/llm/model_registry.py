@@ -32,7 +32,10 @@ import logging
 import os
 from dataclasses import dataclass, fields, replace
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple
+
+if TYPE_CHECKING:
+    from pydantic_ai.settings import ModelSettings
 
 logger = logging.getLogger(__name__)
 
@@ -448,7 +451,7 @@ class ModelRegistry:
         reasoning_effort: Optional[str] = None,
         *,
         cache_key: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Optional[ModelSettings]:
         """ModelSettings for a call, honoring the spec's capabilities.
 
         Every setting is gated INDEPENDENTLY, and an unsupported one is

@@ -161,7 +161,7 @@ def parse_evidence_block(evidence_text: str) -> list[dict]:
                         current_citation["file"] = path.lstrip("/")
                     elif k == "lines" and v:
                         start, end = _parse_line_range(v)
-                        if start is not None:
+                        if start is not None and end is not None:
                             current_citation["start_line"] = start
                             current_citation["end_line"] = end
                 current_text_lines = []

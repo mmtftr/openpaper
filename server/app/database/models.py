@@ -2,9 +2,11 @@ import uuid
 from enum import Enum
 from types import NoneType
 
+# pyright ignores below: SQLAlchemy 2.0 names that the (1.4-era)
+# sqlalchemy2-stubs package, which pyright resolves first, doesn't know.
 from sqlalchemy import (  # type: ignore
     ARRAY,
-    UUID,
+    UUID,  # pyright: ignore[reportAttributeAccessIssue]
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -20,7 +22,7 @@ from sqlalchemy import (  # type: ignore
 )
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import (  # type: ignore
-    DeclarativeBase,
+    DeclarativeBase,  # pyright: ignore[reportAttributeAccessIssue]
     backref,
     foreign,
     relationship,

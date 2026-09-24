@@ -387,7 +387,7 @@ class OpenPaperAdapter(VercelAIAdapter[AgentDepsT, OutputDataT]):
     dirty filter/accumulator state. Build a fresh adapter per request.
     """
 
-    last_event_stream: Optional[OpenPaperEventStream] = None
+    last_event_stream: Optional[OpenPaperEventStream[AgentDepsT, OutputDataT]] = None
     # Forwarded to the event stream so a mid-run failure logs WHICH chat
     # (model / conversation / paper) died.
     error_context: Optional[Dict[str, Any]] = None
@@ -402,7 +402,7 @@ class OpenPaperAdapter(VercelAIAdapter[AgentDepsT, OutputDataT]):
         # otherwise `accumulated_text` is always empty at `on_complete`.
         if self.last_event_stream is not None:
             return self.last_event_stream
-        stream = OpenPaperEventStream(
+        stream: OpenPaperEventStream[AgentDepsT, OutputDataT] = OpenPaperEventStream(
             self.run_input,
             accept=self.accept,
             sdk_version=self.sdk_version,

@@ -33,6 +33,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import (
     Any,
+    AsyncGenerator,
     AsyncIterator,
     Awaitable,
     Callable,
@@ -290,7 +291,7 @@ async def run_paper_chat(
     reasoning_effort: Optional[str],
     context_mode: Optional[str],
     user_references: Optional[List[str]],
-) -> AsyncIterator[str]:
+) -> AsyncGenerator[str, None]:
     """Validate, run the agent, and yield encoded SSE strings.
 
     Raises ChatRequestError for pre-stream validation failures.
@@ -548,7 +549,7 @@ async def run_paper_chat(
         allowed_paper_ids=chat_context.allowed_paper_ids,
         repo_sandbox=repo_sandbox,
     )
-    adapter: OpenPaperAdapter = OpenPaperAdapter(
+    adapter = OpenPaperAdapter(
         agent=agent,
         run_input=run_input,
         accept=accept,

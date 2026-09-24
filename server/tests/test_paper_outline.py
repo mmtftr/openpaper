@@ -2,6 +2,7 @@
 
 import uuid
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
@@ -223,7 +224,7 @@ class FakeOneshot:
         self.error = None
         self.calls = []
 
-    def __call__(self, slot, prompt, *, output_type=str, instructions=None):
+    def __call__(self, slot, prompt, *, output_type: Any = str, instructions=None):
         self.calls.append(
             {
                 "slot": slot,

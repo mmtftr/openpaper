@@ -93,14 +93,14 @@ class RepoFileResponse(BaseModel):
 
 def _serialize(row: PaperRepo) -> RepoStatusResponse:
     return RepoStatusResponse(
-        status=str(row.status or RepoStatus.PENDING.value),
+        status=RepoStatus(row.status or RepoStatus.PENDING.value),
         owner=str(row.owner or ""),
         repo=str(row.repo or ""),
         ref=str(row.ref or ""),
         commit_sha=str(row.commit_sha) if row.commit_sha else None,
         error=str(row.error) if row.error else None,
-        file_count=int(row.file_count) if row.file_count is not None else None,
-        total_bytes=int(row.total_bytes) if row.total_bytes is not None else None,
+        file_count=int(row.file_count) if row.file_count is not None else None,  # pyright: ignore[reportArgumentType]
+        total_bytes=int(row.total_bytes) if row.total_bytes is not None else None,  # pyright: ignore[reportArgumentType]
         updated_at=row.updated_at,  # type: ignore[arg-type]
     )
 
@@ -168,7 +168,7 @@ def run_ingestion(paper_id: str, url: str) -> None:
         if existing is None:
             logger.warning("Repo row vanished before ingestion: paper=%s", paper_id)
             return
-        row = paper_repo_crud.claim_for_ingestion(session, row_id=existing.id)
+        row = paper_repo_crud.claim_for_ingestion(session, row_id=existing.id)  # pyright: ignore[reportArgumentType]
         if row is None:
             logger.info(
                 "Repo ingestion for paper %s already claimed elsewhere", paper_id

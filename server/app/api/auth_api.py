@@ -297,7 +297,7 @@ def email_verify(
     # Set the session cookie on the response
     set_session_cookie(
         response,
-        token=session.token,
+        token=session.token,  # pyright: ignore[reportArgumentType]
         expires_at=session.expires_at,  # type: ignore
     )
 

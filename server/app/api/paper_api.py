@@ -98,9 +98,9 @@ def get_paper_ids(
         papers=[
             LibraryPaper(
                 **_list_item_fields(paper),
-                publish_date=paper.publish_date,
+                publish_date=paper.publish_date,  # pyright: ignore[reportArgumentType]
                 file_url=file_urls.get(str(paper.id)),
-                tags=paper.tags,
+                tags=paper.tags,  # pyright: ignore[reportArgumentType]
             )
             for paper in papers
         ]
@@ -120,7 +120,7 @@ def get_active_paper_ids(
     )
     return ActivePapersResponse(
         papers=[
-            ActivePaper(**_list_item_fields(paper), publish_date=paper.publish_date)
+            ActivePaper(**_list_item_fields(paper), publish_date=paper.publish_date)  # pyright: ignore[reportArgumentType]
             for paper in papers
         ]
     )
@@ -338,7 +338,8 @@ def get_pdf(
     try:
         if should_check_doi and is_cache_stale:
             doi = get_doi(
-                str(paper.title), list(paper.authors) if paper.authors else None
+                str(paper.title),
+                list(paper.authors) if paper.authors else None,  # pyright: ignore[reportArgumentType]
             )  # type: ignore
             if doi:
                 paper_crud.update(

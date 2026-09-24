@@ -51,6 +51,7 @@ def test_usage_extraction_including_reasoning(api, reasoning):
     loaded = ModelMessagesTypeAdapter.validate_json(
         ModelMessagesTypeAdapter.dump_json(messages)
     )
+    assert isinstance(loaded[0], ModelResponse)
     assert getattr(loaded[0].usage, "output_reasoning_tokens", 0) == (reasoning or 0)
 
 

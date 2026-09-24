@@ -225,7 +225,7 @@ def handle_paper_processing_webhook(
 
             # A new parse means new headings: drop any outline built from the old one.
             if existing_paper is not None:
-                existing_paper.generated_outline = None
+                existing_paper.generated_outline = None  # pyright: ignore[reportAttributeAccessIssue]
 
             # Create paper record
             paper = paper_crud.update(
@@ -246,7 +246,7 @@ def handle_paper_processing_webhook(
                     ocr=result.ocr,
                     figure_count=result.figure_count,
                     page_count=result.page_count,
-                    supplementary_of_paper_id=supplementary_of_paper_id,
+                    supplementary_of_paper_id=supplementary_of_paper_id,  # pyright: ignore[reportArgumentType]
                 ),
                 db_obj=existing_paper,
                 user=job_user,

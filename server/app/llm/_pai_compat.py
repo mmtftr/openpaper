@@ -24,6 +24,7 @@ from typing import Any, Awaitable, Callable, Optional
 import httpx2 as httpx
 import openai
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
+from pydantic_ai.profiles import ModelProfile
 from pydantic_ai.profiles.openai import (
     OpenAIJsonSchemaTransformer,
     openai_model_profile,
@@ -143,7 +144,7 @@ def _openai_provider(
     return PaiOpenAIProvider(openai_client=client), False
 
 
-def _azure_strict_profile(model_name: str):
+def _azure_strict_profile(model_name: str) -> ModelProfile:
     base = openai_model_profile(model_name)
     return {**base, "json_schema_transformer": AzureStrictJsonSchemaTransformer}
 

@@ -139,7 +139,7 @@ def update_highlight(
         db,
         db_obj=existing_highlight,
         obj_in=HighlightUpdate(
-            paper_id=existing_highlight.paper_id,
+            paper_id=existing_highlight.paper_id,  # pyright: ignore[reportArgumentType]
             raw_text=request.raw_text,
             start_offset=request.start_offset,
             end_offset=request.end_offset,

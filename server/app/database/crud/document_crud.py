@@ -242,7 +242,7 @@ class DocumentCRUD(CRUDBase[Document, DocumentCreate, DocumentUpdate]):
 
         sanitized = sanitize_for_postgres(content)
 
-        new_revision = int(doc.revision) + 1
+        new_revision = int(doc.revision) + 1  # pyright: ignore[reportArgumentType]
         result = (
             db.query(Document)
             .filter(
@@ -261,7 +261,7 @@ class DocumentCRUD(CRUDBase[Document, DocumentCreate, DocumentUpdate]):
             db.rollback()
             db.refresh(doc)
             raise RevisionMismatch(
-                current_revision=int(doc.revision),
+                current_revision=int(doc.revision),  # pyright: ignore[reportArgumentType]
                 current_content=str(doc.content or ""),
             )
 

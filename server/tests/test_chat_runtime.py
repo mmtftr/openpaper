@@ -8,6 +8,13 @@ Covers the four modules that have no I/O in their hot paths:
 - `app.llm.model_registry` — capability table, resolution, model settings
 """
 
+# The assertions index into pydantic-ai message/part unions and ModelSettings
+# TypedDicts without narrowing each one first; a failed assumption fails the
+# test anyway.
+# pyright: reportAttributeAccessIssue=false, reportIndexIssue=false
+# pyright: reportGeneralTypeIssues=false, reportCallIssue=false
+# pyright: reportOperatorIssue=false
+
 from __future__ import annotations
 
 import copy

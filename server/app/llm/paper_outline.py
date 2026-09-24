@@ -284,7 +284,7 @@ def cached_outline(db: Session, paper: Paper) -> list[dict]:
     to recompute and may change, so caching them would pin a stale outline.
     """
     if paper.generated_outline is not None:
-        return paper.generated_outline
+        return paper.generated_outline  # pyright: ignore[reportReturnType]
     # Read everything needed before ending the transaction: the rollback
     # expires `paper`, and touching it afterwards would reopen one.
     row_id = paper.id
