@@ -11,12 +11,15 @@ The agent cites evidence in a trailing text block:
     the exact code lines cited from the paper's connected repo
     ---END-EVIDENCE---
 
-`split_evidence_block` separates prose from the block; parsing itself lives
-in `CitationHandler.parse_evidence_block` (named extras only: `page=`,
-`paper_id=`, `file=`, `lines=`). Reconciliation rewrites each OCR-grounded
-paper quote into the exact substring of the pymupdf page text so the PDF
-highlighter can find it — first via the cheap normalizer, then via a
-FAST-model call on miss. Code citations (`file=`) take a separate host-side
+`split_evidence_block` separates prose from the block; `parse_evidence_block`
+parses its inside (named extras only: `page=`, `paper_id=`, `file=`,
+`lines=`). User-attached PDF selections are rendered into the same block
+format by `convert_references_to_citations`.
+
+Reconciliation rewrites each OCR-grounded paper quote into the exact
+substring of the pymupdf page text so the PDF highlighter can find it —
+first via the cheap normalizer, then via a `chat.reconcile` model call on
+miss. Code citations (`file=`) take a separate host-side
 path: verified byte-for-byte against the repo snapshot (line-number-prefix
 tolerant, range repaired by search) and stamped with a SHA-pinned
 `github_url`; see app/llm/repo/code_citations.py.
@@ -25,23 +28,155 @@ tolerant, range repaired by search) and stamped with a SHA-pinned
 from __future__ import annotations
 
 import asyncio
-import contextvars
 import logging
 import re
-from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from app.database.models import Paper
-from app.llm.base import BaseLLMClient, ModelType
+from app.llm import oneshot
 from app.llm.citation_normalizer import find_in_pdf_text
-from app.llm.provider import TextContent
 
 logger = logging.getLogger(__name__)
 
 EVIDENCE_START = "---EVIDENCE---"
 EVIDENCE_END = "---END-EVIDENCE---"
 
-_reconcile_executor = ThreadPoolExecutor(max_workers=4)
+
+# -- user references -> evidence block ------------------------------------
+
+
+def convert_references_to_dict(references: Sequence[str]) -> dict:
+    """User-attached PDF selections as numbered citations."""
+    citations = []
+    for idx, ref in enumerate(references):
+        citations.append({"key": idx + 1, "reference": ref})
+    return {"citations": citations}
+
+
+def convert_references_to_citations(references: Optional[Sequence[str]]) -> str:
+    """User-attached PDF selections rendered as an evidence block."""
+    if not references:
+        return ""
+    formatted = [
+        f"@cite[{citation['key']}]\n{citation['reference']}"
+        for citation in convert_references_to_dict(references)["citations"]
+    ]
+    return EVIDENCE_START + "\n" + "\n".join(formatted) + "\n" + EVIDENCE_END
+
+
+# -- evidence block parsing ------------------------------------------------
+
+
+def _parse_line_range(value: str) -> tuple[Optional[int], Optional[int]]:
+    """`lines=142-156` / `lines=142` / `L142-L156` → (start, end).
+
+    Returns (None, None) when nothing usable is present — a malformed range
+    must not poison an otherwise-valid citation.
+    """
+    text = str(value or "").strip().replace("L", "").replace("l", "")
+    match = re.match(r"^(\d+)\s*(?:[-–:]\s*(\d+))?$", text)
+    if not match:
+        return None, None
+    start = int(match.group(1))
+    if start < 1:
+        return None, None
+    end = int(match.group(2)) if match.group(2) else start
+    if end < start:
+        end = start
+    return start, end
+
+
+def parse_evidence_block(evidence_text: str) -> list[dict]:
+    """
+    Parse evidence block into structured citations
+    Handles multi-line citations between @cite markers
+
+    Accepts these forms — `page=N` and `paper_id=ID` are optional and
+    used by the agentic chat to pin a citation to a single PDF page (so
+    the reconciliation step can match the quote against that page's
+    pymupdf text) and to tag the originating paper (parent or one of its
+    supplementaries):
+
+        @cite[1]
+        "First piece of evidence"
+
+        @cite[2|page=4]
+        "Second piece of evidence"
+
+        @cite[3|page=2|paper_id=abc-123]
+        "Evidence from a supplementary paper"
+
+    Code citations (companion-repo inspection) use `file=` plus an
+    optional `lines=A-B` range, parsed into `start_line` / `end_line`.
+    They carry no `page`; verification is host-side against the ingested
+    snapshot:
+
+        @cite[4|file=pipeline/run.py|lines=42-57]
+        the exact code lines
+    """
+    citations = []
+    lines = evidence_text.strip().split("\n")
+    current_citation: dict[str, Union[int, str]] | None = None
+    current_text_lines: list[str] = []
+
+    for line in lines:
+        line = line.strip()
+        if line.startswith("@cite["):
+            # If we have a previous citation pending, save it (drop
+            # empty-bodied citations, matching the end-of-block rule)
+            if current_citation is not None and current_text_lines:
+                current_citation["reference"] = " ".join(current_text_lines).strip()
+                citations.append(current_citation)
+
+            # Start new citation. Match `@cite[N]`, `@cite[N|page=P]`, or
+            # any combination of `page=P` and `paper_id=ID` separated by
+            # `|`. `key` is case-insensitive on the leading digit only.
+            match = re.search(
+                r"@cite\[(\d+)((?:\|[^\]]+)*)\]", line, re.IGNORECASE
+            )
+            if match:
+                number = int(match.group(1))
+                current_citation = {"key": number, "reference": ""}
+                extras = match.group(2) or ""
+                for part in extras.split("|"):
+                    part = part.strip()
+                    if not part:
+                        continue
+                    if "=" not in part:
+                        continue
+                    k, _, v = part.partition("=")
+                    k = k.strip().lower()
+                    v = v.strip()
+                    if k == "page":
+                        try:
+                            current_citation["page"] = int(v)
+                        except ValueError:
+                            pass
+                    elif k == "paper_id" and v:
+                        current_citation["paper_id"] = v
+                    elif k == "file" and v:
+                        # Repo-relative path into the ingested snapshot.
+                        # Tolerate the `/repo/` prefix the model sees.
+                        path = v.strip().strip('"').strip("'")
+                        if path.startswith("/repo/"):
+                            path = path[len("/repo/") :]
+                        current_citation["file"] = path.lstrip("/")
+                    elif k == "lines" and v:
+                        start, end = _parse_line_range(v)
+                        if start is not None:
+                            current_citation["start_line"] = start
+                            current_citation["end_line"] = end
+                current_text_lines = []
+        elif current_citation is not None and line:
+            # Accumulate lines for the current citation
+            current_text_lines.append(line)
+
+    # Don't forget to save the last citation
+    if current_citation is not None and current_text_lines:
+        current_citation["reference"] = " ".join(current_text_lines).strip()
+        citations.append(current_citation)
+
+    return citations
 
 
 def split_evidence_block(text: str) -> tuple[str, str]:
@@ -146,8 +281,6 @@ def extract_citations(text: str) -> List[Dict[str, Any]]:
     bare `@cite[...]` line, so a model that mangles the opener doesn't lose
     its citations.
     """
-    from app.llm.citation_handler import CitationHandler
-
     citations: List[Dict[str, Any]] = []
     seen_keys: set = set()
     pos = 0
@@ -159,7 +292,7 @@ def extract_citations(text: str) -> List[Dict[str, Any]]:
         end = text.find(EVIDENCE_END, inner_start)
         inner = text[inner_start:end] if end != -1 else text[inner_start:]
         pos = end + len(EVIDENCE_END) if end != -1 else len(text)
-        for cit in CitationHandler.parse_evidence_block(inner):
+        for cit in parse_evidence_block(inner):
             key = cit.get("key")
             if key in seen_keys:
                 continue
@@ -185,6 +318,15 @@ Pymupdf page text (page {page}):
 """
 
 
+_RECONCILE_CONCURRENCY = 4
+
+_RECONCILE_INSTRUCTIONS = (
+    "You return the exact PDF page substring corresponding to "
+    "an OCR quote, or NO_MATCH. Output is plain text, one line, "
+    "no quotes or prefixes."
+)
+
+
 def _pymupdf_text_for_page(paper: Paper, page: int) -> Optional[str]:
     """Pull the cached pymupdf text for the given 1-indexed page out of the
     paper's `ocr` jsonb. Returns None if the page wasn't OCR'd on the new
@@ -204,7 +346,6 @@ def _pymupdf_text_for_page(paper: Paper, page: int) -> Optional[str]:
 async def reconcile_citations(
     citations: List[Dict[str, Any]],
     parent_paper: Optional[Paper],
-    llm_client: BaseLLMClient,
     *,
     family_index: Optional[Dict[str, Paper]] = None,
     parent_paper_id: Optional[str] = None,
@@ -219,7 +360,7 @@ async def reconcile_citations(
          (supplementaries in paper chat, any corpus paper in corpus chat);
          otherwise the parent paper.
       3. Try the markdown→pymupdf normalizer (free, hits ~88% of prose).
-      4. On miss, one FAST-model call maps quote → page substring.
+      4. On miss, one `chat.reconcile` model call maps quote → page substring.
 
     The output carries `paper_id` explicitly for every citation matched
     against a non-parent paper so the client can route the highlight.
@@ -304,11 +445,15 @@ async def reconcile_citations(
             logger.warning("Code citation verification failed (non-fatal): %s", exc)
 
     if todo_for_llm:
+        # At most 4 model calls in flight (the old thread pool's size).
+        gate = asyncio.Semaphore(_RECONCILE_CONCURRENCY)
+
+        async def _gated(cit: Dict[str, Any], page_text: str) -> Optional[str]:
+            async with gate:
+                return await _reconcile_one_via_llm(cit, page_text)
+
         results = await asyncio.gather(
-            *[
-                _reconcile_one_via_llm(cit, page_text, llm_client)
-                for _, cit, page_text, _ in todo_for_llm
-            ],
+            *[_gated(cit, page_text) for _, cit, page_text, _ in todo_for_llm],
             return_exceptions=True,
         )
         for (idx, cit, _, supplementary_id), result in zip(todo_for_llm, results):
@@ -334,9 +479,8 @@ async def reconcile_citations(
 async def _reconcile_one_via_llm(
     citation: Dict[str, Any],
     page_text: str,
-    llm_client: BaseLLMClient,
 ) -> Optional[str]:
-    """Run a single fast-model reconciliation call. Returns the matched
+    """Run a single `chat.reconcile` model call. Returns the matched
     substring or None on no-match / error."""
     quote = str(citation.get("reference") or "").strip().strip('"').strip("'")
     page = citation.get("page")
@@ -351,32 +495,17 @@ async def _reconcile_one_via_llm(
         quote=quote, page=page, page_text=truncated_page
     )
 
-    def _call_sync():
-        return llm_client.generate_content(
-            contents=[TextContent(text=prompt)],
-            system_prompt=(
-                "You return the exact PDF page substring corresponding to "
-                "an OCR quote, or NO_MATCH. Output is plain text, one line, "
-                "no quotes or prefixes."
-            ),
-            model_type=ModelType.FAST,
-            enable_thinking=False,
-        )
-
-    # OTel/Logfire tracks the current span via contextvars. `run_in_executor`
-    # hops to a worker thread without those vars, so copy the current context
-    # and run the sync call inside it so the span stays under the handler.
-    ctx = contextvars.copy_context()
-    loop = asyncio.get_event_loop()
     try:
-        response = await loop.run_in_executor(
-            _reconcile_executor, lambda: ctx.run(_call_sync)
+        text = await oneshot.complete(
+            "chat.reconcile",
+            prompt,
+            instructions=_RECONCILE_INSTRUCTIONS,
         )
     except Exception as e:
         logger.warning("LLM reconciliation call raised: %s", e)
         return None
 
-    text = (response.text or "").strip()
+    text = (text or "").strip()
     if not text or text.upper().startswith("NO_MATCH"):
         return None
     text = text.strip().strip('"').strip("'").strip()

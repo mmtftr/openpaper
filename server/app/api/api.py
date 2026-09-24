@@ -1,6 +1,5 @@
 from pathlib import Path
 
-from app.llm.operations import Operations
 from dotenv import load_dotenv
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
@@ -9,8 +8,6 @@ load_dotenv()
 
 # Create API router with prefix
 router = APIRouter()
-
-llm_operations = Operations()
 
 
 @router.get("/health")

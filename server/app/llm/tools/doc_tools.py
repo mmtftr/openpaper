@@ -32,98 +32,11 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 
-# Same hard cap as the PUT endpoint. Surfaced in the description so the model
-# doesn't try multi-MB writes.
+# Same hard cap as the PUT endpoint.
 MAX_DOC_CONTENT_BYTES = 1_000_000
 
 # The MAIN doc is always addressed as "main" by the agent.
 MAIN_DOC_NAME = "main"
-
-
-list_docs_function = {
-    "name": "list_docs",
-    "description": (
-        "List every writing doc attached to THIS paper (the user's notes, "
-        "NOT the paper itself). Returns an array of {name, kind, revision, "
-        "updated_at}. The MAIN doc is always present with name='main'; NOTE "
-        "docs use whatever title the user gave them. Call this first when "
-        "you don't know what docs exist."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {},
-        "required": [],
-    },
-}
-
-
-read_doc_function = {
-    "name": "read_doc",
-    "description": (
-        "Read a writing doc on THIS paper by name. The MAIN doc is named "
-        "'main'; other names come from list_docs. Returns "
-        "{name, content, revision} on hit, or {error: 'not_found', name} "
-        "when no doc by that name exists — surface that to the user instead "
-        "of guessing a different name. Always read before write_doc on an "
-        "existing doc, since the revision is required for the optimistic lock."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "name": {
-                "type": "string",
-                "description": (
-                    "Doc name. Use 'main' for the user's primary writeup. "
-                    "Use any name from list_docs for NOTE docs."
-                ),
-            },
-        },
-        "required": ["name"],
-    },
-}
-
-
-write_doc_function = {
-    "name": "write_doc",
-    "description": (
-        "Replace the content of a writing doc on THIS paper, addressed by "
-        "name. If no doc by that name exists, one is created (the MAIN doc "
-        "for name='main', otherwise a NOTE) and `expected_revision` is "
-        "ignored — the response includes the new revision. When the doc "
-        "already exists, pass `expected_revision` from the most recent "
-        "read_doc; on revision_mismatch the tool returns "
-        "{error: 'revision_mismatch', current_revision, current_content} "
-        "instead of writing — re-read, merge your intended changes with "
-        "the user's, and try again. Don't retry more than twice; surface "
-        "the conflict to the user instead. Hard cap: 1MB of content."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "name": {
-                "type": "string",
-                "description": (
-                    "Doc name. 'main' addresses the user's primary writeup. "
-                    "Any other string creates or updates a NOTE doc with "
-                    "that title."
-                ),
-            },
-            "content": {
-                "type": "string",
-                "description": "New full markdown content. Max 1MB.",
-            },
-            "expected_revision": {
-                "type": "integer",
-                "description": (
-                    "Revision integer returned by the most recent read_doc. "
-                    "Required when updating an existing doc; ignored when "
-                    "the doc is being created."
-                ),
-            },
-        },
-        "required": ["name", "content"],
-    },
-}
 
 
 def _coerce_paper_uuid(paper_id: str) -> UUID:
@@ -355,9 +268,6 @@ __all__ = [
     "MAX_DOC_CONTENT_BYTES",
     "DocumentKind",
     "list_docs",
-    "list_docs_function",
     "read_doc",
-    "read_doc_function",
     "write_doc",
-    "write_doc_function",
 ]

@@ -8,8 +8,7 @@ import threading
 import unicodedata
 
 from app.database.models import Paper
-from app.llm.base import BaseLLMClient, ModelType
-from app.llm.provider import LLMProvider
+from app.llm import oneshot
 from app.llm.tools.section_tools import _HEADING_RE
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import update
@@ -202,13 +201,13 @@ class OutlineCleanupUnavailable(Exception):
         self.fallback = fallback
 
 
-def generate_outline(paper: Paper, client: BaseLLMClient | None = None) -> list[dict]:
+def generate_outline(paper: Paper) -> list[dict]:
     """Raises OutlineCleanupUnavailable when the LLM pass fails, so a transient
     provider error isn't cached as the paper's permanent (uncleaned) outline."""
-    return _outline_from_candidates(extract_candidates(paper), client)
+    return _outline_from_candidates(extract_candidates(paper))
 
 
-def _outline_from_candidates(candidates: list[dict], client: BaseLLMClient | None = None) -> list[dict]:
+def _outline_from_candidates(candidates: list[dict]) -> list[dict]:
     if not candidates:
         return []
     fallback = _tree(candidates)
@@ -216,17 +215,17 @@ def _outline_from_candidates(candidates: list[dict], client: BaseLLMClient | Non
     if len(candidates) > 300:
         return fallback
     try:
-        # Prefer the inexpensive OpenAI/Azure deployment: the Codex subscription
-        # proxy does not necessarily support its configured fast model. The base
-        # client still falls back to an available provider in single-provider setups.
-        response = (client or BaseLLMClient(default_provider=LLMProvider.OPENAI)).generate_content(
-            contents=json.dumps(candidates, ensure_ascii=False),
-            system_prompt=OUTLINE_PROMPT,
-            model_type=ModelType.FAST,
-            output_type=OutlineSelection,  # Existing pydantic-ai tool-output path.
-            enable_thinking=False,
+        # The `ingest.outline` slot defaults to the inexpensive OpenAI/Azure
+        # fast deployment: the Codex subscription proxy does not necessarily
+        # support its configured fast model. It still falls back to the
+        # default provider in single-provider setups.
+        selection = oneshot.complete_sync(
+            "ingest.outline",
+            json.dumps(candidates, ensure_ascii=False),
+            output_type=OutlineSelection,  # pydantic-ai tool output
+            instructions=OUTLINE_PROMPT,
         )
-        return validate_selection(candidates, OutlineSelection.model_validate_json(response.text))
+        return validate_selection(candidates, selection)
     except Exception as exc:
         logger.warning("Outline cleanup failed; serving OCR headings uncached", exc_info=True)
         raise OutlineCleanupUnavailable(fallback) from exc

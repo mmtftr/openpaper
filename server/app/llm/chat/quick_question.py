@@ -45,7 +45,8 @@ from app.llm.chat.quick_question_tools import (
 )
 from app.llm.chat.stream import OpenPaperAdapter
 from app.llm.repo.prelude import RepoPrelude
-from app.llm.model_registry import get_registry
+from app.llm.model_registry import LLMProvider, get_registry
+from app.llm.model_slots import resolve_slot
 from app.llm.retrying_model import RetryingModel
 from app.schemas.user import CurrentUser
 from pydantic_ai import Agent, UsageLimits
@@ -405,8 +406,6 @@ async def run_quick_question(
     Raises QuickQuestionError for every pre-stream failure so the endpoint
     can turn it into a real HTTP status instead of a broken SSE stream.
     """
-    from app.llm.base import LLMProvider
-
     text = str(question or "").strip()
     if not text:
         raise QuickQuestionError("Question is empty.", 422)
@@ -446,7 +445,12 @@ async def run_quick_question(
             raise QuickQuestionError(f"Unknown provider '{provider}'.", 422)
 
     try:
-        spec = registry.resolve(provider_enum, model)
+        if provider_enum is None and not model:
+            slot = resolve_slot("quick_question", registry)
+            spec = slot.spec
+            reasoning_effort = reasoning_effort or slot.reasoning_effort
+        else:
+            spec = registry.resolve(provider_enum, model)
     except ValueError as exc:
         raise QuickQuestionError(str(exc), 422)
 

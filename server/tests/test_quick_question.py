@@ -495,7 +495,7 @@ def _parse_sse(encoded: List[str]) -> List[dict]:
 def quick_question_run(ready_snapshot, monkeypatch):
     """Drive the real `run_quick_question` against a scripted model."""
     from app.llm.model_registry import ModelSpec
-    from app.llm.provider import LLMProvider
+    from app.llm.model_registry import LLMProvider
 
     qq = ready_snapshot
     recorded = SimpleNamespace(

@@ -1,5 +1,4 @@
-from dataclasses import dataclass
-from typing import Any, Dict, List, Literal, Optional
+from typing import List, Optional
 
 from app.database.models import HighlightType
 from pydantic import BaseModel, Field
@@ -54,64 +53,3 @@ class PaperMetadataExtraction(BaseModel):
         default=[],
         description="List of key highlights from the paper. These should be significant quotes that are must-reads of the paper's findings and contributions. Each highlight should include the text of the highlight and an annotation explaining its significance or relevance to the paper's content. Particularly drill into interesting, novel findings, methodologies, or implications that are worth noting. Pay special attention to tables, figures, and diagrams that may contain important information.",
     )
-
-
-# -----------------
-# LLM Base Schemas
-# -----------------
-
-
-class ToolCall(BaseModel):
-    """Standardized tool call format"""
-
-    id: Optional[str] = Field(
-        default=None,
-        description="Unique identifier for the tool call. Returned by OpenAI, generated for Gemini.",
-    )
-    name: str
-    args: Dict[str, Any]
-
-
-class ToolCallResult(BaseModel):
-    """Standardized tool call result format for passing back to LLM providers"""
-
-    id: Optional[str] = Field(
-        default=None,
-        description="Unique identifier for the tool call. Required for OpenAI, optional for Gemini.",
-    )
-    name: str = Field(description="The name of the tool/function that was called")
-    args: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="The arguments that were passed to the tool/function call.",
-    )
-    result: Any = Field(
-        description="The result returned by the tool. Will be serialized to string for the API."
-    )
-
-
-class TextContent(BaseModel):
-    text: str
-    type: Literal["text"] = "text"
-
-
-class FileContent(BaseModel):
-    data: bytes
-    mime_type: str
-    filename: Optional[str] = None
-    type: Literal["file"] = "file"
-    # Plain-text equivalent of the file, used by providers that don't accept
-    # native file blocks (e.g. Cerebras, Groq via OpenAI-compat). When set, the
-    # provider substitutes this text in place of doing runtime extraction.
-    text_fallback: Optional[str] = None
-
-
-class SupplementaryContent(BaseModel):
-    """Content representing supplementary/collected information for the model to use.
-
-    This is used to separate retrieved context (e.g., evidence from papers) from
-    the user's actual question, making the provenance of information clearer.
-    """
-
-    content: str
-    label: str = "collected_evidence"
-    type: Literal["supplementary"] = "supplementary"

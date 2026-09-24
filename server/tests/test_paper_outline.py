@@ -5,12 +5,13 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
 from app.api import paper_api
 from app.auth.dependencies import get_current_user
 from app.database.database import get_db
 from app.llm import paper_outline as outline
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
 
 def title_block(content, top=250, bottom=275):
@@ -67,15 +68,15 @@ def test_zero_position_and_repeated_headings_match_in_reading_order(paper):
 
 
 @pytest.mark.parametrize("ocr", [None, [], {"pages": None}, {"pages": [None, {"index": "bad"}]}])
-def test_missing_or_malformed_ocr_is_empty(paper, ocr):
+def test_missing_or_malformed_ocr_is_empty(paper, ocr, llm):
     paper.ocr = ocr
-    assert outline.generate_outline(paper, Mock()) == []
+    assert outline.generate_outline(paper) == []
 
 
-def test_pymupdf_has_no_invented_page_numbers(paper):
+def test_pymupdf_has_no_invented_page_numbers(paper, llm):
     paper.parser = "pymupdf"
     paper.raw_content = "# Introduction\nHello"
-    assert outline.generate_outline(paper, Mock()) == []
+    assert outline.generate_outline(paper) == []
 
 
 def selection(entries):
@@ -132,46 +133,82 @@ def test_one_ungrounded_title_keeps_the_rest_of_the_cleanup(paper):
     assert result[1]["children"][0]["title"] == "2.1. Data"
 
 
+class FakeOneshot:
+    """Stands in for `oneshot.complete_sync`. The JSON payload is validated
+    against the requested output type the way pydantic-ai's tool-output
+    validation would, and raises when it doesn't fit."""
+
+    def __init__(self):
+        self.payload = None
+        self.error = None
+        self.calls = []
+
+    def __call__(self, slot, prompt, *, output_type=str, instructions=None):
+        self.calls.append({"slot": slot, "prompt": prompt, "output_type": output_type,
+                           "instructions": instructions})
+        if self.error is not None:
+            raise self.error
+        return output_type.model_validate_json(self.payload)
+
+
+@pytest.fixture
+def llm(monkeypatch):
+    fake = FakeOneshot()
+    monkeypatch.setattr(outline.oneshot, "complete_sync", fake)
+    return fake
+
+
 @pytest.mark.parametrize("payload", [
     "not json",
     '{"entries":[{"candidate_id":1,"title":"Abstract","level":1,"page":99}]}',
     '{"entries":[{"candidate_id":1,"title":"Abstract","level":true}]}',
 ])
-def test_bad_llm_output_serves_deterministic_outline_uncached(paper, payload):
-    client = Mock()
-    client.generate_content.return_value.text = payload
+def test_bad_llm_output_serves_deterministic_outline_uncached(paper, payload, llm):
+    llm.payload = payload
     with pytest.raises(outline.OutlineCleanupUnavailable) as exc:
-        outline.generate_outline(paper, client)
+        outline.generate_outline(paper)
     result = exc.value.fallback
     assert [e["title"] for e in result] == ["A Paper", "Abstract", "1 Introduction", "2 Methods"]
     assert result[-1]["children"][0]["title"] == "2.1 Data"
-    assert client.generate_content.call_args.kwargs["model_type"] == outline.ModelType.FAST
-    assert client.generate_content.call_args.kwargs["output_type"] is outline.OutlineSelection
+    assert llm.calls[-1]["slot"] == "ingest.outline"
+    assert llm.calls[-1]["output_type"] is outline.OutlineSelection
+    assert llm.calls[-1]["instructions"] == outline.OUTLINE_PROMPT
 
 
-def test_llm_failure_falls_back_without_nesting_same_level_headings(paper):
+def test_llm_failure_falls_back_without_nesting_same_level_headings(paper, llm):
     paper.ocr["pages"][0]["markdown"] = "### One\n### Two\n### Three"
-    client = Mock()
-    client.generate_content.side_effect = RuntimeError("offline")
+    llm.error = RuntimeError("offline")
     with pytest.raises(outline.OutlineCleanupUnavailable) as exc:
-        outline.generate_outline(paper, client)
+        outline.generate_outline(paper)
     assert [e["title"] for e in exc.value.fallback[:3]] == ["One", "Two", "Three"]
 
 
-def test_success_and_empty_selection_are_accepted(paper):
-    client = Mock()
-    client.generate_content.return_value.text = selection([(1, "Abstract", 1)]).model_dump_json()
-    assert outline.generate_outline(paper, client)[0]["page"] == 1
-    client.generate_content.return_value.text = '{"entries":[]}'
-    assert outline.generate_outline(paper, client) == []
-
-
-def test_default_client_uses_openai_fast_deployment(paper, monkeypatch):
-    factory = Mock()
-    factory.return_value.generate_content.return_value.text = '{"entries":[]}'
-    monkeypatch.setattr(outline, "BaseLLMClient", factory)
+def test_success_and_empty_selection_are_accepted(paper, llm):
+    llm.payload = selection([(1, "Abstract", 1)]).model_dump_json()
+    assert outline.generate_outline(paper)[0]["page"] == 1
+    llm.payload = '{"entries":[]}'
     assert outline.generate_outline(paper) == []
-    factory.assert_called_once_with(default_provider=outline.LLMProvider.OPENAI)
+
+
+def test_default_slot_uses_openai_fast_deployment():
+    from app.llm.model_registry import (
+        LLMProvider,
+        ModelRegistry,
+        ModelSpec,
+        _ProviderConfig,
+    )
+    from app.llm.model_slots import resolve_slot
+
+    configs = {
+        LLMProvider.OPENAI: _ProviderConfig("k", None, "gpt-5.5", "gpt-5.4-mini"),
+        LLMProvider.CODEX_PROXY: _ProviderConfig(
+            "k", "http://proxy/v1", "gpt-6-astra", "gpt-5.4-mini"),
+    }
+    specs = [ModelSpec(id="gpt-5.4-mini", provider=LLMProvider.OPENAI, display_name="mini")]
+    # Even while the codex proxy is the default provider.
+    registry = ModelRegistry(specs, configs, LLMProvider.CODEX_PROXY)
+    spec = resolve_slot("ingest.outline", registry).spec
+    assert (spec.provider, spec.id) == (LLMProvider.OPENAI, "gpt-5.4-mini")
 
 
 def test_missing_blocks_still_produce_page_targets_and_bad_pages_are_skipped(paper):
@@ -187,12 +224,11 @@ def test_missing_blocks_still_produce_page_targets_and_bad_pages_are_skipped(pap
     assert candidates[0]["top_percent"] is None
 
 
-def test_large_outlines_skip_llm_without_losing_headings(paper):
+def test_large_outlines_skip_llm_without_losing_headings(paper, llm):
     paper.ocr["pages"][0]["markdown"] = "\n".join(f"# Topic {i}" for i in range(301))
     paper.ocr["pages"] = paper.ocr["pages"][:1]
-    client = Mock()
-    assert len(outline.generate_outline(paper, client)) == 301
-    client.generate_content.assert_not_called()
+    assert len(outline.generate_outline(paper)) == 301
+    assert llm.calls == []
 
 
 def _cleaned(monkeypatch, result):

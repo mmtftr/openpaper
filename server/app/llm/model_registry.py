@@ -4,8 +4,9 @@ One place that knows which chat models exist, what each can do, and how to
 build the pydantic-ai `Model` + `ModelSettings` for a call. Replaces the
 scattered capability checks that used to live in `paper_pydantic_agent.py`
 (`_RESPONSES_API_BROKEN_MODELS`, `_VISION_UNSUPPORTED_MODELS`, `gpt-`
-prefix sniffing) and the `ModelType`/provider-default plumbing in `base.py`
-for the chat path.
+prefix sniffing) and the `ModelType`/provider-default plumbing of the old
+`base.py` client. Per-call-site model choice lives one level up, in
+`app.llm.model_slots`.
 
 Configuration sources, merged in order (later wins):
 
@@ -33,9 +34,47 @@ from dataclasses import dataclass, fields, replace
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
-from app.llm.provider import LLMProvider, _parse_models_env
-
 logger = logging.getLogger(__name__)
+
+
+class LLMProvider(Enum):
+    GEMINI = "gemini"
+    OPENAI = "openai"
+    CODEX_PROXY = "codex_proxy"
+    ANTHROPIC = "anthropic"
+
+
+@dataclass
+class ModelOption:
+    """A user-selectable chat model exposed by a provider."""
+
+    id: str
+    name: str
+
+
+def _parse_models_env(value: str | None) -> list[ModelOption]:
+    """Parse a CSV env var into a list of ModelOptions.
+
+    Each entry is either a bare model id (`gpt-5`) or `id|Display Name`
+    (`gpt-5|GPT-5`). Whitespace is trimmed.
+    """
+    if not value:
+        return []
+    out: list[ModelOption] = []
+    for entry in value.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if "|" in entry:
+            mid, mname = entry.split("|", 1)
+            mid = mid.strip()
+            mname = mname.strip() or mid
+        else:
+            mid = entry
+            mname = entry
+        if mid:
+            out.append(ModelOption(id=mid, name=mname))
+    return out
 
 
 ApiKind = Literal["responses", "chat", "native"]
@@ -129,10 +168,6 @@ def _family_defaults(provider: LLMProvider, model_id: str) -> Dict[str, Any]:
             "supports_reasoning_summaries": False,
             "supports_prompt_cache_key": True,
         }
-    if provider in (LLMProvider.GROQ, LLMProvider.CEREBRAS):
-        # Not configured on this deployment, so the cache parameters are
-        # unverified — left off rather than guessed.
-        return {"api": "chat"}
     return {"api": "native"}
 
 
@@ -347,12 +382,7 @@ class ModelRegistry:
         if config is None:
             raise ValueError(f"Provider '{spec.provider.value}' is not configured")
 
-        if spec.provider in (
-            LLMProvider.OPENAI,
-            LLMProvider.CODEX_PROXY,
-            LLMProvider.GROQ,
-            LLMProvider.CEREBRAS,
-        ):
+        if spec.provider in (LLMProvider.OPENAI, LLMProvider.CODEX_PROXY):
             from app.llm._pai_compat import (
                 make_openai_chat_model,
                 make_openai_responses_model,
@@ -470,9 +500,7 @@ class ModelRegistry:
         return OpenAIChatModelSettings(**settings)
 
 
-def _default_option(model_id: str):
-    from app.llm.provider import ModelOption
-
+def _default_option(model_id: str) -> ModelOption:
     return ModelOption(id=model_id, name=model_id)
 
 

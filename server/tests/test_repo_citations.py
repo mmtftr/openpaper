@@ -12,8 +12,11 @@ from pathlib import Path
 
 import pytest
 
-from app.llm.chat.citations import extract_citations, reconcile_citations
-from app.llm.citation_handler import CitationHandler
+from app.llm.chat.evidence import (
+    extract_citations,
+    parse_evidence_block,
+    reconcile_citations,
+)
 from app.llm.repo.code_citations import verify_code_citation, verify_code_citations
 from app.llm.repo.sandbox import RepoSnapshot
 
@@ -57,7 +60,7 @@ def test_parse_evidence_block_reads_file_and_lines():
         "diff = harmful.mean(dim=0) - harmless.mean(dim=0)\n"
         "return diff / diff.norm()\n"
     )
-    (citation,) = CitationHandler.parse_evidence_block(block)
+    (citation,) = parse_evidence_block(block)
     assert citation["key"] == 1
     assert citation["file"] == "pipeline/run.py"
     assert citation["start_line"] == 5
@@ -78,13 +81,13 @@ def test_parse_evidence_block_reads_file_and_lines():
 )
 def test_line_range_forms(marker, expected):
     block = f"@cite[1|file=a.py|{marker}]\nquoted text\n"
-    (citation,) = CitationHandler.parse_evidence_block(block)
+    (citation,) = parse_evidence_block(block)
     assert (citation.get("start_line"), citation.get("end_line")) == expected
 
 
 def test_file_marker_tolerates_the_repo_prefix():
     block = "@cite[1|file=/repo/pipeline/run.py|lines=1-2]\nimport torch\n"
-    (citation,) = CitationHandler.parse_evidence_block(block)
+    (citation,) = parse_evidence_block(block)
     assert citation["file"] == "pipeline/run.py"
 
 
@@ -428,7 +431,7 @@ def test_reconciler_handles_code_citations_before_the_page_shortcircuit(snapshot
     ]
     out = asyncio.run(
         reconcile_citations(
-            citations, None, None, family_index={}, repo_snapshot=snapshot
+            citations, None, family_index={}, repo_snapshot=snapshot
         )
     )
     assert out[0]["verified"] is True

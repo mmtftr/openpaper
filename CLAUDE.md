@@ -101,11 +101,11 @@ it. Non-obvious facts about that proxy:
   `stream_options.include_usage`), so streamed chats on this provider record
   0 tokens. Non-streaming calls report usage. The fix belongs in the proxy
   (`~/.local/bin/codex-raycast-proxy`), not the server.
-- It rejects `gpt-5.4-mini`, so `ModelType.FAST` work that must succeed
-  (e.g. the outline cleanup in `app/llm/paper_outline.py`) routes to the
-  Azure/OpenAI provider explicitly.
+- It rejects `gpt-5.4-mini`, so fast-model work that must succeed
+  (the `discover` and `ingest.outline` slots in `app/llm/model_slots.py`)
+  is pinned to the Azure/OpenAI provider.
 
-`DEFAULT_LLM_PROVIDER` is read by both the chat `ModelRegistry` and
-`BaseLLMClient`, so it also routes non-chat work (summaries, titles, data
-tables) at the same time. `jobs/.env` is separate and stays
+`DEFAULT_LLM_PROVIDER` is read by the `ModelRegistry`, so it also routes
+the non-chat slots that follow the default provider (`chat.title`,
+`chat.reconcile`) at the same time. `jobs/.env` is separate and stays
 on Azure.

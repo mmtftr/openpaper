@@ -21,7 +21,6 @@ from typing import Literal, Optional
 
 from app.auth.dependencies import get_required_user
 from app.database.database import get_db
-from app.llm.base import LLMProvider
 from app.llm.chat.quick_question import (
     MAX_QUESTION_CHARS as MAX_QUICK_QUESTION_CHARS,
 )
@@ -29,6 +28,7 @@ from app.llm.chat.quick_question import QuickQuestionError, run_quick_question
 from app.llm.chat.runtime import ChatRequestError, run_paper_chat
 from app.llm.chat.stream import OpenPaperAdapter
 from app.llm.model_registry import get_registry
+from app.llm.model_slots import resolve_slot
 from app.schemas.user import CurrentUser
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -47,8 +47,8 @@ UI_MESSAGE_STREAM_HEADERS = {"x-vercel-ai-ui-message-stream": "v1"}
 async def get_available_models() -> dict:
     """User-selectable chat models with capabilities, for the picker."""
     registry = get_registry()
-    specs = registry.chat_models(exclude=[LLMProvider.GROQ, LLMProvider.CEREBRAS])
-    default_spec = registry.resolve()
+    specs = registry.chat_models()
+    default_spec = resolve_slot("chat.default", registry).spec
     return {
         "models": [spec.to_public_dict() for spec in specs],
         "default": default_spec.id,

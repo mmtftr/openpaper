@@ -11,7 +11,7 @@ from app.database.crud.message_crud import message_crud
 from app.database.database import get_db
 from app.database.models import ConversableType, Conversation
 from app.llm.chat.history import serialize_ui_messages
-from app.llm.operations import operations
+from app.llm.chat.title import rename_conversation as generate_conversation_title
 from app.schemas.user import CurrentUser
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends
@@ -33,7 +33,7 @@ async def rename_conversation(
 ) -> JSONResponse:
     """Rename a conversation based on its chat history"""
     try:
-        new_name = operations.rename_conversation(
+        new_name = generate_conversation_title(
             db=db, conversation_id=conversation_id, user=current_user
         )
         if new_name:

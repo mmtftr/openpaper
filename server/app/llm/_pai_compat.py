@@ -1,10 +1,8 @@
-"""Pydantic AI compatibility shims.
+"""Pydantic AI model construction for OpenAI-family endpoints.
 
-Lives next to provider.py so the OpenAI/Anthropic/Gemini providers can opt
-into Pydantic AI internally without changing their public interface.
-
-Also the one place that owns CHAT TRANSPORT POLICY. Every client is built
-explicitly here (never left to the provider to construct) for two reasons:
+The one place that owns TRANSPORT POLICY for every model call (chat, quick
+question and the `app.llm.oneshot` calls). Every client is built explicitly
+here (never left to the provider to construct) for two reasons:
 
 - `max_retries=0`, so the attempt budget lives only in
   `app.llm.retrying_model.RetryingModel` instead of multiplying with the
@@ -12,19 +10,16 @@ explicitly here (never left to the provider to construct) for two reasons:
 - an httpx timeout with a bounded read gap, so a dead stream fails instead
   of hanging (see `CHAT_HTTP_TIMEOUT`).
 
-Non-chat callers (`BaseLLMClient` structured output) pass `LEGACY_*` to keep
-their previous behavior. Because these clients are per-request and the
-pydantic-ai provider does not own them, they must be closed explicitly —
-`attach_transport_closer` / `close_model_transport`.
+Because these clients are per-request and the pydantic-ai provider does not
+own them, they must be closed explicitly — `attach_transport_closer` /
+`close_model_transport`.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
-import threading
-from typing import Any, Awaitable, Callable, Optional, TypeVar
+from typing import Any, Awaitable, Callable, Optional
 
 import httpx2 as httpx
 import openai
@@ -45,13 +40,6 @@ logger = logging.getLogger(__name__)
 # 2 retries on would multiply into 9 attempts and blow past any deadline.
 CHAT_HTTP_TIMEOUT = httpx.Timeout(connect=5.0, read=180.0, write=60.0, pool=30.0)
 CHAT_MAX_RETRIES = 0
-
-# Non-chat callers (BaseLLMClient structured output) keep the previous
-# behavior: these are single-shot, NON-streaming calls with no retry wrapper
-# above them, and a reasoning model can legitimately go minutes without
-# sending a byte.
-LEGACY_HTTP_TIMEOUT = httpx.Timeout(600.0, connect=5.0)
-LEGACY_MAX_RETRIES = 2
 
 
 _AZURE_UNSUPPORTED_STRICT_KEYWORDS = frozenset(
@@ -126,7 +114,7 @@ def _openai_provider(
         # Both Azure paths need the stricter schema transformer.
         return AzureProvider(openai_client=azure_client), True
 
-    # Standard OpenAI or OpenAI-compatible (codex proxy, Groq, Cerebras).
+    # Standard OpenAI or OpenAI-compatible (codex proxy).
     resolved_base = base_url or os.getenv("OPENAI_BASE_URL")
     if api_key is None and resolved_base and not os.getenv("OPENAI_API_KEY"):
         # Locally-served OpenAI-compatible endpoints often need no key, but
@@ -227,29 +215,3 @@ async def close_model_transport(model: Optional[Any]) -> None:
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning("Failed to close model transport: %s", exc)
 
-
-_T = TypeVar("_T")
-
-
-def run_async(coro: Awaitable[_T]) -> _T:
-    """Run a coroutine to completion from a sync caller, even one nested
-    inside a running event loop. Always uses a fresh background thread+loop
-    so we never collide with an outer loop.
-    """
-    box: dict = {}
-
-    def runner() -> None:
-        loop = asyncio.new_event_loop()
-        try:
-            box["value"] = loop.run_until_complete(coro)
-        except BaseException as exc:
-            box["error"] = exc
-        finally:
-            loop.close()
-
-    t = threading.Thread(target=runner, daemon=True)
-    t.start()
-    t.join()
-    if "error" in box:
-        raise box["error"]
-    return box["value"]

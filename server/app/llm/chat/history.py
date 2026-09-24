@@ -38,7 +38,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from app.database.models import Message
 from app.helpers.s3 import s3_service
-from app.llm.chat.citations import strip_evidence_blocks
+from app.llm.chat.evidence import strip_evidence_blocks
 from app.llm.chat.stream import EvidenceFilter, truncate_tool_output
 from pydantic_ai.messages import (
     ModelMessage,

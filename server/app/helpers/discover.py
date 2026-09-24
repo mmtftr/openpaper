@@ -1,20 +1,16 @@
 """Discovery pipeline: decompose research questions into subqueries and search."""
 
-import json
 import logging
 from datetime import datetime, timedelta
 from typing import AsyncGenerator, List, Optional
 
 from app.helpers.exa_search import search_exa
 from app.helpers.openalex_search import search_openalex
-from app.llm.base import BaseLLMClient, ModelType
-from app.llm.provider import LLMProvider
+from app.llm import oneshot
 from app.schemas.discover import DISCOVER_SOURCES
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
-
-llm_client = BaseLLMClient(default_provider=LLMProvider.OPENAI)
 
 DECOMPOSE_PROMPT = """You are a research assistant helping find academic papers. Given a research question, generate 2-5 search subqueries.
 
@@ -35,17 +31,14 @@ class DecomposeResponse(BaseModel):
     )
 
 
-def decompose_query(question: str) -> list[str]:
+async def decompose_query(question: str) -> list[str]:
     """Use LLM to decompose a research question into targeted subqueries."""
-    response = llm_client.generate_content(
-        contents=question,
-        system_prompt=DECOMPOSE_PROMPT,
-        model_type=ModelType.FAST,
-        enable_thinking=False,
+    parsed = await oneshot.complete(
+        "discover",
+        question,
         output_type=DecomposeResponse,
+        instructions=DECOMPOSE_PROMPT,
     )
-
-    parsed = DecomposeResponse.model_validate_json(response.text)
     return parsed.subqueries
 
 
@@ -82,7 +75,7 @@ async def run_discover_pipeline(
         year_filter: Optional time filter ("last_year", "last_5_years", or None for all time)
     """
     # Step 1: Decompose question into subqueries
-    subqueries = decompose_query(question)
+    subqueries = await decompose_query(question)
     yield {"type": "subqueries", "content": subqueries}
 
     # Determine search strategy based on sources

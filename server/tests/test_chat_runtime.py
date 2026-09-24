@@ -3,7 +3,7 @@
 Covers the four modules that have no I/O in their hot paths:
 
 - `app.llm.chat.stream.EvidenceFilter` — incremental evidence holdback
-- `app.llm.chat.citations` — evidence split / strip / citation extraction
+- `app.llm.chat.evidence` — evidence split / strip / citation extraction
 - `app.llm.chat.history` — model-history replay + UIMessage serialization
 - `app.llm.model_registry` — capability table, resolution, model settings
 """
@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
-from app.llm.chat.citations import (
+from app.llm.chat.evidence import (
     EVIDENCE_END,
     EVIDENCE_START,
     extract_citations,
@@ -50,7 +50,7 @@ from app.llm.model_registry import (
     _build_spec,
     _family_defaults,
 )
-from app.llm.provider import LLMProvider
+from app.llm.model_registry import LLMProvider
 from pydantic_ai.ui.vercel_ai.request_types import TextUIPart as TextUIPartRequest
 from pydantic_ai.ui.vercel_ai.request_types import UIMessage as UIMessageRequest
 from pydantic_ai.messages import (
@@ -1723,12 +1723,6 @@ class TestFamilyDefaults:
         }
 
     @pytest.mark.parametrize(
-        "provider", [LLMProvider.GROQ, LLMProvider.CEREBRAS]
-    )
-    def test_chat_only_providers(self, provider):
-        assert _family_defaults(provider, "whatever") == {"api": "chat"}
-
-    @pytest.mark.parametrize(
         "provider", [LLMProvider.ANTHROPIC, LLMProvider.GEMINI]
     )
     def test_native_providers(self, provider):
@@ -1888,11 +1882,14 @@ class TestResolve:
             [
                 self.other,
                 ModelSpec(
-                    id="g", provider=LLMProvider.GROQ, display_name="G", api="chat"
+                    id="g",
+                    provider=LLMProvider.CODEX_PROXY,
+                    display_name="G",
+                    api="chat",
                 ),
             ]
         )
-        ids = [s.id for s in reg.chat_models(exclude=[LLMProvider.GROQ])]
+        ids = [s.id for s in reg.chat_models(exclude=[LLMProvider.CODEX_PROXY])]
         assert ids == ["only-openai"]
 
 

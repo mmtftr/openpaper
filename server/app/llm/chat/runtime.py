@@ -47,7 +47,9 @@ from app.database.crud.message_crud import MessageCreate, MessageUpdate, message
 from app.database.database import SessionLocal
 from app.database.models import ConversableType
 from app.database.telemetry import track_event
-from app.llm.chat.citations import (
+from app.llm.chat.evidence import (
+    convert_references_to_citations,
+    convert_references_to_dict,
     extract_citations,
     reconcile_citations,
     strip_evidence_blocks,
@@ -70,8 +72,9 @@ from app.llm.chat.paper import (
     build_paper_chat_context,
 )
 from app.llm.chat.stream import MAX_ERROR_TEXT_CHARS, OpenPaperAdapter
-from app.llm.citation_handler import CitationHandler
-from app.llm.model_registry import get_registry
+from app.llm.chat.title import rename_conversation
+from app.llm.model_registry import LLMProvider, get_registry
+from app.llm.model_slots import resolve_slot
 from app.llm.retrying_model import RetryingModel, RetryStatus, retry_status_payload
 from app.schemas.user import CurrentUser
 from pydantic_ai import UsageLimits
@@ -284,8 +287,6 @@ async def run_paper_chat(
 
     Raises ChatRequestError for pre-stream validation failures.
     """
-    from app.llm.base import LLMProvider
-
     start_time = datetime.now(timezone.utc)
 
     conversation = conversation_crud.get(db, conversation_id, user=current_user)
@@ -318,7 +319,12 @@ async def run_paper_chat(
         except ValueError:
             raise ChatRequestError(f"Unknown provider '{provider}'.")
     try:
-        spec = registry.resolve(provider_enum, model)
+        if provider_enum is None and not model:
+            slot = resolve_slot("chat.default", registry)
+            spec = slot.spec
+            reasoning_effort = reasoning_effort or slot.reasoning_effort
+        else:
+            spec = registry.resolve(provider_enum, model)
     except ValueError as exc:
         raise ChatRequestError(str(exc))
 
@@ -376,9 +382,7 @@ async def run_paper_chat(
     # text (ground truth: the dump will contain exactly what the model saw).
     model_prompt_text = user_query
     if user_references:
-        citation_block = CitationHandler.convert_references_to_citations(
-            user_references
-        )
+        citation_block = convert_references_to_citations(user_references)
         user_message.parts.append(TextUIPart(text=citation_block, state="done"))
         model_prompt_text = f"{user_query}\n\n{citation_block}"
     elif stored_prompt is not None:
@@ -446,7 +450,7 @@ async def run_paper_chat(
     pai_model = RetryingModel(built_model, on_retry=emit_retry_status)
 
     formatted_references = (
-        CitationHandler.convert_references_to_dict(references=user_references)
+        convert_references_to_dict(references=user_references)
         if user_references
         else None
     )
@@ -627,12 +631,9 @@ async def run_paper_chat(
                 type="data-citations", id="citations", data={"citations": citations}
             )
             try:
-                from app.llm.operations import operations
-
                 reconciled = await reconcile_citations(
                     citations,
                     chat_context.paper,
-                    operations,
                     family_index=chat_context.family_index,
                     parent_paper_id=paper_id,
                     repo_snapshot=chat_context.repo_snapshot,
@@ -658,13 +659,11 @@ async def run_paper_chat(
         # First-message title: idempotent; runs the FAST model, which can be
         # rejected by provider content filters — must stay non-fatal.
         try:
-            from app.llm.operations import operations
-
             # Off the event loop: this makes a SYNCHRONOUS LLM call for the
             # title. Inline it would stall every chunk queued behind
             # `on_complete` — and every other request on this worker.
             await asyncio.to_thread(
-                operations.rename_conversation,
+                rename_conversation,
                 db=db,
                 conversation_id=conversation_id,
                 user=current_user,

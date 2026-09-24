@@ -19,7 +19,7 @@ from typing import Optional
 import pytest
 
 from app.llm.model_registry import ModelRegistry, ModelSpec, _build_spec
-from app.llm.provider import LLMProvider
+from app.llm.model_registry import LLMProvider
 
 CACHE_KEY = "openpaper:conv-1"
 

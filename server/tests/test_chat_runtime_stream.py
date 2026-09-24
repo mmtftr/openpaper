@@ -32,7 +32,7 @@ from app.llm.chat.runtime import (
 )
 from app.llm._pai_compat import MODEL_TRANSPORT_CLOSER
 from app.llm.chat.stream import OpenPaperAdapter
-from app.llm.provider import LLMProvider
+from app.llm.model_registry import LLMProvider
 from app.llm.model_registry import ModelSpec
 from app.llm.retrying_model import RetryingModel
 
@@ -231,10 +231,8 @@ class _Fixture:
         # Fast, deterministic backoff — the schedule itself is unit-tested.
         mp.setattr(runtime_module, "RetryingModel", fake_retrying)
 
-        import app.llm.operations as operations_module
-
         mp.setattr(
-            operations_module.operations,
+            runtime_module,
             "rename_conversation",
             lambda **kwargs: None,
         )

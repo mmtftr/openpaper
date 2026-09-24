@@ -94,7 +94,7 @@ _INLINE_GUTTER_RE = re.compile(r"(?:(?<=\s)|^)(\d{1,7})\|[ \t]?")
 def _split_inline_gutters(text: str) -> Optional[List[str]]:
     """Re-split a flattened gutter quote into its lines, or None.
 
-    `CitationHandler.parse_evidence_block` joins a quote's lines with single
+    `evidence.parse_evidence_block` joins a quote's lines with single
     spaces, so a multi-line `read()` quote reaches verification as ONE line:
     `12| foo 13| bar`. Recognized only when the quote STARTS with a gutter
     and the numbers strictly increase — `a = 1|2` never qualifies.
