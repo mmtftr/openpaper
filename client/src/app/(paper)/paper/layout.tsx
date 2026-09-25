@@ -9,7 +9,7 @@ import { MobilePaperMenu } from "@/components/MobilePaperMenu";
 import { CitePaperButton } from "@/components/CitePaperButton";
 import { PaperStoreProvider } from "@/components/paper/PaperStoreProvider";
 import { HeaderPaperStatusButton } from "@/components/HeaderPaperStatusButton";
-import { IngestStatusPopover } from "@/components/ingest/IngestStatusPopover";
+import { IngestFailureButton } from "@/components/ingest/IngestStatus";
 
 export default function PaperLayout({
 	children,
@@ -35,7 +35,7 @@ export default function PaperLayout({
 						</Link>
 						{/* Desktop buttons */}
 						<div className="hidden md:flex items-center gap-2">
-							<IngestStatusPopover />
+							<IngestFailureButton />
 							<ManageProjectsButton />
 							<HeaderPaperStatusButton />
 							<CitePaperButton />

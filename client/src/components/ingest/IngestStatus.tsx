@@ -15,7 +15,13 @@ import {
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { parentPaperIdAtom } from "@/components/paper/paperStore";
 import { usePaperAtomValue } from "@/components/paper/PaperStoreProvider";
 import { cn } from "@/lib/utils";
@@ -129,18 +135,28 @@ function StageRow({
     );
 }
 
-/** Header button + popover listing the paper's ingest stages. */
-export function IngestStatusPopover() {
+function useIngestPanel() {
     const paperId = usePaperAtomValue(parentPaperIdAtom) || null;
-    const { status, retry, reprocess } = useIngest(paperId);
-    const [busy, setBusy] = useState(false);
-    const [open, setOpen] = useState(false);
-    const now = useNow(open && !!status?.stages.some((s) => s.status === "queued" && s.next_attempt_at));
-
+    const ingest = useIngest(paperId);
     // Legacy papers have no stages to show.
-    if (!paperId || !status || status.legacy) return null;
+    const status = paperId && ingest.status && !ingest.status.legacy ? ingest.status : null;
+    const failed = !!status?.stages.some((s) => s.status === "failed");
+    return { ...ingest, status, failed };
+}
 
-    const failed = status.stages.some((s) => s.status === "failed");
+/** The paper's ingest stages with retry / reprocess, as a dialog. */
+export function IngestStatusDialog({
+    open,
+    onOpenChange,
+}: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+}) {
+    const { status, retry, reprocess } = useIngestPanel();
+    const [busy, setBusy] = useState(false);
+    const now = useNow(open && !!status?.stages.some((s) => s.status === "queued" && s.next_attempt_at));
+    if (!status) return null;
+
     const onAction = async (action: "retry" | "reprocess", stage: IngestStage) => {
         setBusy(true);
         try {
@@ -152,37 +168,78 @@ export function IngestStatusPopover() {
         }
     };
 
-    let trigger = <CheckCircle2 className="size-3.5 text-muted-foreground" />;
-    if (failed) trigger = <AlertTriangle className="size-3.5 text-destructive" />;
-    else if (status.active && !status.worker_online) trigger = <WifiOff className="size-3.5 text-muted-foreground" />;
-    else if (status.active) trigger = <Loader2 className="size-3.5 animate-spin text-blue-500" />;
-
     return (
-        <Popover open={open} onOpenChange={setOpen}>
-            <PopoverTrigger asChild>
-                <Button size="sm" variant="ghost" className="h-7 gap-1.5 px-2 text-xs" aria-label="Processing status">
-                    {trigger}
-                    <span className="hidden sm:inline">
-                        {failed ? "Processing failed" : status.active ? "Processing" : "Processed"}
-                    </span>
-                </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-96 max-h-[70vh] overflow-y-auto">
-                <div className="mb-1 flex items-center justify-between">
-                    <h3 className="text-sm font-semibold">Processing</h3>
-                    {!status.worker_online && (
-                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <WifiOff className="size-3.5" />
-                            Ingest worker offline
-                        </span>
-                    )}
-                </div>
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
+                <DialogHeader>
+                    <DialogTitle>Processing</DialogTitle>
+                    <DialogDescription className="flex items-center gap-1.5">
+                        {!status.worker_online ? (
+                            <>
+                                <WifiOff className="size-3.5" /> Ingest worker offline
+                            </>
+                        ) : status.active ? (
+                            "Stages still running update live."
+                        ) : (
+                            "Retry a failed stage, or reprocess one and everything after it."
+                        )}
+                    </DialogDescription>
+                </DialogHeader>
                 <ul className="divide-y">
                     {status.stages.map((stage) => (
                         <StageRow key={stage.name} stage={stage} now={now} busy={busy} onAction={onAction} />
                     ))}
                 </ul>
-            </PopoverContent>
-        </Popover>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+/** Header button: only when a stage failed. The rest of the time the stages
+ * are one click away in the paper info box (`IngestStatusInfoButton`). */
+export function IngestFailureButton() {
+    const { failed } = useIngestPanel();
+    const [open, setOpen] = useState(false);
+    if (!failed) return null;
+    return (
+        <>
+            <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1.5 px-2 text-xs"
+                aria-label="Processing status"
+                onClick={() => setOpen(true)}
+            >
+                <AlertTriangle className="size-3.5 text-destructive" />
+                <span className="hidden sm:inline">Processing failed</span>
+            </Button>
+            <IngestStatusDialog open={open} onOpenChange={setOpen} />
+        </>
+    );
+}
+
+/** A row for the paper info box: current processing state; opens the dialog. */
+export function IngestStatusInfoButton({ onOpen }: { onOpen: () => void }) {
+    const { status, failed } = useIngestPanel();
+    if (!status) return null;
+
+    let icon = <CheckCircle2 className="size-3.5 text-green-600" />;
+    let label = "Processed";
+    if (failed) {
+        icon = <AlertTriangle className="size-3.5 text-destructive" />;
+        label = "Processing failed";
+    } else if (status.active && !status.worker_online) {
+        icon = <WifiOff className="size-3.5 text-muted-foreground" />;
+        label = "Waiting for the ingest worker";
+    } else if (status.active) {
+        icon = <Loader2 className="size-3.5 animate-spin text-blue-500" />;
+        label = "Processing…";
+    }
+    return (
+        <Button variant="outline" size="sm" className="h-7 w-full justify-start gap-1.5 text-xs" onClick={onOpen}>
+            {icon}
+            {label}
+            <span className="ml-auto text-muted-foreground">Details</span>
+        </Button>
     );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Info } from "lucide-react";
 import {
     Popover,
@@ -9,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { PaperData } from "@/lib/schema";
 import { isDateValid } from "@/lib/utils";
+import { IngestStatusDialog, IngestStatusInfoButton } from "@/components/ingest/IngestStatus";
 
 interface MetadataPopoverProps {
     paperData: PaperData;
@@ -24,9 +26,13 @@ export function MetadataPopover({ paperData }: MetadataPopoverProps) {
     const hasAuthors = authors.length > 0;
     const hasInstitutions = institutions.length > 0;
     const hasDate = !!publishDate && isDateValid(publishDate);
+    const [open, setOpen] = useState(false);
+    // Lives outside the popover: the popover closes as the dialog opens.
+    const [processingOpen, setProcessingOpen] = useState(false);
 
     return (
-        <Popover>
+        <>
+        <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
                 <Button
                     variant="ghost"
@@ -97,8 +103,16 @@ export function MetadataPopover({ paperData }: MetadataPopoverProps) {
                             No additional metadata available.
                         </p>
                     )}
+                    <IngestStatusInfoButton
+                        onOpen={() => {
+                            setOpen(false);
+                            setProcessingOpen(true);
+                        }}
+                    />
                 </div>
             </PopoverContent>
         </Popover>
+        <IngestStatusDialog open={processingOpen} onOpenChange={setProcessingOpen} />
+        </>
     );
 }

@@ -229,9 +229,38 @@
 	display: none !important;
 }
 
-/* Keep link annotations visible but style external links differently */
+/*
+ * PDF links (citations, URLs, cross-references).
+ *
+ * pdf.js puts an inline z-index on every annotation and the layer itself
+ * sets none, so those z-indexes compete with the reader's overlays (the
+ * citation preview card, z-20) and the link boxes painted over the card.
+ * One z-index here contains them.
+ *
+ * The PDF's own link borders (hyperref's green/cyan boxes) are hidden; links
+ * get a faint tint instead, a bit stronger on hover. `border-color` rather
+ * than `border: none` keeps pdf.js's size math, which subtracts the border.
+ */
+.annotationLayer {
+	z-index: 1;
+}
+
 .annotationLayer .linkAnnotation {
-	/* Links are kept - we handle external link filtering in JS */
+	border-color: transparent !important;
+	border-radius: 2px;
+	background-color: rgb(59 130 246 / 0.07);
+	transition: background-color 120ms ease;
+}
+
+.annotationLayer .linkAnnotation:hover,
+.annotationLayer .linkAnnotation.hasBorder:hover {
+	background-color: rgb(59 130 246 / 0.18);
+}
+
+.annotationLayer .linkAnnotation > a:hover {
+	opacity: 1 !important;
+	background: none !important;
+	box-shadow: none !important;
 }
 
 /* Keep text/highlight annotations (author notes, comments display) */
@@ -241,16 +270,6 @@
 .annotationLayer .strikeoutAnnotation,
 .annotationLayer .squigglyAnnotation {
 	/* These are safe and often contain useful metadata */
-}
-
-/* Visual indicator for external links - subtle border */
-.annotationLayer .linkAnnotation[data-external-link="true"]::after {
-	content: "";
-	position: absolute;
-	inset: 0;
-	border: 1px dashed rgba(239, 68, 68, 0.4);
-	border-radius: 2px;
-	pointer-events: none;
 }
 
 /* ==========================================================================
