@@ -184,6 +184,17 @@
 		animation-duration: 1s !important;
 		animation-iteration-count: infinite !important;
 	}
+
+	/*
+	 * The blanket duration above gives every element a 1ms `all` transition,
+	 * pdf.js's page boxes included. pdf.js measures those boxes right after a
+	 * zoom or refit to restore the reading position, read the pre-transition
+	 * size, and scrolled somewhere else entirely.
+	 */
+	.pdfViewer,
+	.pdfViewer * {
+		transition: none !important;
+	}
 }
 
 /* ==========================================================================

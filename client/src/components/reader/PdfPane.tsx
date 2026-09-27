@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useContext, useEffect } from "react";
 import { ArrowLeft } from "lucide-react";
 import { useAtomValue, useSetAtom } from "jotai";
 import {
@@ -18,6 +18,8 @@ import { useReaderContext } from "./ReaderContext";
 import type { PDFDocumentProxy, PDFViewer } from "./pdfjs";
 import CitationPreviewCard from "./citations/CitationPreviewCard";
 import FindBar from "./FindBar";
+import { PaneResizingContext } from "./paneResizing";
+import { ResizeSnapshot } from "./ResizeSnapshot";
 import { ReaderContextProvider } from "./ReaderContext";
 import { useReaderNavigation } from "./useReaderNavigation";
 import "pdfjs-dist/web/pdf_viewer.css";
@@ -104,6 +106,7 @@ export default function PdfPane({
 	const api = useAtomValue(viewerApiAtom);
 	const setUrl = useSetAtom(pdfUrlAtom);
 	const setScaleValue = useSetAtom(scaleValueAtom);
+	const resizing = useContext(PaneResizingContext);
 
 	// The document to show is a prop here, not a `?file=` query param.
 	useEffect(() => {
@@ -140,6 +143,8 @@ export default function PdfPane({
 				>
 					<div className="pdfViewer" />
 				</div>
+
+				<ResizeSnapshot resizing={resizing} containerRef={containerRef} viewer={viewer} />
 
 				{children}
 
