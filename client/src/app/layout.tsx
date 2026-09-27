@@ -5,6 +5,7 @@ import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
 import { Toaster } from "@/components/ui/sonner";
 import { MotionProvider } from "@/components/utils/MotionProvider";
+import { UNREGISTER_SW_INLINE_SCRIPT } from "@/lib/killServiceWorker";
 
 const geistSans = Geist({
 	variable: "--font-geist-sans",
@@ -65,6 +66,8 @@ export default function RootLayout({
 			<body
 				className={`${geistSans.variable} ${geistMono.variable} antialiased`}
 			>
+				{/* Removes the retired offline service worker + its caches (see lib/killServiceWorker). */}
+				<script dangerouslySetInnerHTML={{ __html: UNREGISTER_SW_INLINE_SCRIPT }} />
 				{/*
 				 * `storageKey="darkMode"` keeps the key (and its "dark"/"light"
 				 * values) the old hand-rolled toggle wrote, so saved preferences
