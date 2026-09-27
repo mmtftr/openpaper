@@ -1,4 +1,5 @@
 import { api, unwrap } from "@/lib/api/client"
+import { importPaperLink, parsePaperLink } from "@/lib/paperLink"
 
 export const MAX_UPLOAD_SIZE_MB = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_SIZE_MB) || 50;
 
@@ -107,9 +108,15 @@ export const uploadFromUrl = async (url: string, projectId?: string): Promise<Up
 
 /**
  * Uploads a PDF from a URL, first attempting client-side fetch for better filename handling,
- * then falling back to server-side fetch if that fails.
+ * then falling back to server-side fetch if that fails. arXiv links (abs pages, ids) go
+ * straight to the server's import, which resolves the PDF and skips papers already imported.
  */
 export const uploadFromUrlWithFallback = async (url: string, projectId?: string): Promise<UploadedPaper> => {
+    const arxiv = parsePaperLink(url, { bareIds: true })
+    if (arxiv?.kind === "arxiv") {
+        const paper = await importPaperLink(arxiv, projectId)
+        return { paperId: paper.paper_id, fileName: paper.title ?? arxiv.label }
+    }
     try {
         const file = await fetchPdfAsFile(url);
         return await uploadFile(file, projectId);

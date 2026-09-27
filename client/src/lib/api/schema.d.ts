@@ -920,9 +920,32 @@ export interface paths {
         put?: never;
         /**
          * Upload Pdf From Url
-         * @description Import a PDF from a URL.
+         * @description Import a PDF from a URL (arXiv pages resolve to their PDF).
          */
         post: operations["upload_pdf_from_url_api_paper_upload_from_url_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/paper/upload/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Paper
+         * @description Import a pasted link: an arXiv page / id, or a direct PDF URL.
+         *
+         *     If the owner already has that paper, returns it (`existing: true`,
+         *     unarchived and linked to `project_id`) instead of importing it again.
+         */
+        post: operations["import_paper_api_paper_upload_import_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2285,6 +2308,32 @@ export interface components {
          * @enum {string}
          */
         HighlightType: "topic" | "motivation" | "method" | "evidence" | "result" | "impact" | "general";
+        /**
+         * ImportPaperRequest
+         * @description A pasted link: an arXiv page (`/abs/`, `/pdf/`, alphaXiv, ...),
+         *     `arXiv:ID`, or a direct PDF URL.
+         */
+        ImportPaperRequest: {
+            /** Url */
+            url: string;
+        };
+        /**
+         * ImportedPaper
+         * @description The imported paper, or with `existing` the library paper it already was.
+         */
+        ImportedPaper: {
+            /** Arxiv Id */
+            arxiv_id?: string | null;
+            /** Existing */
+            existing: boolean;
+            /**
+             * Paper Id
+             * Format: uuid
+             */
+            paper_id: string;
+            /** Title */
+            title?: string | null;
+        };
         /** IngestFeatureState */
         IngestFeatureState: {
             /** Cause */
@@ -5929,6 +5978,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UploadedPaper"];
+                };
+            };
+            /** @description Client error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Server error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    import_paper_api_paper_upload_import_post: {
+        parameters: {
+            query?: {
+                project_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportPaperRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportedPaper"];
                 };
             };
             /** @description Client error */

@@ -10,7 +10,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog"
 import { PdfDropzone } from "@/components/PdfDropzone"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { FileText } from "lucide-react"
@@ -18,6 +18,7 @@ import { uploadFiles, uploadFromUrlWithFallback, type UploadedPaper } from "@/li
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import LoadingIndicator from "@/components/utils/Loading"
+import { isEditableTarget, parsePaperLink } from "@/lib/paperLink"
 
 interface UploadModalProps {
     open: boolean;
@@ -35,19 +36,27 @@ function UrlImportDialog({
     open,
     onOpenChange,
     onImport,
+    initialUrl,
 }: {
     open: boolean
     onOpenChange: (open: boolean) => void
     onImport: (url: string) => void
+    /** Prefilled when opened by pasting a link into the upload dialog. */
+    initialUrl?: string
 }) {
     const [url, setUrl] = useState("");
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+    useEffect(() => {
+        if (open && initialUrl) setUrl(initialUrl);
+    }, [open, initialUrl]);
+
     const urlSchema = z.string().url({ message: "Please enter a valid URL." });
+    const arxiv = parsePaperLink(url, { bareIds: true });
 
     const handleSubmit = () => {
         const result = urlSchema.safeParse(url);
-        if (result.success) {
+        if (arxiv?.kind === "arxiv" || result.success) {
             onImport(url);
             onOpenChange(false);
             setUrl("");
@@ -71,7 +80,7 @@ function UrlImportDialog({
                 <DialogHeader>
                     <DialogTitle>Import from URL</DialogTitle>
                     <DialogDescription>
-                        Enter the URL of the PDF you want to import.
+                        Paste an arXiv link or the URL of a PDF.
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
@@ -86,7 +95,9 @@ function UrlImportDialog({
                         onKeyDown={e => e.key === "Enter" && handleSubmit()}
                     />
                     {errorMessage && <p className="text-sm text-destructive">{errorMessage}</p>}
-                    <Button onClick={handleSubmit}>Import</Button>
+                    <Button onClick={handleSubmit}>
+                        {arxiv?.kind === "arxiv" ? `Import from arXiv: ${arxiv.id}${arxiv.version}` : "Import"}
+                    </Button>
                 </div>
             </DialogContent>
         </Dialog>
@@ -101,7 +112,18 @@ export function UploadModal({ open, onOpenChange, uploadLimit = DEFAULT_UPLOAD_L
     const [isUrlDialogOpen, setIsUrlDialogOpen] = useState(false);
     const [importError, setImportError] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [pastedUrl, setPastedUrl] = useState<string | undefined>();
     const UPLOAD_LIMIT = uploadLimit;
+
+    // Pasting a paper link into the dialog offers to import it.
+    const handlePaste = (e: React.ClipboardEvent) => {
+        if (isEditableTarget(e.target) || isSubmitting) return;
+        const link = parsePaperLink(e.clipboardData.getData("text/plain"));
+        if (!link) return;
+        e.preventDefault();
+        setPastedUrl(link.text);
+        onUrlClick();
+    };
 
     // Papers are readable as soon as the upload returns: open a single one
     // right away, list several so each can be opened.
@@ -177,7 +199,7 @@ export function UploadModal({ open, onOpenChange, uploadLimit = DEFAULT_UPLOAD_L
     return (
         <>
             <Dialog open={open} onOpenChange={onOpenChange}>
-                <DialogContent className="sm:max-w-xl">
+                <DialogContent className="sm:max-w-xl" onPaste={handlePaste}>
                     <DialogHeader>
                         <DialogTitle>Upload Papers</DialogTitle>
                         <DialogDescription>
@@ -221,8 +243,12 @@ export function UploadModal({ open, onOpenChange, uploadLimit = DEFAULT_UPLOAD_L
             </Dialog>
             <UrlImportDialog
                 open={isUrlDialogOpen}
-                onOpenChange={setIsUrlDialogOpen}
+                onOpenChange={(next) => {
+                    setIsUrlDialogOpen(next);
+                    if (!next) setPastedUrl(undefined);
+                }}
                 onImport={handleUrlImport}
+                initialUrl={pastedUrl}
             />
         </>
     )

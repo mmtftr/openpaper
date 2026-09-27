@@ -1,6 +1,7 @@
 """Identifier extraction and title guesses for the metadata stages."""
 
 import pymupdf
+import pytest
 
 from app.ingest import metadata_ids as ids
 from app.ingest.metadata_ids import Identifier
@@ -252,3 +253,50 @@ def test_read_pdf_hints_xmp_doi():
     hints = ids.read_pdf_hints(make_pdf(metadata={"title": "A Study"}, xmp=xmp))
     assert values(hints.identifiers) == [("doi", "10.5555/xmp.2024.7")]
     assert hints.embedded_title is None  # too short to be a title
+
+
+# -- pasted arXiv links ----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "text, arxiv_id, version",
+    [
+        ("https://arxiv.org/abs/2504.11844", "2504.11844", ""),
+        ("  https://arxiv.org/abs/2504.11844v2\n", "2504.11844", "v2"),
+        ("https://arxiv.org/pdf/2504.11844", "2504.11844", ""),
+        ("https://arxiv.org/pdf/2504.11844v1.pdf", "2504.11844", "v1"),
+        ("http://export.arxiv.org/abs/2504.11844", "2504.11844", ""),
+        ("https://www.arxiv.org/abs/2504.11844?context=cs", "2504.11844", ""),
+        ("arxiv.org/html/2504.11844v3#S2", "2504.11844", "v3"),
+        ("https://www.alphaxiv.org/abs/2504.11844", "2504.11844", ""),
+        ("https://www.alphaxiv.org/overview/2504.11844v2", "2504.11844", "v2"),
+        ("https://doi.org/10.48550/arXiv.2504.11844", "2504.11844", ""),
+        ("arXiv:2504.11844v2", "2504.11844", "v2"),
+        ("2504.11844", "2504.11844", ""),
+        ("https://arxiv.org/abs/0704.0001", "0704.0001", ""),
+        ("https://arxiv.org/abs/hep-th/9901001", "hep-th/9901001", ""),
+        ("https://arxiv.org/pdf/hep-th/9901001v1", "hep-th/9901001", "v1"),
+        ("https://arxiv.org/abs/math.GT/0309136", "math.GT/0309136", ""),
+        ("arXiv:Math.gt/0309136", "math.GT/0309136", ""),
+    ],
+)
+def test_arxiv_link(text, arxiv_id, version):
+    link = ids.arxiv_link(text)
+    assert link == ids.ArxivLink(arxiv_id, version)
+    assert link.pdf_url == f"https://arxiv.org/pdf/{arxiv_id}{version}"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "https://example.org/paper.pdf",
+        "https://notarxiv.org/abs/2504.11844",
+        "https://arxiv.org/list/cs.LG/recent",
+        "https://arxiv.org/abs/2513.11844",  # month 13
+        "see arXiv:2504.11844 for details",
+        "1234.5678.9",
+        "",
+    ],
+)
+def test_not_an_arxiv_link(text):
+    assert ids.arxiv_link(text) is None

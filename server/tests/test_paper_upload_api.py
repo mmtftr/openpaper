@@ -3,14 +3,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from types import SimpleNamespace
 from typing import Any, Iterator
 
+import httpx
 import pymupdf
 import pytest
 import test_ingest_engine as engine_tests
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
@@ -252,6 +254,209 @@ def test_from_url_records_the_source_url(client, db, monkeypatch):
 )
 def test_url_file_name(url, name):
     assert upload_api._url_file_name(url) == name
+
+
+# -- import (pasted links) ---------------------------------------------------------
+
+
+@pytest.fixture
+def fetched(monkeypatch) -> list[str]:
+    """`fetch_pdf` replaced by a recorder serving a small PDF (no network)."""
+    urls: list[str] = []
+    pdf = make_pdf()
+
+    async def fetch(url: str) -> bytes:
+        urls.append(url)
+        return pdf
+
+    monkeypatch.setattr(upload_api, "fetch_pdf", fetch)
+    return urls
+
+
+def import_link(client: TestClient, url: str, **query):
+    return client.post("/api/paper/upload/import", params=query, json={"url": url})
+
+
+def test_import_arxiv_abs_downloads_the_pdf(client, db, fetched):
+    response = import_link(client, "https://arxiv.org/abs/2504.11844")
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["existing"] is False and body["arxiv_id"] == "2504.11844"
+    assert fetched == ["https://arxiv.org/pdf/2504.11844"]
+    paper_id = uuid.UUID(body["paper_id"])
+    with db() as session:
+        paper = session.get(Paper, paper_id)
+        assert paper is not None
+        assert paper.source_url == "https://arxiv.org/pdf/2504.11844"
+        assert str(paper.s3_object_key).endswith("/2504.11844.pdf")
+    assert stage_statuses(db, paper_id)["source"] == "succeeded"
+
+
+def test_import_same_arxiv_paper_returns_the_existing_one(client, db, fetched):
+    first = import_link(client, "https://arxiv.org/abs/2504.11844").json()
+
+    again = import_link(client, "https://www.alphaxiv.org/abs/2504.11844v2")
+
+    assert again.status_code == 201
+    assert again.json()["existing"] is True
+    assert again.json()["paper_id"] == first["paper_id"]
+    assert len(fetched) == 1
+    with db() as session:
+        assert session.query(Paper).count() == 1
+
+
+def test_import_matches_the_arxiv_id_ingest_recorded(client, db, fetched):
+    # Uploaded as a file; the metadata stage later found its arXiv id.
+    paper_id = upload(client, make_pdf(), name="paper.pdf").json()["paper_id"]
+    with db() as session:
+        session.execute(
+            text(
+                "UPDATE papers SET arxiv_id = '2504.11844', title = 'T',"
+                " archived_at = now() WHERE id = :p"
+            ),
+            {"p": paper_id},
+        )
+        session.commit()
+
+    response = import_link(client, "arXiv:2504.11844")
+
+    body = response.json()
+    assert body["existing"] is True and body["paper_id"] == paper_id
+    assert body["title"] == "T"
+    assert fetched == []
+    with db() as session:
+        paper = session.get(Paper, uuid.UUID(paper_id))
+        assert paper is not None and paper.archived_at is None  # unarchived
+
+
+def test_import_other_arxiv_ids_are_not_duplicates(client, fetched):
+    import_link(client, "https://arxiv.org/abs/2504.11844")
+
+    other = import_link(client, "https://arxiv.org/abs/2504.1184")  # not an id
+    assert (
+        import_link(client, "https://arxiv.org/abs/2504.11845").json()["existing"]
+        is False
+    )
+    assert other.json()["existing"] is False  # a generic URL, different source
+    assert fetched[-1] == "https://arxiv.org/pdf/2504.11845"
+
+
+def test_import_existing_paper_is_linked_to_the_project(client, db, fetched):
+    project_id = uuid.uuid4()
+    with db() as session:
+        session.execute(
+            text("INSERT INTO project (id, title, owner_id) VALUES (:id, 'P', :u)"),
+            {"id": project_id, "u": USER_ID},
+        )
+        session.commit()
+    paper_id = import_link(client, "https://arxiv.org/abs/2504.11844").json()[
+        "paper_id"
+    ]
+
+    for _ in range(2):  # linking twice is a no-op
+        response = import_link(
+            client, "https://arxiv.org/pdf/2504.11844", project_id=str(project_id)
+        )
+        assert response.json()["existing"] is True
+
+    with db() as session:
+        links = session.query(ProjectPaper).filter_by(paper_id=paper_id).all()
+        assert [link.project_id for link in links] == [project_id]
+
+
+def test_import_direct_pdf_url_dedupes_on_the_url(client, fetched):
+    url = "https://example.org/files/paper.pdf"
+    first = import_link(client, url).json()
+    again = import_link(client, url).json()
+
+    assert first["existing"] is False and first["arxiv_id"] is None
+    assert again["existing"] is True and again["paper_id"] == first["paper_id"]
+    assert fetched == [url]
+
+
+@pytest.mark.parametrize("text", ["hello world", "ftp://x.org/a.pdf", "javascript:1"])
+def test_import_rejects_what_isnt_a_link(client, fetched, text):
+    assert import_link(client, text).status_code == 400
+    assert fetched == []
+
+
+def test_from_url_resolves_arxiv_pages(client, fetched):
+    response = client.post(
+        "/api/paper/upload/from-url", json={"url": "https://arxiv.org/abs/2504.11844v2"}
+    )
+    assert response.status_code == 201
+    assert fetched == ["https://arxiv.org/pdf/2504.11844v2"]
+
+
+# -- fetch_pdf (mocked transport) ----------------------------------------------------
+
+
+def serve(monkeypatch, handler) -> None:
+    from app.core.http import make_client as real
+
+    def make_client(**kwargs: Any):
+        return real(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr(upload_api, "make_client", make_client)
+
+
+def test_fetch_pdf_returns_the_pdf(monkeypatch):
+    pdf = make_pdf()
+    serve(
+        monkeypatch,
+        lambda request: httpx.Response(
+            200, content=pdf, headers={"content-type": "application/pdf"}
+        ),
+    )
+    assert asyncio.run(upload_api.fetch_pdf("https://arxiv.org/pdf/1")) == pdf
+
+
+def test_fetch_pdf_rejects_a_web_page(monkeypatch):
+    serve(
+        monkeypatch,
+        lambda request: httpx.Response(
+            200,
+            content=b"<!doctype html><html>" + b" " * 5000,
+            headers={"content-type": "text/html; charset=utf-8"},
+        ),
+    )
+    with pytest.raises(HTTPException) as err:
+        asyncio.run(upload_api.fetch_pdf("https://arxiv.org/abs/1"))
+    assert err.value.status_code == 400
+    assert "didn't return a PDF (got text/html)" in err.value.detail
+
+
+def test_fetch_pdf_rejects_a_short_non_pdf(monkeypatch):
+    serve(monkeypatch, lambda request: httpx.Response(200, content=b"nope"))
+    with pytest.raises(HTTPException) as err:
+        asyncio.run(upload_api.fetch_pdf("https://x.org/a.pdf"))
+    assert "didn't return a PDF" in err.value.detail
+
+
+def test_fetch_pdf_http_error_and_size_cap(monkeypatch):
+    serve(monkeypatch, lambda request: httpx.Response(404))
+    with pytest.raises(HTTPException) as err:
+        asyncio.run(upload_api.fetch_pdf("https://x.org/a.pdf"))
+    assert "HTTP 404" in err.value.detail
+
+    monkeypatch.setattr(upload_api, "MAX_UPLOAD_BYTES", 2000)
+    serve(monkeypatch, lambda request: httpx.Response(200, content=b"%PDF-" * 1000))
+    with pytest.raises(HTTPException) as err:
+        asyncio.run(upload_api.fetch_pdf("https://x.org/a.pdf"))
+    assert "too large" in err.value.detail
+
+
+def test_fetch_pdf_times_out(monkeypatch):
+    async def slow(request):
+        await asyncio.sleep(1)
+        return httpx.Response(200, content=make_pdf())
+
+    serve(monkeypatch, slow)
+    monkeypatch.setattr(upload_api, "URL_FETCH_TOTAL_S", 0.05)
+    with pytest.raises(HTTPException) as err:
+        asyncio.run(upload_api.fetch_pdf("https://x.org/a.pdf"))
+    assert "timed out" in err.value.detail
 
 
 # -- delete ------------------------------------------------------------------------

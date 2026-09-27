@@ -187,3 +187,19 @@ class UploadedPaper(BaseModel):
     """The new paper: readable at once, the rest of ingest runs in the worker."""
 
     paper_id: UUID
+
+
+class ImportPaperRequest(BaseModel):
+    """A pasted link: an arXiv page (`/abs/`, `/pdf/`, alphaXiv, ...),
+    `arXiv:ID`, or a direct PDF URL."""
+
+    url: str = Field(min_length=1, max_length=2048)
+
+
+class ImportedPaper(BaseModel):
+    """The imported paper, or with `existing` the library paper it already was."""
+
+    paper_id: UUID
+    existing: bool
+    title: Optional[str] = None
+    arxiv_id: Optional[str] = None

@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Search, FileText, FolderKanban, Command, Loader2, Highlighter, ChevronDown, ChevronUp } from "lucide-react";
+import { Search, FileText, FolderKanban, Command, Loader2, Highlighter, ChevronDown, ChevronUp, ArrowDownToLine, CornerDownLeft } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { api, unwrap, type Schemas } from "@/lib/api/client";
 import { useProjects } from "@/hooks/useProjects";
+import { importPaperLinkWithToast, parsePaperLink } from "@/lib/paperLink";
 
 // Helper to check if text contains search term
 const textMatchesSearch = (text: string | null | undefined, searchTerm: string): boolean => {
@@ -31,7 +32,8 @@ const highlightSearchTerm = (text: string, searchTerm: string): React.ReactNode 
 type SelectableItem =
     | { type: "project"; id: string }
     | { type: "paper"; id: string }
-    | { type: "ask" };
+    | { type: "ask" }
+    | { type: "import" };
 
 export function HomeSearch() {
     const [query, setQuery] = useState("");
@@ -47,10 +49,14 @@ export function HomeSearch() {
     const resultsRef = useRef<HTMLDivElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
     const router = useRouter();
+    const [isImporting, setIsImporting] = useState(false);
+
+    // A pasted arXiv / PDF link (or arXiv id) is an import, not a search.
+    const link = useMemo(() => parsePaperLink(query, { bareIds: true }), [query]);
 
     // Filter projects client-side based on query
     const filteredProjects = useMemo(() => {
-        if (!query.trim()) return [];
+        if (!query.trim() || link) return [];
         const lowerQuery = query.toLowerCase();
         return allProjects
             .filter((p) =>
@@ -58,15 +64,16 @@ export function HomeSearch() {
                 p.description?.toLowerCase().includes(lowerQuery)
             )
             .slice(0, 3);
-    }, [allProjects, query]);
+    }, [allProjects, query, link]);
 
     // Build a flat list of selectable items for keyboard navigation
     const selectableItems = useMemo((): SelectableItem[] => {
         const items: SelectableItem[] = [];
+        if (link) return [{ type: "import" }];
         filteredProjects.forEach((p) => items.push({ type: "project", id: p.id }));
         papers.forEach((p) => items.push({ type: "paper", id: p.id }));
         return items;
-    }, [filteredProjects, papers]);
+    }, [filteredProjects, papers, link]);
 
     const hasResults = papers.length > 0 || filteredProjects.length > 0;
 
@@ -121,7 +128,7 @@ export function HomeSearch() {
             abortControllerRef.current = null;
         }
 
-        if (!query.trim()) {
+        if (!query.trim() || parsePaperLink(query, { bareIds: true })) {
             setPapers([]);
             setHasSearched(false);
             setIsLoading(false);
@@ -183,6 +190,20 @@ export function HomeSearch() {
         }
     }, [router]);
 
+    const handleImport = useCallback(async () => {
+        if (!link || isImporting) return;
+        setIsImporting(true);
+        const paper = await importPaperLinkWithToast(link, {
+            navigate: true,
+            open: (paperId) => router.push(`/paper/${paperId}`),
+        });
+        setIsImporting(false);
+        if (paper) {
+            setIsOpen(false);
+            setQuery("");
+        }
+    }, [link, isImporting, router]);
+
     const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
         if (!isOpen || selectableItems.length === 0) return;
 
@@ -202,12 +223,14 @@ export function HomeSearch() {
             case "Enter":
                 e.preventDefault();
                 const selected = selectableItems[selectedIndex];
-                if (selected && selected.type !== "ask") {
+                if (selected?.type === "import") {
+                    void handleImport();
+                } else if (selected && selected.type !== "ask") {
                     handleSelect(selected.type, selected.id);
                 }
                 break;
         }
-    }, [isOpen, selectableItems, selectedIndex, handleSelect]);
+    }, [isOpen, selectableItems, selectedIndex, handleSelect, handleImport]);
 
     return (
         <div ref={containerRef} className="relative mx-auto w-full max-w-2xl">
@@ -240,7 +263,34 @@ export function HomeSearch() {
             {/* Search Results Dropdown */}
             {isOpen && query.trim() && (
                 <div className="absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-xl border bg-popover shadow-lg animate-in fade-in-0 slide-in-from-top-1 duration-150">
-                    {isLoading ? (
+                    {link ? (
+                        <div className="p-2">
+                            <button
+                                type="button"
+                                data-index={0}
+                                onClick={() => void handleImport()}
+                                disabled={isImporting}
+                                className="flex w-full items-center gap-3 rounded-lg bg-accent px-3 py-2.5 text-left transition-colors disabled:opacity-70"
+                            >
+                                {isImporting ? (
+                                    <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin text-brand" />
+                                ) : (
+                                    <ArrowDownToLine className="h-4 w-4 flex-shrink-0 text-brand" />
+                                )}
+                                <div className="min-w-0 flex-1">
+                                    <p className="truncate font-medium">
+                                        {link.kind === "arxiv" ? `Import from arXiv: ${link.id}${link.version}` : `Import PDF: ${link.label}`}
+                                    </p>
+                                    <p className="truncate text-sm text-muted-foreground">
+                                        {isImporting ? "Importing…" : "Adds it to your library and opens it"}
+                                    </p>
+                                </div>
+                                <kbd className="hidden h-6 flex-shrink-0 items-center rounded border bg-background px-1.5 text-muted-foreground sm:inline-flex">
+                                    <CornerDownLeft className="h-3 w-3" />
+                                </kbd>
+                            </button>
+                        </div>
+                    ) : isLoading ? (
                         <div className="flex items-center gap-2 px-4 py-3 text-muted-foreground">
                             <Loader2 className="h-4 w-4 animate-spin" />
                             <span className="text-sm">Searching...</span>

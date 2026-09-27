@@ -1,5 +1,6 @@
 import { AppHeader } from "@/components/AppHeader";
 import { MobileTabBar } from "@/components/MobileTabBar";
+import { PasteImportListener } from "@/components/PasteImportListener";
 
 export default function MainLayout({
 	children,
@@ -12,6 +13,7 @@ export default function MainLayout({
 			{/* Clears the phone tab bar; pages scroll the document. */}
 			<main className="flex flex-1 flex-col pb-tabbar md:pb-0">{children}</main>
 			<MobileTabBar />
+			<PasteImportListener />
 		</div>
 	);
 }

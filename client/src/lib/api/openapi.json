@@ -2518,6 +2518,64 @@
         "title": "HighlightType",
         "type": "string"
       },
+      "ImportPaperRequest": {
+        "description": "A pasted link: an arXiv page (`/abs/`, `/pdf/`, alphaXiv, ...),\n`arXiv:ID`, or a direct PDF URL.",
+        "properties": {
+          "url": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "ImportPaperRequest",
+        "type": "object"
+      },
+      "ImportedPaper": {
+        "description": "The imported paper, or with `existing` the library paper it already was.",
+        "properties": {
+          "arxiv_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arxiv Id"
+          },
+          "existing": {
+            "title": "Existing",
+            "type": "boolean"
+          },
+          "paper_id": {
+            "format": "uuid",
+            "title": "Paper Id",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "paper_id",
+          "existing"
+        ],
+        "title": "ImportedPaper",
+        "type": "object"
+      },
       "IngestFeatureState": {
         "properties": {
           "cause": {
@@ -10350,7 +10408,7 @@
     },
     "/api/paper/upload/from-url": {
       "post": {
-        "description": "Import a PDF from a URL.",
+        "description": "Import a PDF from a URL (arXiv pages resolve to their PDF).",
         "operationId": "upload_pdf_from_url_api_paper_upload_from_url_post",
         "parameters": [
           {
@@ -10436,6 +10494,79 @@
           }
         ],
         "summary": "Upload Pdf From Url"
+      }
+    },
+    "/api/paper/upload/import": {
+      "post": {
+        "description": "Import a pasted link: an arXiv page / id, or a direct PDF URL.\n\nIf the owner already has that paper, returns it (`existing: true`,\nunarchived and linked to `project_id`) instead of importing it again.",
+        "operationId": "import_paper_api_paper_upload_import_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportPaperRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportedPaper"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Client error"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Server error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Import Paper"
       }
     },
     "/api/paper/{paper_id}/figure/{label_or_id}": {

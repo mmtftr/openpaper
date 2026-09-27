@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import useSWR from "swr";
 import { useTheme } from "next-themes";
-import { Compass, FileText, FolderKanban, Home, Library, Moon, Search, Settings, Sun } from "lucide-react";
+import { ArrowDownToLine, Compass, CornerDownLeft, FileText, FolderKanban, Home, Library, Moon, Search, Settings, Sun } from "lucide-react";
 import {
     Command,
     CommandEmpty,
@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { PROJECTS_LIST_KEY } from "@/hooks/useProjects";
 import { api, unwrap } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth";
+import { importPaperLinkWithToast, parsePaperLink } from "@/lib/paperLink";
 import { cn } from "@/lib/utils";
 
 const PAGES = [
@@ -101,6 +102,12 @@ export function CommandMenu({ className, compact = false }: { className?: string
         if (open && firstPaperId) setSelected(`paper-${firstPaperId}`);
     }, [open, firstPaperId]);
 
+    // A pasted arXiv / PDF link: offer to import it, selected so Enter does.
+    const link = useMemo(() => parsePaperLink(query, { bareIds: true }), [query]);
+    useEffect(() => {
+        if (link) setSelected("import-link");
+    }, [link]);
+
     if (!user) return null;
 
     const go = (href: string) => {
@@ -108,6 +115,14 @@ export function CommandMenu({ className, compact = false }: { className?: string
         router.push(href);
     };
     const shownPapers = query.trim() ? papers : papers.slice(0, RECENT_PAPERS);
+    const importLink = () => {
+        if (!link) return;
+        setOpen(false);
+        void importPaperLinkWithToast(link, {
+            navigate: true,
+            open: (paperId) => router.push(`/paper/${paperId}`),
+        });
+    };
 
     return (
         <>
@@ -148,6 +163,21 @@ export function CommandMenu({ className, compact = false }: { className?: string
                         <CommandInput value={query} onValueChange={setQuery} placeholder="Search papers, projects, pages…" />
                         <CommandList className="max-h-[min(60dvh,420px)]">
                             <CommandEmpty>Nothing matches.</CommandEmpty>
+                            {link && (
+                                <CommandGroup heading="Import">
+                                    <CommandItem value="import-link" keywords={[query]} onSelect={importLink}>
+                                        <ArrowDownToLine className="text-brand" />
+                                        <span className="min-w-0 flex-1 truncate">
+                                            {link.kind === "arxiv" ? (
+                                                <>Import from arXiv: <span className="font-medium">{link.id}{link.version}</span></>
+                                            ) : (
+                                                <>Import PDF: <span className="font-medium">{link.label}</span></>
+                                            )}
+                                        </span>
+                                        <CornerDownLeft className="text-muted-foreground" aria-hidden />
+                                    </CommandItem>
+                                </CommandGroup>
+                            )}
                             {shownPapers.length > 0 && (
                                 <CommandGroup heading={query.trim() ? "Papers" : "Recent papers"}>
                                     {shownPapers.map((paper) => (

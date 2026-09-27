@@ -122,6 +122,51 @@ def url_identifiers(url: Optional[str]) -> list[Identifier]:
     return identifiers_in(unquote(url), "url") if url else []
 
 
+@dataclass(frozen=True)
+class ArxivLink:
+    """An arXiv paper someone pasted: `id` without version, `version` ("v2")
+    only if the link named one."""
+
+    id: str
+    version: str = ""
+
+    @property
+    def pdf_url(self) -> str:
+        return f"https://arxiv.org/pdf/{self.id}{self.version}"
+
+
+_ARXIV_LINK_ID = (
+    r"(?P<id>\d{2}(?:0[1-9]|1[0-2])\.\d{4,5}"
+    r"|[a-z]+(?:-[a-z]+)?(?:\.[a-z]{2})?/\d{2}(?:0[1-9]|1[0-2])\d{3})"
+    r"(?P<version>v\d+)?"
+)
+# arxiv.org / export.arxiv.org / alphaxiv.org pages: /abs/ID, /pdf/ID(.pdf),
+# /html/ID, alphaXiv's /overview/ID; also doi.org/10.48550/arXiv.ID.
+_ARXIV_LINK = re.compile(
+    r"^(?:https?://)?(?:[\w-]+\.)*"
+    r"(?:(?:arxiv|alphaxiv)\.org/(?:abs|pdf|html|overview|format)/"
+    r"|(?:dx\.)?doi\.org/10\.48550/arxiv\.)"
+    rf"{_ARXIV_LINK_ID}(?:\.pdf)?/?(?:[?#].*)?$",
+    re.IGNORECASE,
+)
+# "arXiv:2504.11844v2", or a bare new-style id.
+_ARXIV_TEXT = re.compile(rf"^(?:arxiv\s*:\s*)?{_ARXIV_LINK_ID}$", re.IGNORECASE)
+
+
+def arxiv_link(text: str) -> Optional[ArxivLink]:
+    """The arXiv paper `text` (a pasted URL or `arXiv:ID`) points at, if any."""
+    text = text.strip()
+    match = _ARXIV_LINK.match(text) or _ARXIV_TEXT.match(text)
+    if not match:
+        return None
+    arxiv_id = match.group("id")
+    if "/" in arxiv_id:  # old style: archive lowercase, subject class upper
+        archive, number = arxiv_id.split("/")
+        name, _, subject = archive.partition(".")
+        arxiv_id = f"{name.lower()}{'.' + subject.upper() if subject else ''}/{number}"
+    return ArxivLink(arxiv_id, (match.group("version") or "").lower())
+
+
 def page_identifiers(pages: list[str]) -> list[Identifier]:
     """Identifiers from the first pages' text, best-first.
 
