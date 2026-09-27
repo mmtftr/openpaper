@@ -3,7 +3,7 @@
 import { api, unwrap, type Schemas } from "@/lib/api/client";
 import type { LibraryPaper } from "./LibraryTable";
 import { Button } from "./ui/button";
-import { X, ExternalLink, Highlighter, Plus, FileText, Download, Pencil } from "lucide-react";
+import { X, ExternalLink, Highlighter, Plus, FileText, Download, Pencil, Archive, ArchiveRestore } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { handleStatusChange, truncateText } from "@/components/utils/paperUtils";
@@ -28,6 +28,8 @@ interface PaperPreviewProps {
     paper: LibraryPaper;
     onClose: () => void;
     setPaper: (paperId: string, updatedPaper: LibraryPaper) => void;
+    /** Archive (true) or unarchive (false) this paper; no button without it. */
+    onArchive?: (archived: boolean) => void;
     className?: string;
 }
 
@@ -201,7 +203,7 @@ function EditableListField({
     );
 }
 
-export function PaperPreview({ paper, onClose, setPaper, className }: PaperPreviewProps) {
+export function PaperPreview({ paper, onClose, setPaper, onArchive, className }: PaperPreviewProps) {
     const { highlights } = useHighlighterHighlights(paper.id);
     const [showAllHighlights, setShowAllHighlights] = useState(false);
     const [previewLoaded, setPreviewLoaded] = useState(false);
@@ -325,6 +327,21 @@ export function PaperPreview({ paper, onClose, setPaper, className }: PaperPrevi
                                     </DropdownMenuItem>
                                 </DropdownMenuContent>
                             </DropdownMenu>
+                        )}
+                        {onArchive && (
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 px-3 text-xs"
+                                onClick={() => onArchive(!paper.archived_at)}
+                            >
+                                {paper.archived_at ? (
+                                    <ArchiveRestore className="h-3.5 w-3.5 mr-1.5" />
+                                ) : (
+                                    <Archive className="h-3.5 w-3.5 mr-1.5" />
+                                )}
+                                {paper.archived_at ? "Unarchive" : "Archive"}
+                            </Button>
                         )}
                     </div>
                 </div>

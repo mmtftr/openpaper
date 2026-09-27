@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, Suspense, useMemo } from "react";
 import useSWR, { useSWRConfig } from "swr";
-import { SIDEBAR_PROJECTS_KEY } from "@/hooks/useProjects";
+import { PROJECTS_LIST_KEY } from "@/hooks/useProjects";
 import { useRouter } from "next/navigation";
 import { ProjectCard } from "@/components/ProjectCard";
 import { Button } from "@/components/ui/button";
@@ -64,7 +64,7 @@ function ProjectsPage() {
 				body: { title, description },
 			}));
 			setCreateProjectOpen(false);
-			void globalMutate(SIDEBAR_PROJECTS_KEY);
+			void globalMutate(PROJECTS_LIST_KEY);
 			router.push(`/projects/${project.id}`);
 		} catch (err) {
 			console.error(err);

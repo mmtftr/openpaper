@@ -46,7 +46,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { SIDEBAR_PROJECTS_KEY, useProject, useProjectPapers } from "@/hooks/useProjects";
+import { PROJECTS_LIST_KEY, useProject, useProjectPapers } from "@/hooks/useProjects";
 import { useSWRConfig } from "swr";
 import ProjectPageSkeleton from "@/components/ProjectPageSkeleton";
 import { PaperListSkeleton } from "@/components/PaperListSkeleton";
@@ -191,7 +191,7 @@ export default function ProjectPage() {
 			}));
 			if (response) {
 				refetchProject();
-				void globalMutate(SIDEBAR_PROJECTS_KEY);
+				void globalMutate(PROJECTS_LIST_KEY);
 				setShowEditAlert(false);
 			} else {
 				console.error('Failed to update project');

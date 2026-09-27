@@ -1,95 +1,76 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { File, User as UserIcon } from "lucide-react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import type { BasicUser } from "@/lib/auth";
+import { Sparkles } from "lucide-react";
 import type { PaperHighlightAnnotation } from "@/lib/schema";
-import { cn, formatAnnotationDate, getAlphaHashToBackgroundColor, getInitials } from "@/lib/utils";
+import { cn, formatAnnotationDate } from "@/lib/utils";
 
 export type NoteThreadVariant = "card" | "panel";
 
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+/** "just now", "5m", "3h", "yesterday", then a date. */
+export function relativeNoteTime(iso: string | undefined, now = Date.now()): string {
+    const t = iso ? Date.parse(iso) : NaN;
+    if (!Number.isFinite(t)) return "";
+    const diff = now - t;
+    if (diff < MINUTE) return "just now";
+    if (diff < HOUR) return `${Math.floor(diff / MINUTE)}m ago`;
+    if (diff < DAY) return `${Math.floor(diff / HOUR)}h ago`;
+    const date = new Date(t);
+    const today = new Date(now);
+    const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+    if (date >= yesterday) return "yesterday";
+    return date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        ...(date.getFullYear() !== today.getFullYear() ? { year: "numeric" } : {}),
+    });
+}
+
+function wasEdited(note: PaperHighlightAnnotation): boolean {
+    const created = note.created_at ? Date.parse(note.created_at) : NaN;
+    const updated = note.updated_at ? Date.parse(note.updated_at) : NaN;
+    return Number.isFinite(created) && Number.isFinite(updated) && updated - created > MINUTE;
+}
+
 interface NoteAuthorProps {
-    variant: NoteThreadVariant;
     note: PaperHighlightAnnotation;
-    user: BasicUser | null;
     /** Trailing actions (edit / delete). */
     children?: ReactNode;
+    className?: string;
 }
 
-/** Avatar, author and date above one note. AI notes are "Open Paper". */
-export function NoteAuthor({ variant, note, user, children }: NoteAuthorProps) {
+/**
+ * The line above one note. Single-user app: the owner's notes are just
+ * "You"; AI notes carry the "Open Paper" mark so they stay distinguishable.
+ */
+export function NoteAuthor({ note, children, className }: NoteAuthorProps) {
     const isAI = note.role === "assistant";
-
-    if (variant === "panel") {
-        return (
-            <div className="flex items-center gap-2">
-                <div
-                    className={cn(
-                        "w-8 h-8 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center",
-                        isAI ? "bg-blue-100 dark:bg-blue-900" : "bg-muted"
-                    )}
-                >
-                    {isAI ? (
-                        <File size={14} className="text-blue-500" />
-                    ) : user?.picture ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={user.picture} alt={user.name ?? undefined} className="w-full h-full object-cover" />
-                    ) : (
-                        <UserIcon size={14} className="text-muted-foreground" />
-                    )}
-                </div>
-                <span className="text-sm font-medium text-foreground">
-                    {isAI ? "Open Paper" : user?.name || "User"}
-                </span>
-                <span className="text-xs text-muted-foreground">{formatAnnotationDate(note.created_at)}</span>
-                {children}
-            </div>
-        );
-    }
-
-    const displayName = user?.name || "Anonymous";
     return (
-        <div className="flex items-center gap-3">
+        <div className={cn("flex min-h-6 items-center gap-1.5 text-xs", className)}>
             {isAI ? (
-                <div className="h-7 w-7 flex-shrink-0 rounded-full flex items-center justify-center bg-blue-100 dark:bg-blue-900">
-                    <File size={12} className="text-blue-500" />
-                </div>
+                <span className="flex items-center gap-1.5 font-medium text-brand">
+                    <span className="flex size-5 items-center justify-center rounded-full bg-brand/10">
+                        <Sparkles className="size-3" />
+                    </span>
+                    Open Paper
+                </span>
             ) : (
-                <UserAvatar user={user} className="h-7 w-7" fallbackClassName="text-[10px]" />
+                <span className="font-medium text-foreground">You</span>
             )}
-            <div className="flex flex-col leading-tight flex-1 min-w-0">
-                <span className="text-xs font-medium">{isAI ? "Open Paper" : displayName}</span>
-                <span className="text-[11px] text-muted-foreground">{formatAnnotationDate(note.created_at)}</span>
-            </div>
+            <span aria-hidden className="text-muted-foreground/60">·</span>
+            <time
+                dateTime={note.created_at}
+                title={formatAnnotationDate(note.created_at ?? "")}
+                className="text-muted-foreground"
+            >
+                {relativeNoteTime(note.created_at)}
+            </time>
+            {wasEdited(note) && <span className="text-muted-foreground/80">· edited</span>}
             {children}
         </div>
-    );
-}
-
-/** The note card's avatar: the user's picture, else coloured initials. */
-export function UserAvatar({
-    user,
-    className,
-    fallbackClassName,
-}: {
-    user: BasicUser | null;
-    className?: string;
-    fallbackClassName?: string;
-}) {
-    const displayName = user?.name || "Anonymous";
-    return (
-        <Avatar className={cn("flex-shrink-0", className)}>
-            {user?.picture && <AvatarImage src={user.picture} alt={displayName} />}
-            <AvatarFallback
-                className={cn(
-                    "text-white font-medium",
-                    user?.name ? getAlphaHashToBackgroundColor(user.name) : "bg-muted",
-                    fallbackClassName
-                )}
-            >
-                {getInitials(displayName)}
-            </AvatarFallback>
-        </Avatar>
     );
 }

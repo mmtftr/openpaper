@@ -16,7 +16,6 @@ import {
     renderedHighlightPositionsAtom,
     sidePanelTabAtom,
     textSearchAtom,
-    toggleReadModeAtom,
     userMessageReferencesAtom,
 } from "./paperStore";
 import { usePaperAtom, usePaperAtomValue, useSetPaperAtom } from "./PaperStoreProvider";
@@ -39,7 +38,6 @@ export function PaperReaderPane({ mobile = false, active = true }: { mobile?: bo
     const parentPaperId = usePaperAtomValue(parentPaperIdAtom);
     const [displayedPaperId, setDisplayedPaperId] = usePaperAtom(displayedPaperIdAtom);
     const [tab, setTab] = usePaperAtom(sidePanelTabAtom);
-    const toggleReadMode = useSetPaperAtom(toggleReadModeAtom);
     const setMobileView = useSetPaperAtom(mobileViewAtom);
     const setUserMessageReferences = useSetPaperAtom(userMessageReferencesAtom);
     const onSearchComplete = useSetPaperAtom(citationSearchSettledAtom);
@@ -123,8 +121,6 @@ export function PaperReaderPane({ mobile = false, active = true }: { mobile?: bo
             annotationsPanelActive={mobile ? undefined : tab === "Annotations"}
             onAskStarted={onAskStarted}
             onOpenThread={onOpenThread}
-            isReadMode={mobile ? undefined : tab === "Read"}
-            onToggleReadMode={mobile ? undefined : toggleReadMode}
             parentPaperId={parentPaperId}
             displayedPaperId={displayedPaperId}
             parentPaperTitle={paper?.title ?? undefined}

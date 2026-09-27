@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { RefObject } from "react";
+import type { FocusEvent, RefObject } from "react";
 import { createPortal } from "react-dom";
-import { Copy, MessageCircle, PanelRight, StickyNote, Trash2 } from "lucide-react";
+import { ArrowUpRight, Copy, MessageCircle, StickyNote, Trash2 } from "lucide-react";
 import type { BasicUser } from "@/lib/auth";
 import type {
 	HighlightColor,
@@ -15,9 +15,11 @@ import { useReaderContext } from "./ReaderContext";
 import { READER_POPOVER_SELECTOR } from "./HighlightLayer";
 import { HIGHLIGHT_COLOR_SWATCHES } from "./highlightColors";
 import { ShortcutHint } from "./SelectionLayer";
+import { toScrollerContent, visibleBounds } from "./visibleBounds";
 import type { HighlightPopoverTarget } from "./useHighlightPopover";
 
-const NOTE_CARD_WIDTH = 360;
+/** Roomy on desktop; phones clamp it to the pane (minus MARGIN each side). */
+const NOTE_CARD_WIDTH = 400;
 const GAP = 8;
 const MARGIN = 8;
 const MIN_HEIGHT = 140;
@@ -89,10 +91,10 @@ function usePopoverPlacement(
 		}
 
 		const a = anchorEl.getBoundingClientRect();
-		const c = container.getBoundingClientRect();
-		const visibleWidth = container.clientWidth;
-		const visibleBottom = c.top + container.clientHeight - MARGIN;
-		const width = Math.min(fixedWidth ?? el.offsetWidth, visibleWidth - MARGIN * 2);
+		// What's on screen of the pane, not the (possibly zoomed-wider) pages.
+		const vis = visibleBounds(container);
+		const visibleBottom = vis.bottom - MARGIN;
+		const width = Math.min(fixedWidth ?? el.offsetWidth, vis.right - vis.left - MARGIN * 2);
 		const natural = naturalHeight(el);
 
 		// Re-decide on a new target, or when the pane itself was resized (window,
@@ -103,7 +105,7 @@ function usePopoverPlacement(
 			decided.current.paneH !== container.clientHeight
 		) {
 			const below = visibleBottom - a.bottom - GAP;
-			const above = a.top - GAP - (c.top + MARGIN);
+			const above = a.top - GAP - (vis.top + MARGIN);
 			const placeBelow = below >= natural || below >= above;
 			decided.current = {
 				key: targetKey,
@@ -117,12 +119,13 @@ function usePopoverPlacement(
 		const height = Math.min(natural, maxHeight);
 		const vpTop = below ? a.bottom + GAP : a.top - GAP - height;
 		const vpLeft = Math.max(
-			c.left + MARGIN,
-			Math.min(a.left + a.width / 2 - width / 2, c.left + visibleWidth - width - MARGIN)
+			vis.left + MARGIN,
+			Math.min(a.left + a.width / 2 - width / 2, vis.right - width - MARGIN)
 		);
+		const content = toScrollerContent(container, vpLeft, vpTop);
 		const next: Placement = {
-			left: vpLeft - c.left + container.scrollLeft,
-			top: vpTop - c.top + container.scrollTop,
+			left: content.left,
+			top: content.top,
 			width,
 			maxHeight,
 		};
@@ -219,7 +222,6 @@ export function HighlightPopover(props: HighlightPopoverProps) {
 		target,
 		highlight,
 		notes,
-		currentUser,
 		addAnnotation,
 		updateAnnotation,
 		removeAnnotation,
@@ -374,6 +376,12 @@ export function HighlightPopover(props: HighlightPopoverProps) {
 		// Capture: the card stops propagation of its own mouse events.
 		onMouseDownCapture: engageCurrent,
 		onFocusCapture: engageCurrent,
+		// Leaving a text field with the pointer already gone counts as leaving.
+		onBlurCapture: (e: FocusEvent) => {
+			const el = elRef.current;
+			if (!el || el.contains(e.relatedTarget as Node | null)) return;
+			if (!el.matches(":hover")) popoverLeave();
+		},
 	};
 
 	if (showNotes) {
@@ -392,7 +400,7 @@ export function HighlightPopover(props: HighlightPopoverProps) {
 					key={target.highlightId}
 					highlightId={target.highlightId}
 					widthPx={placement?.width ?? NOTE_CARD_WIDTH}
-					className="relative z-auto border border-border bg-background"
+					className="z-auto"
 					// Inline: the card's own `overflow-hidden` class would win over a
 					// utility override, and the thread must scroll within the budget.
 					style={{
@@ -401,41 +409,28 @@ export function HighlightPopover(props: HighlightPopoverProps) {
 						overscrollBehavior: "contain",
 					}}
 					annotations={notes}
-					user={currentUser ?? null}
 					addAnnotation={addAnnotation}
 					updateAnnotation={updateAnnotation}
 					removeAnnotation={removeAnnotation}
 					onClose={close}
 					onDirtyChange={setDirty}
-					footer={
-						notes.length > 0 ? (
-							<div className="sticky bottom-0 flex items-center justify-between border-t border-border bg-background px-3 py-1.5">
-								<button
-									type="button"
-									onClick={(e) => {
-										e.stopPropagation();
-										close();
-									}}
-									className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-								>
-									Close
-								</button>
-								{onOpenThread && (
-									<button
-										type="button"
-										onClick={(e) => {
-											e.stopPropagation();
-											onOpenThread(highlight);
-											// An unsaved reply stays here rather than vanishing.
-											if (!isDirty()) close();
-										}}
-										className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-									>
-										<PanelRight className="size-3.5" /> Open in Annotations
-									</button>
-								)}
-							</div>
-						) : null
+					cornerAction={
+						onOpenThread ? (
+							<button
+								type="button"
+								title="Open in Annotations"
+								aria-label="Open in Annotations"
+								onClick={(e) => {
+									e.stopPropagation();
+									onOpenThread(highlight);
+									// An unsaved reply stays here rather than vanishing.
+									if (!isDirty()) close();
+								}}
+								className="relative flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors after:absolute after:-inset-1.5 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 md:after:hidden"
+							>
+								<ArrowUpRight className="size-4" />
+							</button>
+						) : undefined
 					}
 				/>
 			</div>,
@@ -453,7 +448,13 @@ export function HighlightPopover(props: HighlightPopoverProps) {
 			aria-label="Highlight actions"
 			tabIndex={-1}
 			className="outline-none"
-			style={{ ...shellStyle, maxWidth: `calc(100% - ${MARGIN * 2}px)` }}
+			// max-content: an auto width would shrink to the room left of `left`,
+			// which in horizontally scrolled (zoomed) pages is next to nothing.
+			style={{
+				...shellStyle,
+				width: "max-content",
+				maxWidth: `calc(100% - ${MARGIN * 2}px)`,
+			}}
 			{...shellHandlers}
 		>
 			<div className="flex flex-wrap items-center gap-0.5 whitespace-nowrap rounded-xl border border-border bg-popover/95 p-1 shadow-xl backdrop-blur">

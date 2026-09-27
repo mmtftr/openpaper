@@ -17,14 +17,13 @@ import { Checkbox } from "./ui/checkbox";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Skeleton } from "./ui/skeleton";
-import { useSidebar } from "./ui/sidebar";
 import {
 	Sheet,
 	SheetContent,
 	SheetTitle,
 } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { ArrowDown, ArrowDownUp, ArrowUp, ArrowUpDown, CheckCheck, Search, Trash2, X, Tag } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowDown, ArrowDownUp, ArrowUp, ArrowUpDown, CheckCheck, Search, Trash2, X, Tag } from "lucide-react";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -37,7 +36,7 @@ import { PaperPreview } from "./PaperPreview";
 import { PaperFiltering, Filter, Sort, NO_TAGS_FILTER_VALUE } from "@/components/PaperFiltering";
 import { TagSelector } from "./TagSelector";
 import { toast } from "sonner";
-import { usePapers } from "@/hooks/usePapers";
+import { archivePapersWithToast, usePapers } from "@/hooks/usePapers";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -64,8 +63,14 @@ const MOBILE_SORTS: { label: string; key: SortKey; direction: SortDirection }[] 
 	{ label: "Title (Z–A)", key: "title", direction: "descending" },
 ];
 
-/** Rows/cards that fade up on first paint; the rest appear instantly. */
-const ENTRANCE_ITEMS = 8;
+// First-paint entrance: every row rises in on a short stagger. The delay stops
+// growing after ENTRANCE_STAGGER_CAP rows, so the rest of the viewport rises
+// together and the whole entrance stays under ~0.6s. Rows past
+// ENTRANCE_MAX_ROWS can't be on screen before it ends, so they skip it.
+const ENTRANCE_STEP_MS = 30;
+const ENTRANCE_STAGGER_CAP = 10;
+const ENTRANCE_MAX_ROWS = 60;
+const ENTRANCE_WINDOW_MS = 900;
 
 // Lists scroll the document on phones; on desktop a bounded box scrolls
 // internally, either filling the parent (`fillHeight`) or capped.
@@ -78,8 +83,11 @@ function formatDate(value?: string | null) {
 }
 
 function entrance(index: number, active: boolean) {
-	if (!active || index >= ENTRANCE_ITEMS) return {};
-	return { className: "animate-rise-in", style: { animationDelay: `${index * 40}ms` } };
+	if (!active || index >= ENTRANCE_MAX_ROWS) return {};
+	return {
+		className: "animate-rise-in",
+		style: { animationDelay: `${Math.min(index, ENTRANCE_STAGGER_CAP) * ENTRANCE_STEP_MS}ms` },
+	};
 }
 
 function SortHeader({
@@ -169,6 +177,8 @@ interface LibraryTableProps extends React.HTMLAttributes<HTMLDivElement> {
 	onUploadClick?: () => void;
 	/** On desktop, fill the parent's height and scroll the table inside it. */
 	fillHeight?: boolean;
+	/** Archive actions and an "Archived" view (the library page). */
+	archivable?: boolean;
 }
 
 export function LibraryTable({
@@ -179,13 +189,17 @@ export function LibraryTable({
 	handleDelete,
 	onUploadClick,
 	fillHeight = false,
+	archivable = false,
 	className,
 	setPapers: _setPapers,
 	...props
 }: LibraryTableProps) {
 	const selectable = selectableProp ?? (onSelectFiles ? true : false);
-	const { papers, error: papersFetchError, isLoading, mutate } = usePapers();
-	const { state: sidebarState } = useSidebar();
+	const [showArchived, setShowArchived] = useState(false);
+	const { papers, error: papersFetchError, isLoading, mutate } = usePapers({ archived: archivable && showArchived });
+	// Also fetched in the library view: the toggle's count, and an instant switch.
+	const { papers: archivedPapers } = usePapers({ archived: true, skip: !archivable });
+	const archivedCount = archivedPapers?.length ?? 0;
 	const isMobile = useIsMobile();
 	const [selectedPapers, setSelectedPapers] = useState<Set<string>>(new Set());
 	const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -196,13 +210,15 @@ export function LibraryTable({
 	const [taggingPopoverOpen, setTaggingPopoverOpen] = useState(false);
 	const [expandedTags, setExpandedTags] = useState<Set<string>>(new Set());
 	// Only the first paint of the list gets the entrance; rows that come back
-	// after a search or filter change just appear.
+	// after a search or filter change just appear. The window opens once the
+	// papers have loaded, not at mount, so a slow fetch doesn't eat it.
 	const [entranceActive, setEntranceActive] = useState(true);
 
 	useEffect(() => {
-		const timer = window.setTimeout(() => setEntranceActive(false), 800);
+		if (isLoading) return;
+		const timer = window.setTimeout(() => setEntranceActive(false), ENTRANCE_WINDOW_MS);
 		return () => window.clearTimeout(timer);
-	}, []);
+	}, [isLoading]);
 
 	const sort: Sort = { type: "publish_date", order: "desc" };
 
@@ -350,6 +366,24 @@ export function LibraryTable({
 		setSelectedPapers(new Set());
 	};
 
+	// (Un)archived papers leave this view at once; the toast can undo.
+	const handleArchive = (paperIds: string[], archived: boolean) => {
+		const ids = new Set(paperIds);
+		mutate((current) => current?.filter(p => !ids.has(p.id)), { revalidate: false });
+		setSelectedPapers(prev => new Set([...prev].filter(id => !ids.has(id))));
+		if (selectedPaperForPreview && ids.has(selectedPaperForPreview.id)) {
+			setSelectedPaperForPreview(null);
+		}
+		void archivePapersWithToast(paperIds, archived);
+	};
+
+	const switchView = (archived: boolean) => {
+		if (archived === showArchived) return;
+		setShowArchived(archived);
+		setSelectedPapers(new Set());
+		setSelectedPaperForPreview(null);
+	};
+
 	const toggleExpandedTags = (paperId: string) => {
 		setExpandedTags(prev => {
 			const newSet = new Set(prev);
@@ -415,6 +449,11 @@ export function LibraryTable({
 			<p className="text-sm text-muted-foreground">No papers match your search.</p>
 			<Button variant="outline" size="sm" onClick={clearSearchAndFilters}>Clear search and filters</Button>
 		</div>
+	) : showArchived ? (
+		<div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+			<p className="text-sm text-muted-foreground">No archived papers.</p>
+			<Button variant="outline" size="sm" onClick={() => switchView(false)}>Back to library</Button>
+		</div>
 	) : (
 		<div className="flex flex-col items-center gap-4 px-4 py-10 text-center">
 			<div className="text-muted-foreground">
@@ -457,6 +496,11 @@ export function LibraryTable({
 	);
 
 	const scrollBoxHeight = fillHeight ? "md:h-full" : CAPPED_HEIGHT;
+	// The Archive button makes the pill too wide for phones with labels.
+	const pillLabelHidden = archivable ? "max-sm:hidden" : "max-[359px]:hidden";
+	const previewArchive = archivable && selectedPaperForPreview
+		? (archived: boolean) => handleArchive([selectedPaperForPreview.id], archived)
+		: undefined;
 
 	return (
 		<div
@@ -484,6 +528,25 @@ export function LibraryTable({
 					sort={sort}
 					showSort={false}
 				/>
+				{archivable && (archivedCount > 0 || showArchived) && (
+					<Button
+						variant="outline"
+						aria-pressed={showArchived}
+						aria-label={showArchived ? "Showing archived papers, back to library" : `Show ${archivedCount} archived`}
+						title={showArchived ? "Back to library" : "Show archived papers"}
+						onClick={() => switchView(!showArchived)}
+						className={cn(
+							"h-10 shrink-0 gap-2 px-3",
+							showArchived && "border-brand/40 bg-brand/10 text-brand hover:bg-brand/15 hover:text-brand dark:bg-brand/15",
+						)}
+					>
+						<Archive className="size-4" />
+						<span className="max-sm:hidden">Archived</span>
+						<span className={cn("text-xs tabular-nums", showArchived ? "text-brand/80" : "text-muted-foreground")}>
+							{archivedCount}
+						</span>
+					</Button>
+				)}
 				<DropdownMenu>
 					<DropdownMenuTrigger asChild>
 						<Button variant="outline" size="icon-lg" className="shrink-0 md:hidden" aria-label="Sort papers">
@@ -513,6 +576,18 @@ export function LibraryTable({
 					</span>
 				)}
 			</div>
+
+			{showArchived && (
+				<div className="flex animate-in items-center gap-2 rounded-lg bg-muted/60 py-1.5 pr-1.5 pl-3 text-sm text-muted-foreground duration-200 ease-out-soft fade-in">
+					<Archive className="size-4 shrink-0" />
+					<p className="min-w-0 flex-1">
+						Hidden from your library and home. They still open and turn up in search.
+					</p>
+					<Button variant="ghost" size="sm" className="h-8 shrink-0 text-foreground" onClick={() => switchView(false)}>
+						Back to library
+					</Button>
+				</div>
+			)}
 
 			{(filters.length > 0 || (isNarrowed && searchTerm)) && (
 				<div className="flex flex-wrap items-center gap-1.5">
@@ -550,9 +625,7 @@ export function LibraryTable({
 				className={cn(
 					"grid min-w-0 gap-4",
 					fillHeight && "md:min-h-0 md:flex-1 md:grid-rows-[minmax(0,1fr)]",
-					selectedPaperForPreview && (sidebarState === 'expanded'
-						? "md:grid-cols-[minmax(0,1fr)_320px]"
-						: "md:grid-cols-[minmax(0,1fr)_384px]"),
+					selectedPaperForPreview && "md:grid-cols-[minmax(0,1fr)_384px]",
 				)}
 			>
 				<div className={cn("relative min-w-0", fillHeight && "md:min-h-0")}>
@@ -851,9 +924,19 @@ export function LibraryTable({
 									<X className="size-4" />
 								</Button>
 								<span className="pr-2 text-sm font-medium whitespace-nowrap tabular-nums">
-									{selectedPapers.size}<span className="max-[359px]:hidden"> selected</span>
+									{selectedPapers.size}<span className={pillLabelHidden}> selected</span>
 								</span>
-								{onSelectFiles && actionOptions.map((action) => (
+								{showArchived && (
+									<Button
+										size="sm"
+										onClick={() => handleArchive(Array.from(selectedPapers), false)}
+										className="h-9 rounded-full bg-brand px-4 font-medium text-brand-foreground hover:bg-brand/90"
+									>
+										<ArchiveRestore className="size-4" />
+										Unarchive
+									</Button>
+								)}
+								{onSelectFiles && !showArchived && actionOptions.map((action) => (
 									<Button
 										key={action}
 										size="sm"
@@ -865,9 +948,9 @@ export function LibraryTable({
 								))}
 								<DropdownMenu open={taggingPopoverOpen} onOpenChange={setTaggingPopoverOpen}>
 									<DropdownMenuTrigger asChild>
-										<Button variant="ghost" size="sm" className="h-9 rounded-full px-3" aria-label="Tag selected papers">
+										<Button variant="ghost" size="sm" className={cn("h-9 rounded-full px-3", archivable && "max-sm:w-9 max-sm:px-0")} aria-label="Tag selected papers">
 											<Tag className="size-4" />
-											<span className="max-[359px]:hidden">Tag</span>
+											<span className={pillLabelHidden}>Tag</span>
 										</Button>
 									</DropdownMenuTrigger>
 									<DropdownMenuContent className="w-80 max-w-[calc(100vw-1.5rem)]" side="top" align="center">
@@ -880,6 +963,18 @@ export function LibraryTable({
 										/>
 									</DropdownMenuContent>
 								</DropdownMenu>
+								{archivable && !showArchived && (
+									<Button
+										variant="ghost"
+										size="sm"
+										className="h-9 rounded-full px-3 max-sm:w-9 max-sm:px-0"
+										aria-label={`Archive ${selectedPapers.size} selected`}
+										onClick={() => handleArchive(Array.from(selectedPapers), true)}
+									>
+										<Archive className="size-4" />
+										<span className="max-sm:hidden">Archive</span>
+									</Button>
+								)}
 								{handleDelete && (
 									<Button
 										variant="ghost"
@@ -903,7 +998,7 @@ export function LibraryTable({
 							fillHeight ? "md:h-full" : CAPPED_HEIGHT,
 						)}
 					>
-						<PaperPreview paper={selectedPaperForPreview} onClose={() => setSelectedPaperForPreview(null)} setPaper={setPaper} />
+						<PaperPreview paper={selectedPaperForPreview} onClose={() => setSelectedPaperForPreview(null)} setPaper={setPaper} onArchive={previewArchive} />
 					</div>
 				)}
 			</div>
@@ -918,6 +1013,7 @@ export function LibraryTable({
 								paper={selectedPaperForPreview}
 								onClose={() => setSelectedPaperForPreview(null)}
 								setPaper={setPaper}
+								onArchive={previewArchive}
 								className="rounded-none border-0"
 							/>
 						</div>

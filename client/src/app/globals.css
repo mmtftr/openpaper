@@ -9,14 +9,6 @@
 	--color-foreground: var(--foreground);
 	--font-sans: var(--font-geist-sans);
 	--font-mono: var(--font-geist-mono);
-	--color-sidebar-ring: var(--sidebar-ring);
-	--color-sidebar-border: var(--sidebar-border);
-	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-	--color-sidebar-accent: var(--sidebar-accent);
-	--color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-	--color-sidebar-primary: var(--sidebar-primary);
-	--color-sidebar-foreground: var(--sidebar-foreground);
-	--color-sidebar: var(--sidebar);
 	--color-chart-5: var(--chart-5);
 	--color-chart-4: var(--chart-4);
 	--color-chart-3: var(--chart-3);
@@ -91,14 +83,6 @@
 	--chart-3: oklch(0.398 0.07 227.392);
 	--chart-4: oklch(0.828 0.189 84.429);
 	--chart-5: oklch(0.769 0.188 70.08);
-	--sidebar: oklch(0.984 0.003 247.858);
-	--sidebar-foreground: oklch(0.129 0.042 264.695);
-	--sidebar-primary: oklch(0.208 0.042 265.755);
-	--sidebar-primary-foreground: oklch(0.984 0.003 247.858);
-	--sidebar-accent: oklch(0.945 0.012 255);
-	--sidebar-accent-foreground: oklch(0.208 0.042 265.755);
-	--sidebar-border: oklch(0.929 0.013 255.508);
-	--sidebar-ring: oklch(0.704 0.04 256.788);
 	--brand: oklch(0.585 0.2 259);
 	--brand-foreground: oklch(0.985 0.01 259);
 	/* Shared chrome heights: the app header and the mobile bottom bars. */
@@ -130,14 +114,6 @@
 	--chart-3: oklch(0.769 0.01 240);
 	--chart-4: oklch(0.627 0.01 240);
 	--chart-5: oklch(0.645 0.01 240);
-	--sidebar: oklch(0.24 0.008 240);
-	--sidebar-foreground: oklch(0.984 0.003 240);
-	--sidebar-primary: oklch(0.488 0.01 240);
-	--sidebar-primary-foreground: oklch(0.984 0.003 240);
-	--sidebar-accent: oklch(0.32 0.008 240);
-	--sidebar-accent-foreground: oklch(0.984 0.003 240);
-	--sidebar-border: oklch(1 0 0 / 10%);
-	--sidebar-ring: oklch(0.551 0.01 240);
 	--brand: oklch(0.68 0.16 256);
 	--brand-foreground: oklch(0.2 0.02 256);
 }
@@ -411,69 +387,560 @@
 }
 
 
+/* ---------------------------------------------------------------------------
+ * Milkdown Crepe: the notes editor (.paper-doc-editor) and the read-only
+ * markdown view (.paper-markdown-reader).
+ *
+ * Both import only Crepe's light frame.css: frame-dark.css is just as unscoped
+ * (plain `.milkdown` rules), so with both loaded the dark palette won in light
+ * mode too. The palette is mapped onto the app's tokens, which follow `.dark`.
+ * Code blocks get `tok-*` classes (lib/crepeCodeTheme.ts), coloured below.
+ * ------------------------------------------------------------------------ */
+:is(.paper-doc-editor, .paper-markdown-reader) .milkdown {
+	background: transparent;
+	color: inherit;
+	--crepe-color-background: var(--background);
+	--crepe-color-on-background: var(--foreground);
+	--crepe-color-surface: var(--muted);
+	--crepe-color-surface-low: var(--muted);
+	--crepe-color-on-surface: var(--foreground);
+	--crepe-color-on-surface-variant: var(--muted-foreground);
+	--crepe-color-outline: var(--muted-foreground);
+	--crepe-color-primary: var(--foreground);
+	--crepe-color-secondary: var(--secondary);
+	--crepe-color-on-secondary: var(--secondary-foreground);
+	--crepe-color-inverse: var(--foreground);
+	--crepe-color-on-inverse: var(--background);
+	--crepe-color-inline-code: var(--foreground);
+	--crepe-color-error: var(--destructive);
+	--crepe-color-hover: var(--accent);
+	--crepe-color-selected: color-mix(in oklch, var(--brand) 22%, transparent);
+	--crepe-color-inline-area: var(--muted);
+	--crepe-font-code: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+/* CodeMirror assumes a light editor; keep its caret and selection on-theme. */
+:is(.paper-doc-editor, .paper-markdown-reader) .milkdown .cm-editor {
+	color: var(--foreground);
+}
+:is(.paper-doc-editor, .paper-markdown-reader) .milkdown .cm-editor .cm-cursor {
+	border-left-color: var(--foreground);
+}
+:is(.paper-doc-editor, .paper-markdown-reader) .milkdown .cm-editor .cm-selectionBackground {
+	background: color-mix(in oklch, var(--brand) 25%, transparent) !important;
+}
+:is(.paper-doc-editor, .paper-markdown-reader) .milkdown .cm-editor .cm-matchingBracket {
+	background: color-mix(in oklch, var(--brand) 18%, transparent);
+	outline: none;
+}
+.milkdown .cm-editor :is(.tok-keyword, .tok-operatorKeyword, .tok-modifier) { color: #cf222e; }
+.milkdown .cm-editor :is(.tok-string, .tok-string2, .tok-regexp) { color: #0a3069; }
+.milkdown .cm-editor :is(.tok-number, .tok-bool, .tok-atom, .tok-literal, .tok-propertyName) { color: #0550ae; }
+.milkdown .cm-editor :is(.tok-definition, .tok-function, .tok-macroName) { color: #8250df; }
+.milkdown .cm-editor :is(.tok-typeName, .tok-className, .tok-namespace, .tok-labelName) { color: #953800; }
+.milkdown .cm-editor :is(.tok-comment, .tok-meta) { color: #6e7781; }
+.milkdown .cm-editor .tok-comment { font-style: italic; }
+.milkdown .cm-editor .tok-heading { color: #0550ae; font-weight: 600; }
+.milkdown .cm-editor .tok-strong { font-weight: 600; }
+.milkdown .cm-editor .tok-emphasis { font-style: italic; }
+.milkdown .cm-editor :is(.tok-link, .tok-url) { color: #0a3069; text-decoration: underline; }
+.milkdown .cm-editor .tok-inserted { color: #116329; }
+.milkdown .cm-editor :is(.tok-deleted, .tok-invalid) { color: #82071e; }
+.dark .milkdown .cm-editor :is(.tok-keyword, .tok-operatorKeyword, .tok-modifier) { color: #ff7b72; }
+.dark .milkdown .cm-editor :is(.tok-string, .tok-string2, .tok-regexp, .tok-link, .tok-url) { color: #a5d6ff; }
+.dark .milkdown .cm-editor :is(.tok-number, .tok-bool, .tok-atom, .tok-literal, .tok-propertyName, .tok-heading) { color: #79c0ff; }
+.dark .milkdown .cm-editor :is(.tok-definition, .tok-function, .tok-macroName) { color: #d2a8ff; }
+.dark .milkdown .cm-editor :is(.tok-typeName, .tok-className, .tok-namespace, .tok-labelName) { color: #ffa657; }
+.dark .milkdown .cm-editor :is(.tok-comment, .tok-meta) { color: #8b949e; }
+.dark .milkdown .cm-editor .tok-inserted { color: #7ee787; }
+.dark .milkdown .cm-editor :is(.tok-deleted, .tok-invalid) { color: #ffa198; }
+
 /*
- * Crepe editor: kill the default browser contenteditable focus outline. The
- * editor sits in the paper sidebar where the panel border already provides
- * the affordance — the inner outline is just visual noise.
+ * Notes editor. Crepe is styled for a full-page document (60px/120px padding,
+ * 42px serif headings); this is a side panel for notes next to a paper. The
+ * editor fills the panel so a click anywhere below the text lands in it.
+ * Crepe's own rules are `.milkdown ...`; the extra `.paper-doc-editor` scope
+ * outranks them whichever stylesheet loads last.
  */
-.paper-doc-editor .ProseMirror,
-.paper-doc-editor .ProseMirror:focus,
-.paper-doc-editor .ProseMirror-focused {
-	outline: none !important;
-	box-shadow: none !important;
+.paper-doc-editor {
+	display: flex;
+	flex-direction: column;
+	min-height: 100%;
+}
+.paper-doc-editor .milkdown {
+	--crepe-font-default: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+	--crepe-font-title: var(--crepe-font-default);
+	--doc-menu-shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 6px 20px -4px rgb(0 0 0 / 0.14);
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	font-size: 15px;
+	line-height: 1.6;
+}
+.dark .paper-doc-editor .milkdown {
+	--doc-menu-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px -4px rgb(0 0 0 / 0.5);
+}
+/*
+ * The left gutter holds Crepe's hover block handle (add + drag). The bottom
+ * padding leaves room to scroll the last line up to reading height.
+ */
+.paper-doc-editor .milkdown .ProseMirror {
+	flex: 1;
+	padding: 16px 20px 96px 52px;
+	outline: none;
+	overflow-wrap: break-word;
+	caret-color: var(--foreground);
+}
+/*
+ * Touch has no hover handle, so no gutter; the tall bottom padding lets the
+ * caret be scrolled clear of the on-screen keyboard. 16px text: iOS zooms
+ * into smaller inputs (link and formula fields).
+ */
+@media (pointer: coarse) {
+	.paper-doc-editor .milkdown {
+		font-size: 16px;
+	}
+	.paper-doc-editor .milkdown .ProseMirror {
+		padding: 14px 16px 40vh;
+	}
+	.paper-doc-editor .milkdown .milkdown-block-handle {
+		display: none;
+	}
+}
+.paper-doc-editor .milkdown .ProseMirror p {
+	font-size: inherit;
+	line-height: inherit;
+	padding: 3px 0;
+}
+.paper-doc-editor .milkdown .ProseMirror :is(h1, h2, h3, h4, h5, h6) {
+	font-family: var(--crepe-font-title);
+	font-weight: 600;
+	letter-spacing: -0.01em;
+	line-height: 1.3;
+	padding: 0;
+	margin: 1.1em 0 0.3em;
+}
+.paper-doc-editor .milkdown .ProseMirror h1 { font-size: 1.4em; letter-spacing: -0.015em; }
+.paper-doc-editor .milkdown .ProseMirror h2 { font-size: 1.2em; }
+.paper-doc-editor .milkdown .ProseMirror h3 { font-size: 1.05em; }
+.paper-doc-editor .milkdown .ProseMirror :is(h4, h5, h6) { font-size: 1em; }
+.paper-doc-editor .milkdown .ProseMirror :is(h5, h6) { color: var(--muted-foreground); }
+.paper-doc-editor .milkdown .ProseMirror > :first-child,
+.paper-doc-editor .milkdown .ProseMirror > .ProseMirror-widget:first-child + * {
+	margin-top: 0;
+}
+.paper-doc-editor .milkdown .ProseMirror a {
+	color: var(--brand);
+	text-decoration-color: color-mix(in oklch, var(--brand) 40%, transparent);
+	text-underline-offset: 2px;
+}
+.paper-doc-editor .milkdown .ProseMirror code {
+	display: inline;
+	color: var(--foreground);
+	background: var(--muted);
+	font-size: 0.86em;
+	line-height: inherit;
+	padding: 0.1em 0.35em;
+	border-radius: 4px;
+}
+.paper-doc-editor .milkdown .ProseMirror blockquote {
+	padding-left: 14px;
+	margin: 6px 0;
+	color: var(--muted-foreground);
+}
+.paper-doc-editor .milkdown .ProseMirror blockquote::before {
+	width: 3px;
+	top: 3px;
+	bottom: 3px;
+	background: color-mix(in oklch, var(--muted-foreground) 35%, transparent);
+}
+.paper-doc-editor .milkdown .ProseMirror hr {
+	margin: 10px 0;
+	background-color: var(--border);
+}
+.paper-doc-editor .milkdown span[data-type='math_inline'] {
+	color: inherit;
+	padding: 0 2px;
+	vertical-align: baseline;
+}
+/* Lists: Crepe's 32px label box is taller than a line of this text. */
+.paper-doc-editor .milkdown .milkdown-list-item-block li {
+	gap: 6px;
+}
+.paper-doc-editor .milkdown .milkdown-list-item-block li .label-wrapper {
+	height: calc(1.6em + 6px);
+	width: 1.25em;
+	flex-shrink: 0;
+}
+.paper-doc-editor .milkdown .milkdown-list-item-block li .label-wrapper .label {
+	height: auto;
+	padding: 0;
+	width: auto;
+	font-variant-numeric: tabular-nums;
+}
+.paper-doc-editor .milkdown .milkdown-list-item-block li .label-wrapper svg {
+	width: 1.1em;
+	height: 1.1em;
+}
+.paper-doc-editor .milkdown .milkdown-list-item-block li .label-wrapper :is(.checked, .unchecked) svg {
+	fill: var(--muted-foreground);
+}
+/* Code and math blocks. */
+.paper-doc-editor .milkdown .milkdown-code-block {
+	margin: 8px 0;
+	padding: 4px 12px 8px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: color-mix(in oklch, var(--muted) 55%, transparent);
+}
+.paper-doc-editor .milkdown .milkdown-code-block.selected {
+	outline: 2px solid color-mix(in oklch, var(--brand) 45%, transparent);
+	outline-offset: 1px;
+}
+.paper-doc-editor .milkdown .milkdown-code-block :is(.cm-editor, .cm-gutters) {
+	background: transparent;
+}
+/* Line numbers and fold markers are noise in a note. */
+.paper-doc-editor .milkdown .milkdown-code-block .cm-gutters {
+	display: none;
+}
+.paper-doc-editor .milkdown .milkdown-code-block .cm-content {
+	padding: 2px 0;
+	font-family: var(--crepe-font-code);
+	font-size: 13px;
+	line-height: 1.55;
+}
+.paper-doc-editor .milkdown .milkdown-code-block .cm-line {
+	padding: 0;
+}
+.paper-doc-editor .milkdown .milkdown-code-block .cm-activeLine {
+	background: transparent;
+}
+.paper-doc-editor .milkdown .milkdown-code-block .tools .language-button {
+	margin-bottom: 4px;
+	padding: 2px 2px 2px 6px;
+	background: transparent;
+	color: var(--muted-foreground);
+	font-weight: 500;
+}
+.paper-doc-editor .milkdown .milkdown-code-block .tools .tools-button-group button {
+	background: transparent;
+	font-weight: 500;
+}
+.paper-doc-editor .milkdown .milkdown-code-block .tools :is(.language-button, .tools-button-group button):hover {
+	background: var(--accent);
+}
+/* Crepe shows the language picker and copy button on hover only. */
+.paper-doc-editor .milkdown .milkdown-code-block:focus-within :is(.language-button, .tools-button-group > button) {
+	opacity: 1;
+}
+.paper-doc-editor .milkdown .milkdown-code-block .list-wrapper {
+	background: var(--popover);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	box-shadow: var(--doc-menu-shadow);
+	width: 220px;
+	padding-top: 8px;
+}
+.paper-doc-editor .milkdown .milkdown-code-block .language-list {
+	height: auto;
+	max-height: min(320px, 45vh);
+	padding: 0 4px 4px;
+}
+.paper-doc-editor .milkdown .milkdown-code-block .language-list-item {
+	padding: 5px 8px;
+	border-radius: 6px;
+	font-size: 13px;
+	font-weight: 500;
+}
+.paper-doc-editor .milkdown .milkdown-code-block .search-box {
+	margin: 0 8px 6px;
+	padding: 4px 8px;
+	outline: 1px solid var(--border);
+}
+.paper-doc-editor .milkdown .milkdown-code-block .search-box:has(input:focus) {
+	outline: 2px solid color-mix(in oklch, var(--brand) 50%, transparent);
+}
+.paper-doc-editor .milkdown .milkdown-code-block .preview-panel .preview-divider {
+	background: var(--border);
+	opacity: 1;
+}
+.paper-doc-editor .milkdown .milkdown-code-block .preview-panel .preview-label {
+	font-size: 11px;
+	font-weight: 500;
+	letter-spacing: 0.04em;
+	color: var(--muted-foreground);
+}
+.paper-doc-editor .milkdown .milkdown-code-block .preview-panel .preview {
+	overflow-y: hidden;
+}
+/* Tables. */
+.paper-doc-editor .milkdown .milkdown-table-block {
+	margin: 8px 0;
+}
+.paper-doc-editor .milkdown .milkdown-table-block :is(th, td) {
+	border-color: var(--border);
+	padding: 4px 10px;
+	font-size: 0.93em;
+}
+.paper-doc-editor .milkdown .milkdown-table-block th {
+	background: color-mix(in oklch, var(--muted) 60%, transparent);
+	font-weight: 600;
+	text-align: left;
+}
+.paper-doc-editor .milkdown .milkdown-table-block :is(th, td) p {
+	padding: 0;
+}
+.paper-doc-editor .milkdown .crepe-placeholder::before {
+	color: var(--muted-foreground);
+	opacity: 0.75;
 }
 
 /*
- * Crepe ships with `padding: 60px 120px` on `.milkdown .ProseMirror` (see
- * @milkdown/crepe/lib/theme/common/reset.css). That's fine for a full-page
- * editor but absurd inside our narrow Doc sidebar — it eats most of the
- * column. Tighten everything that contributes whitespace at the editor edge:
- * the surface padding, oversized heading top margins, and the paragraph
- * vertical padding. Selectors are scoped under `.paper-doc-editor` and use
- * `!important` because the Crepe stylesheet is imported by the dynamic
- * editor chunk and can win the cascade race depending on load order.
- *
- * Left padding is kept larger than right because Crepe's hover block-handle
- * (drag dot + slash menu trigger, ~66px wide, positioned absolutely just
- * left of the active block) needs room — collapse the left gutter and the
- * menu clips against the panel edge.
+ * Floating UI (slash menu, selection toolbar, link / formula popovers, block
+ * handle) and the formatting bar, in the app's popover style and at a panel's
+ * scale. Crepe positions the floating ones inside the editor, so they stay
+ * within the panel.
  */
-.paper-doc-editor .milkdown .ProseMirror {
-	padding: 8px 12px 8px 56px !important;
+.paper-doc-editor .milkdown :is(
+	.milkdown-slash-menu,
+	.milkdown-toolbar,
+	.milkdown-link-preview > .link-preview,
+	.milkdown-link-edit > .link-edit,
+	.milkdown-latex-inline-edit
+) {
+	background: var(--popover);
+	color: var(--popover-foreground);
+	border: 1px solid var(--border);
+	box-shadow: var(--doc-menu-shadow);
+	border-radius: 8px;
+	z-index: 30;
 }
-/*
- * Crepe paints a hard white `--crepe-color-background` (and a slightly off
- * `--crepe-color-on-background`) onto `.milkdown`, which clashes with the
- * sidebar's `bg-background` token in both light and dark. Drop the fill and
- * inherit text color so the editor blends with the rest of the panel.
- */
-.paper-doc-editor .milkdown {
-	background: transparent !important;
-	color: inherit !important;
+.paper-doc-editor .milkdown .milkdown-slash-menu {
+	border-radius: 10px;
+	font-family: var(--crepe-font-default);
+	max-width: calc(100vw - 24px);
 }
-/* Touch has no hover block-handle, so the gutter reserved for it is dead space. */
+.paper-doc-editor .milkdown .milkdown-slash-menu .tab-group {
+	padding: 6px 6px 0;
+	border-bottom-color: var(--border);
+}
+.paper-doc-editor .milkdown .milkdown-slash-menu .tab-group ul {
+	padding: 0 0 6px;
+	gap: 2px;
+}
+.paper-doc-editor .milkdown .milkdown-slash-menu .tab-group ul li {
+	padding: 3px 8px;
+	border-radius: 6px;
+	font-size: 12px;
+	font-weight: 500;
+	color: var(--muted-foreground);
+}
+.paper-doc-editor .milkdown .milkdown-slash-menu .tab-group ul li.selected {
+	background: var(--accent);
+	color: var(--accent-foreground);
+}
+.paper-doc-editor .milkdown .milkdown-slash-menu .menu-groups {
+	padding: 4px;
+	max-height: min(340px, 45vh);
+}
+.paper-doc-editor .milkdown .milkdown-slash-menu .menu-groups .menu-group h6 {
+	padding: 6px 8px 2px;
+	font-size: 11px;
+	font-weight: 500;
+	letter-spacing: 0.04em;
+	color: var(--muted-foreground);
+}
+.paper-doc-editor .milkdown .milkdown-slash-menu .menu-groups .menu-group li {
+	min-width: 200px;
+	gap: 10px;
+	padding: 6px 8px;
+	border-radius: 6px;
+}
+.paper-doc-editor .milkdown .milkdown-slash-menu .menu-groups .menu-group li:is(.hover, .active) {
+	background: var(--accent);
+}
+.paper-doc-editor .milkdown .milkdown-slash-menu .menu-groups .menu-group li svg {
+	width: 18px;
+	height: 18px;
+	fill: var(--muted-foreground);
+}
+.paper-doc-editor .milkdown .milkdown-slash-menu .menu-groups .menu-group li > span {
+	font-size: 13px;
+	font-weight: 500;
+	line-height: 20px;
+}
+.paper-doc-editor .milkdown .milkdown-slash-menu .menu-groups .menu-group + .menu-group::before {
+	margin: 4px 8px;
+	background: var(--border);
+}
+.paper-doc-editor .milkdown .milkdown-toolbar {
+	padding: 2px;
+	align-items: center;
+}
+.paper-doc-editor .milkdown .milkdown-toolbar .toolbar-item {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 30px;
+	height: 30px;
+	margin: 0;
+	padding: 0;
+	border-radius: 6px;
+}
+.paper-doc-editor .milkdown .milkdown-toolbar .divider {
+	height: 18px;
+	margin: 0 3px;
+	background: var(--border);
+}
+.paper-doc-editor .milkdown :is(.milkdown-toolbar .toolbar-item, .milkdown-top-bar .top-bar-item) svg {
+	width: 18px;
+	height: 18px;
+	color: var(--muted-foreground);
+	fill: var(--muted-foreground);
+}
+.paper-doc-editor .milkdown :is(.milkdown-toolbar .toolbar-item, .milkdown-top-bar .top-bar-item).active {
+	background: var(--accent);
+}
+.paper-doc-editor .milkdown :is(.milkdown-toolbar .toolbar-item, .milkdown-top-bar .top-bar-item).active svg {
+	color: var(--foreground);
+	fill: var(--foreground);
+}
+.paper-doc-editor .milkdown :is(.link-preview, .link-edit) {
+	height: 34px;
+	align-items: center;
+	padding: 0 4px 0 10px;
+	gap: 4px;
+	font-size: 13px;
+}
+.paper-doc-editor .milkdown .milkdown-link-preview > .link-preview > .link-display {
+	width: auto;
+	max-width: min(240px, 55vw);
+	font-size: 13px;
+}
+.paper-doc-editor .milkdown .milkdown-link-edit > .link-edit > .input-area {
+	width: min(220px, 55vw);
+	font-size: inherit;
+	color: var(--foreground);
+}
+.paper-doc-editor .milkdown .milkdown-latex-inline-edit {
+	padding: 4px 6px 4px 10px;
+}
+.paper-doc-editor .milkdown .milkdown-latex-inline-edit .ProseMirror {
+	max-width: min(294px, 60vw);
+}
+.paper-doc-editor .milkdown .milkdown-block-handle .operation-item {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 24px;
+	padding: 0;
+	border-radius: 5px;
+}
+.paper-doc-editor .milkdown .milkdown-block-handle .operation-item svg {
+	width: 18px;
+	height: 18px;
+	fill: color-mix(in oklch, var(--muted-foreground) 80%, transparent);
+}
+/* The formatting bar: sticky at the top of the panel's scroller. */
+.paper-doc-editor .milkdown .milkdown-top-bar {
+	top: 0;
+	z-index: 20;
+	min-height: 40px;
+	padding: 4px 8px;
+	background: color-mix(in oklch, var(--background) 92%, transparent);
+	backdrop-filter: blur(8px);
+	border-bottom: 1px solid var(--border);
+}
+.paper-doc-editor .milkdown .milkdown-top-bar .top-bar-inner {
+	gap: 2px;
+}
+.paper-doc-editor .milkdown .milkdown-top-bar .top-bar-heading-selector {
+	padding: 0;
+}
+.paper-doc-editor .milkdown .milkdown-top-bar .top-bar-heading-button {
+	height: 30px;
+	padding: 0 2px 0 8px;
+	border-radius: 6px;
+}
+.paper-doc-editor .milkdown .milkdown-top-bar .top-bar-heading-button .top-bar-heading-label {
+	min-width: 2.2em;
+	font-size: 13px;
+	font-weight: 500;
+	color: var(--foreground);
+}
+.paper-doc-editor .milkdown .milkdown-top-bar .top-bar-heading-button .top-bar-chevron {
+	width: 18px;
+	height: 18px;
+}
+.paper-doc-editor .milkdown .milkdown-top-bar .top-bar-heading-dropdown {
+	top: calc(100% + 4px);
+	min-width: 140px;
+	padding: 4px;
+	background: var(--popover);
+	border: 1px solid var(--border);
+	box-shadow: var(--doc-menu-shadow);
+}
+.paper-doc-editor .milkdown .milkdown-top-bar .top-bar-heading-option {
+	padding: 6px 8px;
+	border-radius: 6px;
+	font-size: 13px;
+	color: var(--popover-foreground);
+}
+.paper-doc-editor .milkdown .milkdown-top-bar .top-bar-heading-option.active {
+	background: var(--accent);
+	color: var(--accent-foreground);
+}
+.paper-doc-editor .milkdown .milkdown-top-bar .top-bar-item {
+	width: 30px;
+	height: 30px;
+	margin: 0;
+	padding: 0;
+	border-radius: 6px;
+}
+.paper-doc-editor .milkdown .milkdown-top-bar .top-bar-divider {
+	height: 18px;
+	margin: 0 4px;
+	background: var(--border);
+}
+/* Touch: taller targets, and narrow enough that the bar fits one row at 360px. */
 @media (pointer: coarse) {
-	.paper-doc-editor .milkdown .ProseMirror {
-		padding: 8px 16px !important;
+	.paper-doc-editor .milkdown .milkdown-top-bar {
+		min-height: 48px;
+		padding: 4px 6px;
+	}
+	.paper-doc-editor .milkdown .milkdown-top-bar .top-bar-inner {
+		gap: 0;
+	}
+	.paper-doc-editor .milkdown .milkdown-top-bar .top-bar-item {
+		width: 32px;
+		height: 38px;
+	}
+	.paper-doc-editor .milkdown .milkdown-toolbar .toolbar-item {
+		width: 36px;
+		height: 36px;
+	}
+	.paper-doc-editor .milkdown .milkdown-top-bar .top-bar-heading-button {
+		height: 38px;
+	}
+	.paper-doc-editor .milkdown .milkdown-top-bar .top-bar-divider {
+		margin: 0 1px;
 	}
 }
-/* Crepe's headings are sized for a full-page document, not a side panel. */
-.paper-doc-editor .milkdown .ProseMirror h1 { font-size: 1.75em !important; line-height: 1.2 !important; }
-.paper-doc-editor .milkdown .ProseMirror h2 { font-size: 1.4em !important; line-height: 1.25 !important; }
-.paper-doc-editor .milkdown .ProseMirror h3 { font-size: 1.2em !important; line-height: 1.3 !important; }
-.paper-doc-editor .milkdown .ProseMirror h1 { margin-top: 12px !important; }
-.paper-doc-editor .milkdown .ProseMirror h2 { margin-top: 10px !important; }
-.paper-doc-editor .milkdown .ProseMirror h3 { margin-top: 8px !important; }
-.paper-doc-editor .milkdown .ProseMirror h4,
-.paper-doc-editor .milkdown .ProseMirror h5,
-.paper-doc-editor .milkdown .ProseMirror h6 {
-	margin-top: 6px !important;
+@media (pointer: coarse) and (max-width: 370px) {
+	.paper-doc-editor .milkdown .milkdown-top-bar .top-bar-item {
+		width: 30px;
+	}
 }
-.paper-doc-editor .milkdown .ProseMirror p {
-	padding: 2px 0 !important;
+/* The heading menu opens over the selection toolbar, not under it. */
+.paper-doc-editor .milkdown:has(.top-bar-heading-dropdown) .milkdown-toolbar {
+	display: none;
 }
-.paper-doc-editor .milkdown .ProseMirror blockquote {
-	padding-left: 20px !important;
+/* A tap leaves :hover on the last-touched button; only `.active` should show. */
+@media (hover: none) {
+	.paper-doc-editor .milkdown :is(.top-bar-item, .toolbar-item, .top-bar-heading-button):hover:not(.active) {
+		background: transparent;
+	}
 }
 
 /*
@@ -488,8 +955,8 @@
  * gives margin without wasting screen.
  */
 .paper-markdown-reader .milkdown {
-	background: transparent !important;
-	color: inherit !important;
+	--crepe-font-default: ui-sans-serif, system-ui, sans-serif;
+	--crepe-font-title: ui-sans-serif, system-ui, sans-serif;
 }
 .paper-markdown-reader .milkdown .ProseMirror {
 	padding: 18px 20px !important;
@@ -503,6 +970,10 @@
 	.paper-markdown-reader .milkdown .ProseMirror {
 		padding: 24px 32px !important;
 	}
+}
+.paper-markdown-reader .milkdown .ProseMirror :is(h1, h2, h3, h4, h5, h6) {
+	font-weight: 600 !important;
+	letter-spacing: -0.01em;
 }
 .paper-markdown-reader .milkdown .ProseMirror h1 {
 	font-size: 1.6em !important;
@@ -553,6 +1024,94 @@
 .paper-markdown-reader .milkdown .ProseMirror code {
 	font-size: 0.92em !important;
 }
+/*
+ * Figures in the markdown view get the same dark-mode treatment as the PDF
+ * canvas, so a figure looks the same in both views.
+ */
+.dark .paper-markdown-reader .milkdown .ProseMirror img,
+.dark .paper-figure {
+	filter: invert(88.8%) hue-rotate(180deg);
+}
+/* Math reads as text here, not in Crepe's accent colour. */
+.paper-markdown-reader .milkdown span[data-type='math_inline'] {
+	color: inherit !important;
+	padding: 0 1px !important;
+	vertical-align: baseline !important;
+}
+/*
+ * A highlight opened in the Text view (phones): its passage, tinted in the
+ * highlight's colour. `::highlight()` paints a CSS Custom Highlight range,
+ * so ProseMirror's DOM is left alone. Stronger than the PDF's fills, which
+ * sit on a page canvas; here they are the only colour on the page.
+ */
+.paper-markdown-reader ::highlight(md-passage-yellow) { background-color: rgb(250 204 21 / 0.4); }
+.paper-markdown-reader ::highlight(md-passage-green) { background-color: rgb(74 222 128 / 0.35); }
+.paper-markdown-reader ::highlight(md-passage-blue) { background-color: rgb(96 165 250 / 0.35); }
+.paper-markdown-reader ::highlight(md-passage-pink) { background-color: rgb(244 114 182 / 0.32); }
+.paper-markdown-reader ::highlight(md-passage-purple) { background-color: rgb(167 139 250 / 0.38); }
+.dark .paper-markdown-reader ::highlight(md-passage-yellow) { background-color: rgb(234 179 8 / 0.34); }
+.dark .paper-markdown-reader ::highlight(md-passage-green) { background-color: rgb(34 197 94 / 0.32); }
+.dark .paper-markdown-reader ::highlight(md-passage-blue) { background-color: rgb(59 130 246 / 0.4); }
+.dark .paper-markdown-reader ::highlight(md-passage-pink) { background-color: rgb(236 72 153 / 0.36); }
+.dark .paper-markdown-reader ::highlight(md-passage-purple) { background-color: rgb(139 92 246 / 0.4); }
+/*
+ * Display math is a LaTeX code block (source editor + preview). Read-only
+ * shows only the rendered formula, scrolling sideways when it is wider than
+ * the phone; the equation tag gets room so it doesn't sit on the formula.
+ */
+.paper-markdown-reader .milkdown .milkdown-code-block:has(.katex) {
+	background: transparent;
+	padding: 0;
+	margin: 0.6em 0 1em;
+}
+.paper-markdown-reader .milkdown .milkdown-code-block:has(.katex) :is(.tools, .codemirror-host, .preview-divider, .preview-label) {
+	display: none !important;
+}
+.paper-markdown-reader .milkdown .milkdown-code-block .preview {
+	overflow-x: auto;
+	overflow-y: hidden;
+	overscroll-behavior-x: contain;
+	padding: 0.25em 0;
+}
+.paper-markdown-reader .milkdown .katex-display {
+	margin: 0;
+}
+.paper-markdown-reader .milkdown .katex-display > .katex {
+	display: inline-block;
+	min-width: 100%;
+}
+.paper-markdown-reader .milkdown .katex-display > .katex > .katex-html:has(> .tag) {
+	padding-right: 2.75em;
+}
+/*
+ * ProseMirror's tables are fixed-layout at 100% width, which on a phone breaks
+ * words mid-letter. Size columns to content and scroll the table instead.
+ */
+.paper-markdown-reader .milkdown .milkdown-table-block .table-wrapper {
+	overflow-x: auto;
+	overscroll-behavior-x: contain;
+}
+.paper-markdown-reader .milkdown .milkdown-table-block .table-wrapper > table {
+	table-layout: auto;
+	width: auto;
+	min-width: 100%;
+	margin: 0.5em 0 1em;
+	font-size: 0.88em;
+	line-height: 1.45;
+}
+.paper-markdown-reader .milkdown .milkdown-table-block :is(th, td) {
+	padding: 6px 10px;
+	min-width: 4.5em;
+	overflow-wrap: normal;
+	word-break: normal;
+}
+.paper-markdown-reader .milkdown .milkdown-table-block :is(th, td) p {
+	margin: 0 !important;
+}
+/* Image-block edit affordances (caption button, resize handle) in read-only. */
+.paper-markdown-reader .milkdown .milkdown-image-block :is(.operation, .image-resize-handle) {
+	display: none !important;
+}
 .paper-markdown-reader .milkdown .ProseMirror img {
 	margin: 0.75em auto !important;
 	max-width: 100%;
@@ -560,6 +1119,87 @@
 }
 .paper-markdown-reader .milkdown .ProseMirror hr {
 	margin: 1.5em 0 !important;
+}
+/*
+ * GFM footnotes (lib/markdownFootnotes.ts): a reference is a small brand
+ * superscript with a finger-sized hit area; the definitions at the end read
+ * as a compact "Notes" list. Tapping either jumps to the other.
+ */
+.paper-markdown-reader .milkdown sup[data-type='footnote_reference'] {
+	position: relative;
+	margin-left: 0.05em;
+	padding: 0 0.15em;
+	top: -0.6em;
+	font-size: 0.7em;
+	font-weight: 600;
+	line-height: 0;
+	vertical-align: baseline;
+	color: var(--brand);
+	font-variant-numeric: tabular-nums;
+	cursor: pointer;
+}
+.paper-markdown-reader .milkdown sup[data-type='footnote_reference']::after {
+	content: '';
+	position: absolute;
+	inset: -0.9em -0.15em;
+}
+.paper-markdown-reader .milkdown sup[data-type='footnote_reference']:hover {
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+.paper-markdown-reader .milkdown dl[data-type='footnote_definition'] {
+	display: grid;
+	grid-template-columns: 1.9em minmax(0, 1fr);
+	column-gap: 0.5em;
+	margin: 0 0 0.5em;
+	padding: 0.1em 0.25em 0.1em 0;
+	border-radius: 6px;
+	font-size: 0.84em;
+	line-height: 1.55;
+	color: color-mix(in oklch, var(--foreground) 82%, transparent);
+	scroll-margin: 4rem;
+}
+.paper-markdown-reader .milkdown :not(dl[data-type='footnote_definition']) + dl[data-type='footnote_definition'] {
+	margin-top: 2.25em;
+	padding-top: 1em;
+	border-top: 1px solid var(--border);
+	border-top-left-radius: 0;
+	border-top-right-radius: 0;
+}
+.paper-markdown-reader .milkdown :not(dl[data-type='footnote_definition']) + dl[data-type='footnote_definition']::before {
+	content: 'Notes';
+	grid-column: 1 / -1;
+	margin-bottom: 0.6em;
+	font-size: 0.8em;
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--muted-foreground);
+}
+.paper-markdown-reader .milkdown dl[data-type='footnote_definition'] > dt {
+	justify-self: end;
+	font-weight: 600;
+	color: var(--brand);
+	font-variant-numeric: tabular-nums;
+	cursor: pointer;
+}
+.paper-markdown-reader .milkdown dl[data-type='footnote_definition'] > dt:hover {
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+/* Notes with no in-text marker (affiliations, venue lines). */
+.paper-markdown-reader .milkdown dl[data-type='footnote_definition'][data-label^='note-'] > dt {
+	visibility: hidden;
+}
+.paper-markdown-reader .milkdown dl[data-type='footnote_definition'] > dd {
+	margin: 0;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+.paper-markdown-reader .milkdown dl[data-type='footnote_definition'] > dd p {
+	margin: 0 !important;
+	font-size: inherit !important;
+	line-height: inherit !important;
 }
 
 /* ---------------------------------------------------------------------------

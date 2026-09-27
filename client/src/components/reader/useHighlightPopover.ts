@@ -2,11 +2,25 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PaperHighlight } from "@/lib/schema";
-import type { HighlightHit } from "./HighlightLayer";
+import { READER_POPOVER_SELECTOR, type HighlightHit } from "./HighlightLayer";
 
 /** Same feel as the citation preview (useCitationLinks). */
 const OPEN_DELAY_MS = 120;
 const CLOSE_DELAY_MS = 150;
+/** A clicked popover is given a little longer to be reached. */
+const ENGAGED_CLOSE_DELAY_MS = 300;
+
+/** Mouse/trackpad: hover means something. Touch has no hover to leave. */
+function canHover(): boolean {
+	return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+}
+
+/** The user is typing in the popover (reply, edit or new note field). */
+function typingInPopover(): boolean {
+	const el = document.activeElement as HTMLElement | null;
+	if (!el?.closest(READER_POPOVER_SELECTOR)) return false;
+	return el.tagName === "TEXTAREA" || el.tagName === "INPUT" || el.isContentEditable;
+}
 
 export interface HighlightPopoverTarget {
 	highlightId: string;
@@ -14,7 +28,8 @@ export interface HighlightPopoverTarget {
 	rectIndex: number;
 	/**
 	 * Engaged popovers were clicked, tapped or typed into: hover no longer moves
-	 * or closes them — only Escape, their close control, or a click elsewhere.
+	 * them. With a mouse they still close once neither hovered nor typed in
+	 * (never with an unsaved draft); on touch, Escape or a tap elsewhere.
 	 */
 	engaged: boolean;
 	/** Show the new-note composer even though the highlight has no notes yet. */
@@ -65,12 +80,22 @@ export function useHighlightPopover() {
 
 	const scheduleClose = useCallback(() => {
 		if (closeTimer.current) return;
+		const engaged = targetRef.current?.engaged ?? false;
+		if (engaged && !canHover()) return;
 		closeTimer.current = setTimeout(() => {
 			closeTimer.current = null;
 			const cur = targetRef.current;
-			if (!cur || cur.engaged || pointerOverPopover.current) return;
+			if (!cur || pointerOverPopover.current) return;
+			if (
+				cur.engaged &&
+				(dirtyRef.current ||
+					typingInPopover() ||
+					hoveredIdRef.current === cur.highlightId)
+			) {
+				return;
+			}
 			close();
-		}, CLOSE_DELAY_MS);
+		}, engaged ? ENGAGED_CLOSE_DELAY_MS : CLOSE_DELAY_MS);
 	}, [close]);
 
 	/** From HighlightLayer: the hovered highlight changed (null = none). */
@@ -79,7 +104,11 @@ export function useHighlightPopover() {
 			const cur = targetRef.current;
 			hoveredIdRef.current = hit?.highlight.id ?? null;
 			cancelOpen();
-			if (cur?.engaged) return;
+			if (cur?.engaged) {
+				if (hit?.highlight.id === cur.highlightId) cancelClose();
+				else scheduleClose();
+				return;
+			}
 			if (hit && cur && hit.highlight.id === cur.highlightId) {
 				cancelClose();
 				return;
@@ -149,12 +178,15 @@ export function useHighlightPopover() {
 
 	const popoverEnter = useCallback(() => {
 		pointerOverPopover.current = true;
+		// HighlightLayer forgets its last hit over a popover (and won't report
+		// the "none" that follows), so neither may this.
+		hoveredIdRef.current = null;
 		cancelOpen();
 		cancelClose();
 	}, [cancelOpen, cancelClose]);
 	const popoverLeave = useCallback(() => {
 		pointerOverPopover.current = false;
-		if (!targetRef.current?.engaged) scheduleClose();
+		scheduleClose();
 	}, [scheduleClose]);
 
 	/** A click away from the popover. Keeps it while a draft is unsaved. */

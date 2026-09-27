@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { AlertCircle, ArrowLeft, Loader2 } from "lucide-react";
-import Image from "next/image";
+import { OpenPaperMark } from "@/components/OpenPaperMark";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
@@ -205,7 +205,7 @@ function LoginContent() {
 							<ArrowLeft className="h-5 w-5" />
 						</Button>
 					)}
-					<Image src="/openpaper.svg" width={40} height={40} alt="" className="mx-auto mb-2" />
+					<OpenPaperMark size={40} className="mx-auto mb-2" />
 					<CardTitle className="text-xl font-semibold tracking-tight sm:text-2xl">{headerContent.title}</CardTitle>
 					<CardDescription className="text-balance">{headerContent.description}</CardDescription>
 				</CardHeader>

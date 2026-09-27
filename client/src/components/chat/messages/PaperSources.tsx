@@ -47,7 +47,7 @@ export function PaperSources({
     const flashedCitation = useFlashedCitation();
 
     return (
-        <Sources open={open} onOpenChange={onOpenChange}>
+        <Sources open={open} onOpenChange={onOpenChange} className="mb-0">
             <div className="flex items-center justify-between gap-2">
                 <SourcesTrigger
                     count={citations.length}

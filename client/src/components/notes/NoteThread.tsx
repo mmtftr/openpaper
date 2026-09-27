@@ -2,10 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Pencil, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ChevronDown, Pencil, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { CollapsibleNoteText } from "@/components/CollapsibleNoteText";
-import type { BasicUser } from "@/lib/auth";
 import type { PaperHighlightAnnotation } from "@/lib/schema";
 import { cn } from "@/lib/utils";
 import { NoteForm } from "./NoteForm";
@@ -24,10 +23,9 @@ interface NoteThreadProps extends NoteActions {
     highlightId: string;
     /** The thread's notes, any order: shown oldest first. */
     notes: PaperHighlightAnnotation[];
-    user: BasicUser | null;
     /**
-     * Edit/delete and the reply composer show only on the active thread; an
-     * inactive one collapses to its first note and drops any open reply/edit.
+     * Edit/delete and the reply field show only on the active thread; an
+     * inactive one collapses to its first note and drops any reply/edit.
      */
     isActive: boolean;
     /**
@@ -36,7 +34,7 @@ interface NoteThreadProps extends NoteActions {
      */
     otherActive?: boolean;
     /**
-     * `card`: the note popover over the PDF — an edit or reply collapses when
+     * `card`: the note popover over the PDF — an untouched edit collapses when
      * the user clicks elsewhere. `panel`: a row of the Annotations side panel.
      */
     variant: NoteThreadVariant;
@@ -46,15 +44,6 @@ interface NoteThreadProps extends NoteActions {
     onDirtyChange?: (dirty: boolean) => void;
 }
 
-const LIST_CLASS: Record<NoteThreadVariant, string> = {
-    card: "px-4 pt-4 flex flex-col gap-3",
-    panel: "flex flex-col gap-3",
-};
-const REPLY_SECTION_CLASS: Record<NoteThreadVariant, string> = {
-    card: "px-4 pb-4 pt-0",
-    panel: "mt-2 pt-0",
-};
-
 function createdMs(iso: string | undefined): number {
     const t = iso ? Date.parse(iso) : NaN;
     return Number.isFinite(t) ? t : 0;
@@ -62,15 +51,21 @@ function createdMs(iso: string | undefined): number {
 
 const stop = (e: React.SyntheticEvent) => e.stopPropagation();
 
+/** Small icon buttons with a ≥ 40px hit area on touch screens. */
+const ACTION_CLASS =
+    "relative flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors after:absolute after:-inset-2 md:after:hidden hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40";
+
+/** How long the trash button waits for its confirming second click. */
+const DELETE_CONFIRM_MS = 3000;
+
 /**
  * One highlight's notes: the list (collapsed to the first note until the
  * thread is active), in-place edit and delete of the user's own notes, and a
- * reply composer. Shared by the PDF note popover and the Annotations panel.
+ * reply field. Shared by the PDF note popover and the Annotations panel.
  */
 export function NoteThread({
     highlightId,
     notes,
-    user,
     isActive,
     otherActive = false,
     variant,
@@ -81,13 +76,12 @@ export function NoteThread({
     onDirtyChange,
 }: NoteThreadProps) {
     const [expanded, setExpanded] = useState(false);
-    const [replyOpen, setReplyOpen] = useState(false);
     const [replyDraft, setReplyDraft] = useState("");
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editDraft, setEditDraft] = useState("");
+    const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
 
-    const replySectionRef = useRef<HTMLDivElement>(null);
     const editBlockRef = useRef<HTMLDivElement>(null);
     /** Saved text of the note being edited — an edit only counts as a draft once it differs. */
     const editOriginalRef = useRef("");
@@ -111,18 +105,24 @@ export function NoteThread({
     // Inactive: drop reply/edit and collapse. Active: show the whole thread.
     useEffect(() => {
         if (!isActive) {
-            setReplyOpen(false);
             setReplyDraft("");
             setEditingId(null);
             setEditDraft("");
+            setConfirmDeleteId(null);
             if (variant === "card" || otherActive) setExpanded(false);
         } else if (hasMulti) {
             setExpanded(true);
         }
     }, [isActive, hasMulti, variant, otherActive]);
 
-    // Card only: a mousedown outside the edit field cancels an untouched edit,
-    // and one outside the reply row collapses it to the pill (draft kept).
+    // An unconfirmed delete disarms itself.
+    useEffect(() => {
+        if (!confirmDeleteId) return;
+        const timer = setTimeout(() => setConfirmDeleteId(null), DELETE_CONFIRM_MS);
+        return () => clearTimeout(timer);
+    }, [confirmDeleteId]);
+
+    // Card only: a mousedown outside the edit field cancels an untouched edit.
     // Capture phase: the card stops propagation of its own mouse events.
     const collapseOnOutsideClick = variant === "card";
     useEffect(() => {
@@ -136,15 +136,6 @@ export function NoteThread({
         document.addEventListener("mousedown", onMouseDown, true);
         return () => document.removeEventListener("mousedown", onMouseDown, true);
     }, [collapseOnOutsideClick, editingId]);
-    useEffect(() => {
-        if (!collapseOnOutsideClick || !replyOpen) return;
-        const onMouseDown = (e: MouseEvent) => {
-            const el = replySectionRef.current;
-            if (el && !el.contains(e.target as Node)) setReplyOpen(false);
-        };
-        document.addEventListener("mousedown", onMouseDown, true);
-        return () => document.removeEventListener("mousedown", onMouseDown, true);
-    }, [collapseOnOutsideClick, replyOpen]);
 
     const saveReply = async () => {
         if (!addAnnotation || !replyDraft.trim() || saving) return;
@@ -152,8 +143,9 @@ export function NoteThread({
         try {
             await addAnnotation(highlightId, replyDraft.trim());
             setReplyDraft("");
-            setReplyOpen(false);
             setExpanded(true);
+        } catch {
+            toast.error("Couldn't save the reply.");
         } finally {
             setSaving(false);
         }
@@ -163,8 +155,7 @@ export function NoteThread({
         editOriginalRef.current = note.content;
         setEditingId(note.id);
         setEditDraft(note.content);
-        // One bordered field at a time.
-        setReplyOpen(false);
+        setConfirmDeleteId(null);
         setExpanded(true);
     };
 
@@ -175,138 +166,151 @@ export function NoteThread({
 
     const saveEdit = async (noteId: string) => {
         if (!updateAnnotation || !editDraft.trim() || saving) return;
+        if (editDraft.trim() === editOriginalRef.current.trim()) {
+            cancelEdit();
+            return;
+        }
         setSaving(true);
         try {
             await updateAnnotation(noteId, editDraft.trim());
             cancelEdit();
+        } catch {
+            toast.error("Couldn't save the note.");
         } finally {
             setSaving(false);
         }
     };
 
     const deleteNote = (noteId: string) => {
-        // No confirm: a note is one click to re-type.
+        // Two clicks: the first arms the button, the second deletes.
+        if (confirmDeleteId !== noteId) {
+            setConfirmDeleteId(noteId);
+            return;
+        }
+        setConfirmDeleteId(null);
         removeAnnotation?.(noteId);
         if (editingId === noteId) cancelEdit();
     };
 
-    const indent = variant === "panel" ? "pl-10" : undefined;
+    const isCard = variant === "card";
+    const showReply = isActive && Boolean(addAnnotation) && !editingId;
 
     return (
         <>
-            <div className={cn(LIST_CLASS[variant], variant === "card" && (addAnnotation && isActive ? "pb-2" : "pb-4"))}>
+            <div className={cn("flex flex-col gap-3.5", isCard && "px-4 pt-3.5", isCard && !showReply && "pb-4")}>
                 {header}
-                {visible.map((note) => {
+                {visible.map((note, i) => {
                     const own = note.role !== "assistant";
                     const isEditing = editingId === note.id;
                     const canEdit = own && isActive && Boolean(updateAnnotation);
                     const canDelete = own && isActive && Boolean(removeAnnotation);
+                    const confirming = confirmDeleteId === note.id;
                     return (
-                        <div key={note.id} className="flex flex-col gap-2">
-                            <NoteAuthor variant={variant} note={note} user={user}>
+                        <div key={note.id} className="group/note flex min-w-0 flex-col gap-1">
+                            <NoteAuthor
+                                note={note}
+                                // The card's first line shares its row with the open-in-panel button.
+                                className={cn(isCard && i === 0 && "pr-8")}
+                            >
                                 {(canEdit || canDelete) && !isEditing && (
                                     <div
                                         className={cn(
-                                            "flex items-center gap-0.5",
-                                            variant === "panel" ? "ml-auto" : "flex-shrink-0"
+                                            "ml-auto flex items-center gap-1 transition-opacity duration-150",
+                                            // Pointer devices: reveal on hover/focus; touch: always there.
+                                            !confirming &&
+                                                "pointer-fine:opacity-0 pointer-fine:group-hover/note:opacity-100 pointer-fine:focus-within:opacity-100"
                                         )}
                                         onMouseDown={stop}
                                         onClick={stop}
                                     >
                                         {canEdit && (
-                                            <Button
+                                            <button
                                                 type="button"
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                                                className={cn(ACTION_CLASS, "hover:text-foreground")}
                                                 title="Edit"
-                                                aria-label="Edit annotation"
+                                                aria-label="Edit note"
                                                 onClick={() => startEdit(note)}
                                             >
-                                                <Pencil size={12} />
-                                            </Button>
+                                                <Pencil className="size-3.5" />
+                                            </button>
                                         )}
-                                        {canDelete && (
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                                                title="Delete"
-                                                aria-label="Delete annotation"
-                                                onClick={() => deleteNote(note.id)}
-                                            >
-                                                <Trash2 size={12} />
-                                            </Button>
-                                        )}
+                                        {canDelete &&
+                                            (confirming ? (
+                                                <button
+                                                    type="button"
+                                                    className="relative h-6 rounded-md bg-destructive/10 px-2 text-xs font-medium text-destructive transition-colors after:absolute after:-inset-2 hover:bg-destructive/15 md:after:hidden"
+                                                    aria-label="Confirm delete note"
+                                                    onClick={() => deleteNote(note.id)}
+                                                    onBlur={() => setConfirmDeleteId(null)}
+                                                    autoFocus
+                                                >
+                                                    Delete?
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    className={cn(ACTION_CLASS, "hover:text-destructive")}
+                                                    title="Delete"
+                                                    aria-label="Delete note"
+                                                    onClick={() => deleteNote(note.id)}
+                                                >
+                                                    <Trash2 className="size-3.5" />
+                                                </button>
+                                            ))}
                                     </div>
                                 )}
                             </NoteAuthor>
-                            <div className={indent}>
-                                {isEditing ? (
-                                    <NoteForm
-                                        ref={editBlockRef}
-                                        className="w-full min-w-0"
-                                        value={editDraft}
-                                        onChange={setEditDraft}
-                                        onSubmit={() => void saveEdit(note.id)}
-                                        onCancel={cancelEdit}
-                                        saving={saving}
-                                        submitLabel="Save"
-                                        ariaLabel="Edit annotation"
-                                    />
-                                ) : (
-                                    <CollapsibleNoteText
-                                        content={note.content}
-                                        isActive={isActive}
-                                        paragraphClassName={
-                                            variant === "panel"
-                                                ? "text-sm text-foreground leading-snug whitespace-pre-wrap break-words"
-                                                : undefined
-                                        }
-                                    />
-                                )}
-                            </div>
+                            {isEditing ? (
+                                <NoteForm
+                                    ref={editBlockRef}
+                                    className="mt-0.5 w-full"
+                                    value={editDraft}
+                                    onChange={setEditDraft}
+                                    onSubmit={() => void saveEdit(note.id)}
+                                    onCancel={cancelEdit}
+                                    saving={saving}
+                                    submitLabel="Save"
+                                    submitIcon="save"
+                                    showCancel
+                                    ariaLabel="Edit note"
+                                />
+                            ) : (
+                                <CollapsibleNoteText
+                                    content={note.content}
+                                    isActive={isActive}
+                                    paragraphClassName="text-sm leading-relaxed text-foreground whitespace-pre-wrap break-words"
+                                />
+                            )}
                         </div>
                     );
                 })}
                 {moreCount > 0 && (
-                    <p className={cn("text-xs text-muted-foreground", indent)}>
-                        +{moreCount} more {moreCount === 1 ? "reply" : "replies"} — click to show
+                    <p className="-mt-1 flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                        <ChevronDown className="size-3.5" />
+                        {moreCount} more {moreCount === 1 ? "reply" : "replies"}
                     </p>
                 )}
             </div>
 
-            {isActive && addAnnotation && (
+            {showReply && (
                 <div
-                    ref={replySectionRef}
-                    className={REPLY_SECTION_CLASS[variant]}
+                    className={cn(
+                        isCard ? "sticky bottom-0 bg-popover px-4 pb-3.5 pt-3" : "mt-3"
+                    )}
                     onMouseDown={stop}
                     onClick={stop}
                 >
-                    {replyOpen ? (
-                        <NoteForm
-                            value={replyDraft}
-                            onChange={setReplyDraft}
-                            onSubmit={() => void saveReply()}
-                            onCancel={() => {
-                                setReplyDraft("");
-                                setReplyOpen(false);
-                            }}
-                            saving={saving}
-                            submitLabel="Reply"
-                            ariaLabel="Reply"
-                            placeholder="Write a reply…"
-                        />
-                    ) : (
-                        <button
-                            type="button"
-                            className="w-full text-left text-sm text-muted-foreground rounded-full border border-border px-3 py-1.5 hover:bg-muted/50 transition-colors cursor-text"
-                            onClick={() => setReplyOpen(true)}
-                        >
-                            Reply…
-                        </button>
-                    )}
+                    <NoteForm
+                        value={replyDraft}
+                        onChange={setReplyDraft}
+                        onSubmit={() => void saveReply()}
+                        onCancel={() => setReplyDraft("")}
+                        saving={saving}
+                        submitLabel="Send reply"
+                        ariaLabel="Reply"
+                        placeholder="Reply…"
+                        focusOnMount={false}
+                    />
                 </div>
             )}
         </>

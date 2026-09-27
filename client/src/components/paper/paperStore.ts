@@ -1,7 +1,7 @@
 "use client";
 
 import { atom, createStore } from "jotai";
-import type { PaperData, PaperHighlight } from "@/lib/schema";
+import type { HighlightColor, PaperData, PaperHighlight } from "@/lib/schema";
 import type {
     HighlightJumpRequest,
     RenderedHighlightPosition,
@@ -104,6 +104,59 @@ export const jumpToHighlightAtom = atom(null, (_get, set, highlight: PaperHighli
             nonce: (previous?.nonce ?? 0) + 1,
         }));
     }
+});
+
+/** Scroll the markdown (Text view) to a highlight's passage and mark it. */
+export interface MarkdownJumpRequest {
+    /** The paper whose markdown holds the passage. */
+    paperId: string;
+    highlight: PaperHighlight;
+    /** The tint, as the highlights list shows it (AI highlights are purple). */
+    color: HighlightColor;
+    /** Where in the document the passage should be (from its page), for repeats. */
+    expectedFraction: number | null;
+    nonce: number;
+}
+/** Pending until the Text view has handled it (it mounts lazily, so it may be a while). */
+export const markdownJumpRequestAtom = atom<MarkdownJumpRequest | null>(null);
+const markdownJumpNonceAtom = atom(0);
+
+/**
+ * Phones: open a highlight in the Text view. Highlights without text (or,
+ * via `markdownJumpSettledAtom`, whose passage the markdown lacks) open in
+ * the PDF instead.
+ */
+export const openHighlightInTextAtom = atom(null, (get, set, highlight: PaperHighlight) => {
+    if (!highlight.raw_text?.trim()) {
+        set(jumpToHighlightAtom, highlight);
+        set(mobileViewAtom, "reader");
+        return;
+    }
+    set(activeHighlightAtom, highlight);
+    const paperId = highlight.paper_id || get(displayedPaperIdAtom);
+    if (paperId !== get(displayedPaperIdAtom)) set(displayedPaperIdAtom, paperId);
+    const pageCount = get(displayedPaperAtom)?.page_count;
+    const page = highlight.page_number;
+    const nonce = get(markdownJumpNonceAtom) + 1;
+    set(markdownJumpNonceAtom, nonce);
+    set(markdownJumpRequestAtom, {
+        paperId,
+        highlight,
+        color: highlight.role === "assistant" ? "purple" : highlight.color || "blue",
+        expectedFraction: page && pageCount ? Math.min(1, (page - 0.5) / pageCount) : null,
+        nonce,
+    });
+    set(mobileViewAtom, "markdown");
+});
+
+/** The Text view handled a jump; one it couldn't place goes to the PDF. */
+export const markdownJumpSettledAtom = atom(null, (get, set, nonce: number, found: boolean) => {
+    const request = get(markdownJumpRequestAtom);
+    if (!request || request.nonce !== nonce) return;
+    set(markdownJumpRequestAtom, null);
+    if (found) return;
+    set(jumpToHighlightAtom, request.highlight);
+    set(mobileViewAtom, "reader");
 });
 
 // ---- Chat references and text search ---------------------------------------

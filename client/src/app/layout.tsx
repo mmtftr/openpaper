@@ -20,7 +20,8 @@ export const metadata: Metadata = {
 	title: "Open Paper",
 	description: "The fastest way to annotate and deeply understand research papers.",
 	icons: {
-		icon: "/icon.svg"
+		icon: "/icon.svg",
+		apple: "/apple-touch-icon.png",
 	},
 	openGraph: {
 		title: "Open Paper",

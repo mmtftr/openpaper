@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { isChunkLoadError, reloadForStaleDeploy } from "@/lib/staleDeploy";
 
 export default function ErrorPage({
 	error,
@@ -13,9 +14,12 @@ export default function ErrorPage({
 	error: Error & { digest?: string };
 	reset: () => void;
 }) {
+	const staleDeploy = isChunkLoadError(error);
+
 	useEffect(() => {
 		console.error(error);
-	}, [error]);
+		if (staleDeploy) reloadForStaleDeploy();
+	}, [error, staleDeploy]);
 
 	return (
 		<div className="flex min-h-svh items-center justify-center p-4">
@@ -30,7 +34,7 @@ export default function ErrorPage({
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="flex justify-center gap-2">
-					<Button onClick={() => reset()}>Try again</Button>
+					<Button onClick={() => (staleDeploy ? window.location.reload() : reset())}>Try again</Button>
 					<Button variant="outline" asChild>
 						<Link href="/">Go home</Link>
 					</Button>

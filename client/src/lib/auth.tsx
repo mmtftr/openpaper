@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { api, unwrap, type Schemas } from '@/lib/api/client';
+import { api, ApiRequestError, unwrap, type Schemas } from '@/lib/api/client';
 
 /** `GET /api/auth/me` user. */
 export type User = Schemas["CurrentUser"];
@@ -17,6 +17,16 @@ interface AuthContextType {
 }
 
 const AUTH_STORAGE_KEY = 'auth_user';
+
+/** Waits between `/api/auth/me` attempts (~13s total), so a server restart
+ * (network error, or 502/503 from Caddy) doesn't bounce the user to /login. */
+const AUTH_RETRY_DELAYS_MS = [1000, 2000, 4000, 6000];
+
+/** Network errors and 5xx/408/429 are worth retrying; a 4xx is a real answer. */
+function isTransient(err: unknown): boolean {
+	if (!(err instanceof ApiRequestError)) return true;
+	return err.status >= 500 || err.status === 408 || err.status === 429;
+}
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -48,26 +58,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 			}
 		}
 
+		let cancelled = false;
+
 		async function checkAuth() {
-			try {
-				const response = await unwrap(api.GET('/api/auth/me'));
-				if (response.success && response.user) {
-					setUser(response.user);
-				} else {
-					// Auth check failed, clear the user
+			for (let attempt = 0; ; attempt++) {
+				try {
+					const response = await unwrap(api.GET('/api/auth/me'));
+					if (cancelled) return;
+					// `success: false` is the server's "not authenticated" answer.
+					setUser(response.success && response.user ? response.user : null);
+					setError(null);
+				} catch (err) {
+					if (cancelled) return;
+					if (isTransient(err) && attempt < AUTH_RETRY_DELAYS_MS.length) {
+						console.warn(`Auth check failed (attempt ${attempt + 1}), retrying:`, err);
+						await new Promise((resolve) => setTimeout(resolve, AUTH_RETRY_DELAYS_MS[attempt]));
+						if (cancelled) return;
+						continue;
+					}
+					console.error('Auth check failed:', err);
+					if (isTransient(err)) setError('Failed to check authentication status');
 					setUser(null);
 				}
-			} catch (err) {
-				console.error('Auth check failed:', err);
-				setError('Failed to check authentication status');
-				// Also clear the user on error
-				setUser(null);
-			} finally {
 				setLoading(false);
+				return;
 			}
 		}
 
 		checkAuth();
+		return () => {
+			cancelled = true;
+		};
 	}, []);
 
 	// Logout user

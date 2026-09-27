@@ -6,10 +6,10 @@ import { api, unwrap } from "@/lib/api/client";
 import { Project, ProjectPaper } from "@/lib/schema";
 
 /**
- * SWR key of the sidebar's project list (AppSidebar). Project create /
- * rename / delete revalidate it through the global `mutate`.
+ * SWR key of the plain project list (the command menu's projects). Project
+ * create / rename / delete revalidate it through the global `mutate`.
  */
-export const SIDEBAR_PROJECTS_KEY = ["/api/projects"] as const;
+export const PROJECTS_LIST_KEY = ["/api/projects"] as const;
 
 interface UseProjectsResult {
     projects: Project[];

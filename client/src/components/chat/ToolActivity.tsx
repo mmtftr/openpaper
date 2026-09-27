@@ -55,7 +55,8 @@ export function ToolActivity({ part }: ToolActivityProps) {
                 <button
                     type="button"
                     className={cn(
-                        "flex max-w-full min-w-0 items-center gap-1.5 text-xs rounded px-1.5 py-0.5 transition-colors",
+                        // Bleeds into the gutter so the icon lines up with the text column.
+                        "-mx-1.5 flex max-w-[calc(100%+0.75rem)] min-w-0 items-center gap-1.5 text-xs rounded px-1.5 py-0.5 transition-colors",
                         failed
                             ? "text-destructive hover:bg-destructive/10"
                             : "text-muted-foreground hover:text-foreground hover:bg-muted/60"

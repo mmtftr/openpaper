@@ -55,7 +55,8 @@ interface AnnotationsViewProps {
 	annotations: PaperHighlightAnnotation[];
 	onHighlightClick: (highlight: PaperHighlight) => void;
 	activeHighlight?: PaperHighlight | null;
-	user: BasicUser;
+	/** Unused since notes are labelled "You"; kept for callers. */
+	user?: BasicUser;
 	renderedHighlightPositions?: Map<string, RenderedHighlightPosition>;
 	addAnnotation?: (highlightId: string, content: string) => Promise<PaperHighlightAnnotation>;
 	updateAnnotation?: (annotationId: string, content: string) => Promise<unknown> | void;
@@ -86,7 +87,6 @@ export function AnnotationsView({
 	annotations,
 	onHighlightClick,
 	activeHighlight,
-	user,
 	renderedHighlightPositions,
 	addAnnotation,
 	updateAnnotation,
@@ -242,7 +242,7 @@ export function AnnotationsView({
 								ref={(el) => {
 									firstAnnotationRefs.current[hid] = el;
 								}}
-								className={`px-4 py-3 cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${bg}`}
+								className={`px-4 py-3 cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/50 ${bg}`}
 								role="group"
 								tabIndex={0}
 								aria-current={isActive ? true : undefined}
@@ -262,7 +262,6 @@ export function AnnotationsView({
 									variant="panel"
 									highlightId={hid}
 									notes={threadAnns}
-									user={user}
 									isActive={isActive}
 									otherActive={activeHighlight != null && !isActive}
 									addAnnotation={readonly ? undefined : addAnnotation}

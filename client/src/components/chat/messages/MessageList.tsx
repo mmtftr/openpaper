@@ -11,8 +11,8 @@ import { Loader } from "@/components/ai-elements/loader";
 import { Button } from "@/components/ui/button";
 import { ChatHistorySkeleton } from "@/components/ChatHistorySkeleton";
 import type { CitationClickHandler } from "@/components/paper/useCitationJump";
-import { useAuth } from "@/lib/auth";
 import { pendingToolLabel } from "@/lib/chatMessages";
+import { cn } from "@/lib/utils";
 import type { PaperChat } from "../usePaperChat";
 import type { useTurnFailures } from "../useTurnFailures";
 import { LoadEarlier } from "./LoadEarlier";
@@ -39,7 +39,6 @@ export function MessageList({
     onRetryLastTurn,
     onEditFailedTurn,
 }: MessageListProps) {
-    const { user } = useAuth();
     const { messages, status, isStreaming, history, session, retryStatus } = chat;
     const { userTurnFailure, noticeForMessage, showThinkingPlaceholder } = turns;
     const lastMessage = messages[messages.length - 1];
@@ -66,12 +65,15 @@ export function MessageList({
                 isStreaming &&
                 (isLast || (msg.role === "user" && messages[messages.length - 1]?.role === "assistant" && index === messages.length - 2));
             return (
-                <div key={msg.id || index} className={risesIn ? "animate-rise-in" : undefined}>
+                <div
+                    key={msg.id || index}
+                    // A new question opens a turn: twice the gap inside one.
+                    className={cn(risesIn && "animate-rise-in", msg.role === "user" && index > 0 && "mt-3")}
+                >
                     <PaperMessage
                         message={msg}
                         index={index}
                         isStreamingMessage={isStreaming && isLast && msg.role === "assistant"}
-                        user={user}
                         handleCitationClick={handleCitationClick}
                         notice={notice}
                         onRetry={onRetryLastTurn}
@@ -84,7 +86,7 @@ export function MessageList({
 
     return (
         <Conversation className="flex-1 min-h-0">
-            <ConversationContent className="flex flex-col gap-6 px-3 py-4">
+            <ConversationContent className="flex flex-col gap-3 px-3 py-3">
                 {history.hasMore && messages.length > 0 && !history.isFetching && status === "ready" && (
                     <LoadEarlier
                         isLoading={history.isLoadingMore}

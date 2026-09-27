@@ -1,7 +1,7 @@
 "use client"
 
 import { mutate as mutateSWR } from "swr";
-import { SIDEBAR_PROJECTS_KEY } from "@/hooks/useProjects";
+import { PROJECTS_LIST_KEY } from "@/hooks/useProjects";
 import { api, unwrap } from "@/lib/api/client";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -118,6 +118,7 @@ function LibraryEmptyState({ onUploadClick }: { onUploadClick: () => void }) {
 
 function PapersPageContent() {
     const { papers, isLoading, mutate } = usePapers();
+    const { papers: archivedPapers } = usePapers({ archived: true });
     const [filteredPapers, setFilteredPapers] = useState<LibraryPaper[]>([]);
     const router = useRouter();
     const [isCreateProjectDialogOpen, setCreateProjectDialogOpen] = useState(false);
@@ -172,7 +173,7 @@ function PapersPageContent() {
             const project = await unwrap(api.POST("/api/projects", {
                 body: { title, description },
             }));
-            void mutateSWR(SIDEBAR_PROJECTS_KEY);
+            void mutateSWR(PROJECTS_LIST_KEY);
             toast.success("Project created successfully!");
 
             if (paperIds.length > 0) {
@@ -221,7 +222,7 @@ function PapersPageContent() {
                     <span className="hidden sm:inline">Upload</span>
                 </Button>
             </div>
-            {papers && papers.length === 0 ? (
+            {papers && papers.length === 0 && !archivedPapers?.length ? (
                 <div className="flex-1 md:min-h-0">
                     <LibraryEmptyState onUploadClick={handleUploadClick} />
                 </div>
@@ -231,6 +232,7 @@ function PapersPageContent() {
                     className="md:min-h-0 md:flex-1"
                     handleDelete={deletePaper}
                     selectable={true}
+                    archivable
                     actionOptions={["Make Project"]}
                     onSelectFiles={handleTableAction}
                     onUploadClick={handleUploadClick}

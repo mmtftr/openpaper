@@ -3,8 +3,6 @@
 import { useAtom, useAtomValue } from "jotai";
 import {
 	Columns2,
-	Maximize2,
-	Minimize2,
 	Minus,
 	PanelLeft,
 	Plus,
@@ -26,11 +24,7 @@ import {
 	type SupplementaryPickerProps,
 } from "./SupplementaryPicker";
 
-export interface ReaderToolbarProps extends SupplementaryPickerProps {
-	/** Focus mode: expand the PDF to fill the viewport, hiding the side panel. */
-	isReadMode?: boolean;
-	onToggleReadMode?: () => void;
-}
+export type ReaderToolbarProps = SupplementaryPickerProps;
 
 function ToolButton({
 	onClick,
@@ -59,18 +53,15 @@ function ToolButton({
 }
 
 /**
- * Reader chrome: document navigation on the left, view controls in the middle,
- * openpaper's panel controls on the right.
+ * Reader chrome: document navigation on the left, view controls in the middle.
+ * The right end is left free: on desktop the side panel's tool switcher sits
+ * there in read mode (PaperSidebar).
  *
  * Search lives in the floating `FindBar` (⌘F) rather than here — pdf.js's find
  * controller owns match state, so a toolbar-embedded input would just be a
  * second place for it to get out of sync.
  */
-export function ReaderToolbar({
-	isReadMode,
-	onToggleReadMode,
-	...supplementary
-}: ReaderToolbarProps) {
+export function ReaderToolbar(supplementary: ReaderToolbarProps) {
 	const api = useAtomValue(viewerApiAtom);
 	const [page, setPage] = useAtom(currentPageAtom);
 	const numPages = useAtomValue(numPagesAtom);
@@ -160,17 +151,6 @@ export function ReaderToolbar({
 					>
 						<Search size={14} />
 					</ToolButton>
-				</div>
-
-				<div className="flex items-center gap-0.5">
-					{onToggleReadMode && (
-						<ToolButton
-							title={isReadMode ? "Exit focus mode" : "Focus mode"}
-							onClick={onToggleReadMode}
-						>
-							{isReadMode ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-						</ToolButton>
-					)}
 				</div>
 			</div>
 		</div>

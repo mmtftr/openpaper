@@ -54,7 +54,7 @@ export function CollapsibleNoteText({
 			{showToggle && (
 				<button
 					type="button"
-					className="text-xs text-blue-600 hover:underline dark:text-blue-400 mt-1"
+					className="mt-1 text-xs font-medium text-brand underline-offset-2 hover:underline"
 					onClick={(e) => {
 						e.stopPropagation();
 						onExpandToggle?.();

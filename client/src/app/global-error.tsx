@@ -3,7 +3,9 @@
 // Replaces the root layout when the root layout itself throws, so it renders
 // its own <html>/<body> and can't rely on the root layout's providers.
 import "./globals.css";
+import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import { isChunkLoadError, reloadForStaleDeploy } from "@/lib/staleDeploy";
 
 export default function GlobalError({
 	error,
@@ -12,6 +14,12 @@ export default function GlobalError({
 	error: Error & { digest?: string };
 	reset: () => void;
 }) {
+	const staleDeploy = isChunkLoadError(error);
+
+	useEffect(() => {
+		if (staleDeploy) reloadForStaleDeploy();
+	}, [staleDeploy]);
+
 	return (
 		<html lang="en">
 			<body className="antialiased">
@@ -20,7 +28,7 @@ export default function GlobalError({
 					<p className="max-w-md break-words text-sm text-muted-foreground">
 						{error.message || "An unexpected error occurred."}
 					</p>
-					<Button onClick={() => reset()}>Try again</Button>
+					<Button onClick={() => (staleDeploy ? window.location.reload() : reset())}>Try again</Button>
 				</div>
 			</body>
 		</html>

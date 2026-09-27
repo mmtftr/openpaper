@@ -21,7 +21,7 @@ function isActive(pathname: string, href: string) {
 
 /**
  * Bottom navigation for the main pages on phones (hidden from `md` up, where
- * the sidebar does the job). Pages clear it with `pb-tabbar`.
+ * the header nav does the job). Pages clear it with `pb-tabbar`.
  */
 export function MobileTabBar() {
 	const pathname = usePathname();

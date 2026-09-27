@@ -17,18 +17,22 @@ const STARTERS = [
 /** Suggested first questions; the overview chip sends a longer prompt than it shows. */
 export function ChatStarters({ onPick }: { onPick: (prompt: string) => void }) {
     return (
-        <Suggestions>
-            {STARTERS.map((q, i) => (
-                <Suggestion
-                    key={i}
-                    suggestion={q === COMPREHENSIVE_OVERVIEW_DISPLAY ? COMPREHENSIVE_OVERVIEW_PROMPT : q}
-                    onClick={onPick}
-                    className="animate-rise-in font-normal text-muted-foreground hover:text-foreground"
-                    style={{ animationDelay: `${i * 40}ms` }}
-                >
-                    {q}
-                </Suggestion>
-            ))}
-        </Suggestions>
+        // Scrolls edge to edge of the panel; the first chip still lines up
+        // with the composer.
+        <div className="-mx-3">
+            <Suggestions className="px-3">
+                {STARTERS.map((q, i) => (
+                    <Suggestion
+                        key={i}
+                        suggestion={q === COMPREHENSIVE_OVERVIEW_DISPLAY ? COMPREHENSIVE_OVERVIEW_PROMPT : q}
+                        onClick={onPick}
+                        className="animate-rise-in px-3 font-normal text-muted-foreground hover:text-foreground"
+                        style={{ animationDelay: `${i * 40}ms` }}
+                    >
+                        {q}
+                    </Suggestion>
+                ))}
+            </Suggestions>
+        </div>
     );
 }

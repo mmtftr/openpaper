@@ -19,6 +19,8 @@
  * and `next.config.ts` can mark the whole directory immutable.
  */
 
+// Must run before pdfjs-dist is evaluated (Safari 18.x lacks Map.getOrInsertComputed).
+import "./pdfjsPolyfills";
 import * as pdfjsLib from "pdfjs-dist";
 import {
 	EventBus,
@@ -31,7 +33,10 @@ import {
 export const PDFJS_ASSET_BASE = `/pdfjs/${pdfjsLib.version}`;
 
 if (typeof window !== "undefined") {
-	pdfjsLib.GlobalWorkerOptions.workerSrc = `${PDFJS_ASSET_BASE}/pdf.worker.mjs`;
+	// `.polyfilled`: the sync script prepends pdfjsPolyfills.js to the worker.
+	// New name, not the old `pdf.worker.mjs`, because that URL is cached
+	// `immutable` without the polyfill.
+	pdfjsLib.GlobalWorkerOptions.workerSrc = `${PDFJS_ASSET_BASE}/pdf.worker.polyfilled.mjs`;
 }
 
 /**

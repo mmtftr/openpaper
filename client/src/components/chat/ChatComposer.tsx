@@ -6,6 +6,7 @@ import {
     memo,
     useImperativeHandle,
     useMemo,
+    useRef,
     useState,
 } from "react";
 import {
@@ -48,6 +49,7 @@ import {
 export interface ChatComposerHandle {
     /** Replace the draft (cleared after a send, restored by "Edit"). */
     setText: (text: string) => void;
+    focus: () => void;
 }
 
 interface ChatComposerProps {
@@ -104,7 +106,12 @@ export const ChatComposer = memo(
         ref
     ) {
         const [text, setText] = useState("");
-        useImperativeHandle(ref, () => ({ setText }), []);
+        const textareaRef = useRef<HTMLTextAreaElement>(null);
+        useImperativeHandle(
+            ref,
+            () => ({ setText, focus: () => textareaRef.current?.focus({ preventScroll: true }) }),
+            []
+        );
 
         const modelLabel =
             selectedModel === DEFAULT_MODEL_KEY
@@ -139,21 +146,27 @@ export const ChatComposer = memo(
             <PromptInput onSubmit={handleSubmit}>
                 <PromptInputBody>
                     <PromptInputTextarea
+                        ref={textareaRef}
                         value={text}
                         onChange={(e) => setText(e.currentTarget.value)}
                         placeholder="Ask something about this paper."
                         disabled={isStreaming}
+                        // One line at rest; grows with the draft up to max-h-48, then scrolls.
+                        rows={1}
+                        className="min-h-0 px-3.5 pt-3 pb-1"
                     />
                 </PromptInputBody>
-                <PromptInputFooter>
-                    <PromptInputTools>
+                {/* The controls row tucks under the text; the send button sits
+                    in the corner with an even 6px inset. */}
+                <PromptInputFooter className="gap-1 px-1.5 pt-0 pb-1.5">
+                    <PromptInputTools className="min-w-0 gap-0.5">
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                 <Button
                                     type="button"
                                     variant="ghost"
                                     size="sm"
-                                    className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                                    className="h-7 min-w-0 shrink gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
                                     disabled={isStreaming}
                                 >
                                     <CpuIcon className="h-3.5 w-3.5" />
@@ -313,7 +326,7 @@ export const ChatComposer = memo(
                                 : undefined
                         }
                         disabled={isStreaming ? false : !text.trim() || !canSend}
-                        className="rounded-xl"
+                        className="shrink-0 rounded-[10px]"
                     />
                 </PromptInputFooter>
             </PromptInput>

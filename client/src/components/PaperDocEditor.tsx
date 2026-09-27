@@ -4,8 +4,8 @@ import { api, ApiRequestError, unwrap, type Schemas } from '@/lib/api/client';
 import { agentDocWritesAtom } from '@/lib/paperDocRevision';
 import { useAtomValue } from 'jotai';
 import dynamic from 'next/dynamic';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, FileText, Plus, Pencil, Trash2, Check, X, ChevronDown } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { AlertTriangle, Loader2, FileText, Plus, Pencil, Trash2, Check, X, ChevronDown } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,46 +41,52 @@ type Status =
     | { kind: 'error'; message: string };
 
 function StatusRow({ status }: { status: Status }) {
-    const [, setTick] = useState(0);
-    useEffect(() => {
-        if (status.kind !== 'saved') return;
-        const interval = setInterval(() => setTick((t) => t + 1), 30_000);
-        return () => clearInterval(interval);
-    }, [status]);
-
     let text = '';
+    let title: string | undefined;
+    let icon: ReactNode = null;
     let tone = 'text-muted-foreground';
     switch (status.kind) {
         case 'idle':
-            text = '';
-            break;
         case 'loading':
-            text = 'Loading…';
-            break;
+            return null;
         case 'saving':
             text = 'Saving…';
+            icon = <Loader2 className="h-3 w-3 animate-spin" />;
             break;
-        case 'saved': {
-            const seconds = Math.max(1, Math.round((Date.now() - status.at) / 1000));
-            if (seconds < 60) text = `Saved · ${seconds}s ago`;
-            else text = `Saved · ${Math.round(seconds / 60)}m ago`;
+        case 'saved':
+            text = 'Saved';
+            title = `Saved at ${new Date(status.at).toLocaleTimeString()}`;
+            icon = <Check className="h-3 w-3" />;
             break;
-        }
         case 'too-large':
-            text = 'Document too large — trim to under 1MB to resume saving.';
+            text = 'Too large to save';
+            title = 'Document too large — trim to under 1MB to resume saving.';
             tone = 'text-amber-600 dark:text-amber-400';
+            icon = <AlertTriangle className="h-3 w-3" />;
             break;
         case 'conflict':
-            text = 'Conflict — another tab or the agent edited this. Reload to merge.';
+            text = 'Edited elsewhere';
+            title = 'Conflict — another tab or the agent edited this. Reload to merge.';
             tone = 'text-amber-600 dark:text-amber-400';
+            icon = <AlertTriangle className="h-3 w-3" />;
             break;
         case 'error':
-            text = `Save failed: ${status.message}`;
+            text = status.message;
+            title = status.message;
             tone = 'text-red-600 dark:text-red-400';
+            icon = <AlertTriangle className="h-3 w-3" />;
             break;
     }
-    if (!text) return null;
-    return <div className={`text-xs px-2 py-1 ${tone}`}>{text}</div>;
+    return (
+        <div
+            className={`flex min-w-0 items-center gap-1 text-xs animate-in fade-in duration-200 ${tone}`}
+            title={title}
+            role="status"
+        >
+            <span className="shrink-0">{icon}</span>
+            <span className="truncate">{text}</span>
+        </div>
+    );
 }
 
 interface PaperDocEditorProps {
@@ -273,7 +279,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
             }
             setStatus({
                 kind: 'error',
-                message: e instanceof Error ? e.message : 'Network error',
+                message: `Save failed: ${e instanceof Error ? e.message : 'network error'}`,
             });
         } finally {
             inFlightRef.current = false;
@@ -520,20 +526,20 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
 
     return (
         <div className="flex flex-col h-full">
-            <div className="flex items-center justify-between border-b border-border px-2 py-1 gap-2">
+            <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border px-2">
                 <Popover open={switcherOpen} onOpenChange={setSwitcherOpen}>
                     <PopoverTrigger asChild>
                         <Button
                             variant="ghost"
                             size="sm"
-                            className="h-7 px-2 max-w-[60%] justify-start gap-1 font-medium"
+                            className="h-8 min-w-0 max-w-[60%] justify-start gap-1.5 px-2 font-medium"
                             disabled={!activeDoc}
                         >
                             <FileText className="h-3.5 w-3.5 shrink-0" />
                             <span className="truncate text-sm">
                                 {activeDoc?.title || 'Loading…'}
                             </span>
-                            <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                         </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-72 p-1" align="start">
@@ -580,13 +586,12 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                                 return (
                                     <div
                                         key={d.id}
-                                        className={`group flex items-center gap-1 px-2 py-1.5 rounded-sm text-sm hover:bg-accent ${isActive ? 'bg-accent/60' : ''
-                                            }`}
+                                        className={`group flex items-center gap-1 rounded-sm px-2 py-1 text-sm hover:bg-accent ${isActive ? 'bg-accent/60' : ''}`}
                                     >
                                         <button
                                             type="button"
                                             onClick={() => handleSwitch(d.id)}
-                                            className="flex-1 text-left truncate flex items-center gap-1.5 cursor-pointer"
+                                            className="flex min-h-9 flex-1 cursor-pointer items-center gap-1.5 truncate text-left md:min-h-7"
                                         >
                                             <FileText className="h-3.5 w-3.5 shrink-0 opacity-70" />
                                             <span className="truncate">{d.title}</span>
@@ -599,7 +604,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                                                     setRenameDraft(d.title);
                                                     setRenamingId(d.id);
                                                 }}
-                                                className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-background"
+                                                className="rounded p-2 hover:bg-background md:p-1 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100"
                                                 aria-label="Rename"
                                             >
                                                 <Pencil className="h-3.5 w-3.5" />
@@ -612,7 +617,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                                                     e.stopPropagation();
                                                     handleDelete(d.id);
                                                 }}
-                                                className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-background text-red-600 dark:text-red-400"
+                                                className="rounded p-2 text-red-600 hover:bg-background md:p-1 dark:text-red-400 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100"
                                                 aria-label="Delete"
                                             >
                                                 <Trash2 className="h-3.5 w-3.5" />
@@ -626,7 +631,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                             <button
                                 type="button"
                                 onClick={handleCreate}
-                                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm hover:bg-accent"
+                                className="flex min-h-9 w-full items-center gap-2 rounded-sm px-2 text-sm hover:bg-accent md:min-h-8"
                             >
                                 <Plus className="h-3.5 w-3.5" />
                                 <span>New doc</span>
@@ -635,20 +640,20 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                     </PopoverContent>
                 </Popover>
 
-                <div className="flex items-center gap-2">
+                <div className="flex min-w-0 items-center gap-2">
                     <StatusRow status={status} />
                     {inConflict && (
                         <button
                             type="button"
                             onClick={handleReload}
-                            className="text-xs px-2 py-1 rounded bg-amber-100 dark:bg-amber-950 hover:bg-amber-200 dark:hover:bg-amber-900 text-amber-900 dark:text-amber-100"
+                            className="shrink-0 text-xs px-2 py-1 rounded bg-amber-100 dark:bg-amber-950 hover:bg-amber-200 dark:hover:bg-amber-900 text-amber-900 dark:text-amber-100"
                         >
                             Reload
                         </button>
                     )}
                 </div>
             </div>
-            <div className="flex-1 overflow-y-auto">
+            <div data-doc-scroll className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
                 {activeDoc ? (
                     <MilkdownImpl
                         initialContent={activeDoc.content}
@@ -656,6 +661,8 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                         overwriteToken={overwriteToken}
                         overwriteContent={overwriteContent}
                     />
+                ) : status.kind === 'error' ? (
+                    <p className="px-4 py-8 text-center text-sm text-muted-foreground">{status.message}</p>
                 ) : (
                     <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
                         <Loader2 className="h-4 w-4 animate-spin mr-2" />

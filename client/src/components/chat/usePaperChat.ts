@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { useChat } from "@ai-sdk/react";
 import { useAuth } from "@/lib/auth";
 import type { ChatUIMessage } from "@/lib/chatMessages";
@@ -11,7 +11,7 @@ import { getPaperChatSession } from "./paperChatSessions";
  *
  * One AI SDK `Chat` per conversation, held outside React (see
  * paperChatSessions.ts) so a stream and its transcript survive the panel
- * unmounting on a side-panel tab switch; this attaches to it. The first
+ * remounting or switching conversations; this attaches to it. The first
  * history page loads once per conversation, once the user is known.
  */
 export function usePaperChat(paperId: string, conversationId: string | null) {
@@ -57,3 +57,25 @@ export function usePaperChat(paperId: string, conversationId: string | null) {
 }
 
 export type PaperChat = ReturnType<typeof usePaperChat>;
+
+/**
+ * Whether a conversation's session is sending or streaming, without attaching
+ * to it — for the chat tabs, which show a conversation still answering in the
+ * background.
+ */
+export function usePaperChatBusy(paperId: string, conversationId: string): boolean {
+    const session = useMemo(
+        () => getPaperChatSession(paperId, conversationId),
+        [paperId, conversationId]
+    );
+    const subscribe = useCallback(
+        (onChange: () => void) => session.chat["~registerStatusCallback"](onChange),
+        [session]
+    );
+    const status = useSyncExternalStore(
+        subscribe,
+        () => session.chat.status,
+        () => "ready" as const
+    );
+    return status === "submitted" || status === "streaming";
+}

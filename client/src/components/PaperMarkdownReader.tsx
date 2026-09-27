@@ -1,15 +1,20 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
+import { toast } from 'sonner';
 import dynamic from 'next/dynamic';
 import { ChevronDown, FileText, Loader } from 'lucide-react';
 
-import { api, unwrap, type Schemas } from '@/lib/api/client';
+import { API_BASE_URL, api, unwrap, type Schemas } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useStageRefreshKey } from '@/hooks/useIngest';
 import { FeatureGate } from '@/components/ingest/FeatureGate';
+import { markdownJumpRequestAtom, markdownJumpSettledAtom } from '@/components/paper/paperStore';
+import { usePaperAtomValue, useSetPaperAtom } from '@/components/paper/PaperStoreProvider';
+import { followFootnote, liftFootnotes } from '@/lib/markdownFootnotes';
+import type { MarkdownPassageJump } from './PaperMarkdownReaderImpl';
 
 const CrepeMarkdownReader = dynamic(() => import('./PaperMarkdownReaderImpl'), {
     ssr: false,
@@ -35,16 +40,80 @@ interface PaperMarkdownReaderProps {
 }
 
 // `figuresVersion` (the figures stage's finish time) busts the browser's copy
-// of an image that 404'd before the figures were rendered.
+// of an image that 404'd before the figures were rendered. The URL is absolute
+// against the API origin, which is not the client's under `next dev`.
 function resolveMarkdownImageUrls(markdown: string, paperId: string, figuresVersion: string) {
     if (!paperId) return markdown;
 
     const query = figuresVersion ? `?v=${encodeURIComponent(figuresVersion)}` : '';
     return markdown.replace(/!\[([^\]]*)\]\(([^)\s]+)(\s+"[^"]*")?\)/g, (match, alt, src, title = '') => {
         if (src.startsWith('http') || src.startsWith('/') || src.startsWith('data:')) return match;
-        const figureUrl = `/api/paper/${encodeURIComponent(paperId)}/figure/${encodeURIComponent(src)}${query}`;
+        const figureUrl = `${API_BASE_URL}/api/paper/${encodeURIComponent(paperId)}/figure/${encodeURIComponent(src)}${query}`;
         return `![${alt}](${figureUrl}${title})`;
     });
+}
+
+/**
+ * A `$` that can't be inline math is escaped, so prose like "$300 million …
+ * over $2B" or "'$node_dir', '$eval_program'" stays text instead of becoming
+ * one long formula. Pandoc's rule — the opener isn't followed by a space, the
+ * closer isn't preceded by one or followed by a digit — plus: no blank line
+ * in between, the opener doesn't directly follow a letter or quote, and a
+ * closer isn't wedged between a quote and a word (`'$a', '$b'`).
+ * `$$` blocks, `\$` and inline code are left alone.
+ */
+function escapeStrayDollars(text: string) {
+    const singles: number[] = [];
+    for (const match of text.matchAll(/\\\$|`[^`\n]*`|\$\$[\s\S]*?\$\$|\$/g)) {
+        if (match[0] === "$") singles.push(match.index);
+    }
+    const stray: number[] = [];
+    for (let i = 0; i < singles.length; i++) {
+        const open = singles[i];
+        const close = singles[i + 1];
+        const isMath =
+            close !== undefined &&
+            !/[\w'"`]/.test(text[open - 1] ?? "") &&
+            !/\s/.test(text[open + 1] ?? " ") &&
+            !/\s/.test(text[close - 1]) &&
+            !/\d/.test(text[close + 1] ?? "") &&
+            !(/['"]/.test(text[close - 1]) && /\w/.test(text[close + 1] ?? "")) &&
+            !/\n[ \t]*\n/.test(text.slice(open, close));
+        if (isMath) i++;
+        else stray.push(open);
+    }
+    let out = text;
+    for (const index of stray.reverse()) out = `${out.slice(0, index)}\\${out.slice(index)}`;
+    return out;
+}
+
+/**
+ * OCR writes LaTeX delimiters — `\( … \)` inline, `\[ … \]` on their own
+ * lines for display — but the editor's math (remark-math) only reads `$ … $`
+ * and `$$ … $$` on their own lines (a one-line `$$ … $$` is inline math, where
+ * `\tag` fails). Fenced code is left alone; a `\[` inside a line is an
+ * escaped bracket, not math, and inline math never spans a blank line.
+ */
+function normalizeMath(markdown: string) {
+    const displayBlock = (lead: string, body: string) => `${lead}\n$$\n${body.trim()}\n$$\n`;
+    return markdown
+        .split(/(```[\s\S]*?```)/g)
+        .map((part, i) =>
+            i % 2
+                ? part
+                : escapeStrayDollars(part)
+                      .replace(/(^|\n)[ \t]*\\\[([\s\S]+?)\\\][ \t]*(?=\n|$)/g, (_, lead: string, body: string) =>
+                          displayBlock(lead, body)
+                      )
+                      .replace(/(^|\n)[ \t]*\$\$([^\n]+?)\$\$[ \t]*(?=\n|$)/g, (_, lead: string, body: string) =>
+                          displayBlock(lead, body)
+                      )
+                      .replace(
+                          /\\\(((?:(?!\n[ \t]*\n)[\s\S])+?)\\\)/g,
+                          (_, body: string) => `$${body.replace(/\s*\n\s*/g, " ").trim()}$`
+                      )
+        )
+        .join("");
 }
 
 export function PaperMarkdownReader({
@@ -71,9 +140,37 @@ export function PaperMarkdownReader({
         : null;
 
     const renderedMarkdown = useMemo(
-        () => resolveMarkdownImageUrls(data?.markdown || '', paperId, figuresRefreshKey),
+        () => normalizeMath(liftFootnotes(resolveMarkdownImageUrls(data?.markdown || '', paperId, figuresRefreshKey))),
         [data?.markdown, paperId, figuresRefreshKey]
     );
+
+    // A highlight opened from the Highlights tab (phones). It may have been
+    // requested before this mounted; it waits here until the document renders.
+    const jumpRequest = usePaperAtomValue(markdownJumpRequestAtom);
+    const settleJump = useSetPaperAtom(markdownJumpSettledAtom);
+    const jump = useMemo<MarkdownPassageJump | null>(
+        () =>
+            jumpRequest && jumpRequest.paperId === paperId
+                ? {
+                      text: jumpRequest.highlight.raw_text,
+                      color: jumpRequest.color,
+                      expectedFraction: jumpRequest.expectedFraction,
+                      nonce: jumpRequest.nonce,
+                  }
+                : null,
+        [jumpRequest, paperId]
+    );
+    const onJumpSettled = useCallback(
+        (nonce: number, found: boolean) => {
+            if (!found) toast("Passage not found in the text — opened the PDF");
+            settleJump(nonce, found);
+        },
+        [settleJump]
+    );
+    const hasMarkdown = Boolean(data?.markdown?.trim());
+    useEffect(() => {
+        if (jump && !loading && (error || !hasMarkdown)) onJumpSettled(jump.nonce, false);
+    }, [jump, loading, error, hasMarkdown, onJumpSettled]);
 
     const showSwitcher = Boolean(parentPaperId);
     const isParentDisplayed =
@@ -174,7 +271,7 @@ export function PaperMarkdownReader({
         <div className="flex flex-col h-full">
             {header}
             <FeatureGate paperId={paperId} feature="figures" variant="inline" className="border-b" />
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto" onClick={(event) => followFootnote(event.target)}>
                 {loading ? (
                     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                         <Loader className="mr-2 h-4 w-4 animate-spin" />
@@ -182,12 +279,12 @@ export function PaperMarkdownReader({
                     </div>
                 ) : error ? (
                     <div className="flex h-full items-center justify-center p-6 text-sm text-destructive">{error}</div>
-                ) : !data?.markdown?.trim() ? (
+                ) : !hasMarkdown ? (
                     <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
                         No parsed markdown is available for this paper.
                     </div>
                 ) : (
-                    <CrepeMarkdownReader markdown={renderedMarkdown} />
+                    <CrepeMarkdownReader markdown={renderedMarkdown} jump={jump} onJumpSettled={onJumpSettled} />
                 )}
             </div>
         </div>

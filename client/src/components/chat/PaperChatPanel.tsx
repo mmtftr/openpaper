@@ -7,14 +7,13 @@ import { AlertTriangleIcon } from "lucide-react";
 import { PaperData } from "@/lib/schema";
 import { MAX_USER_REFERENCES, truncateReference } from "@/lib/userReferences";
 import { CodeViewerProvider } from "@/components/code/CodeViewerProvider";
-import { RepoConnectPopover } from "@/components/code/RepoConnectPopover";
 import { userMessageReferencesAtom } from "@/components/paper/paperStore";
 import { usePaperAtom } from "@/components/paper/PaperStoreProvider";
 import { useCitationClick } from "@/components/paper/useCitationJump";
 
 import { ChatComposer, type ChatComposerHandle } from "./ChatComposer";
 import { ChatStarters } from "./ChatStarters";
-import { ConversationSwitcher } from "./ConversationSwitcher";
+import { ChatSessionTabs } from "./ChatSessionTabs";
 import { MessageList } from "./messages/MessageList";
 import { PendingReferences } from "./PendingReferences";
 import { useChatModelOptions } from "./useChatModelOptions";
@@ -26,19 +25,21 @@ import { useTurnFailures } from "./useTurnFailures";
 interface PaperChatPanelProps {
     id: string;
     paperData: PaperData;
-    headerSlot?: React.ReactNode;
 }
 
 /**
- * The paper's chat: conversation switcher, transcript and composer. Staged
+ * The paper's chat: conversation tabs, transcript and composer. Staged
  * references and citation jumps go through the paper store; the chat session
  * itself lives outside React (paperChatSessions.ts).
+ *
+ * Every conversation keeps its own session, so switching or closing a tab
+ * leaves a stream running in it; only deleting a conversation stops it.
  */
-export function PaperChatPanel({ id, paperData, headerSlot }: PaperChatPanelProps) {
+export function PaperChatPanel({ id, paperData }: PaperChatPanelProps) {
     const conversationList = useConversationList(id, Boolean(paperData));
-    const { conversationId, setConversationId } = conversationList;
+    const { conversationId, conversations, openIds } = conversationList;
     const chat = usePaperChat(id, conversationId);
-    const { session, status, messages, isStreaming, stop } = chat;
+    const { session, messages, isStreaming } = chat;
     const options = useChatModelOptions();
     const composerRef = useRef<ChatComposerHandle>(null);
     const submit = useChatSubmit({ paperId: id, conversationId, chat, options, composerRef });
@@ -50,31 +51,26 @@ export function PaperChatPanel({ id, paperData, headerSlot }: PaperChatPanelProp
 
     // Only a conversation of this paper is remembered for it (right after a
     // paper switch the previous paper's id is still open).
-    const { remember } = conversationList;
+    const { remember, refresh: refreshConversations } = conversationList;
     useEffect(() => {
         if (session.paperId === id) remember();
     }, [id, session, remember]);
 
-    // After the first turn the server auto-generates a title; refetch the
-    // list when a stream completes for an untitled conversation.
-    useEffect(() => {
-        if (status === "ready" && messages.length > 0 && !conversationList.activeTitle) {
-            void conversationList.refresh();
-        }
-    }, [status]);
+    const { openTabs, closedConversations } = useMemo(() => {
+        const byId = new Map(conversations.map((c) => [c.id, c]));
+        return {
+            openTabs: openIds.flatMap((openId) => byId.get(openId) ?? []),
+            closedConversations: conversations.filter((c) => !openIds.includes(c.id)),
+        };
+    }, [conversations, openIds]);
 
+    // "+" lands on an empty conversation either way; put the cursor in it.
+    const { startNew } = conversationList;
     const onNewChat = useCallback(() => {
-        if (isStreaming) stop();
-        void conversationList.startNew();
-    }, [isStreaming, stop, conversationList]);
-    const onSelectConversation = useCallback(
-        (next: string) => {
-            if (next === conversationId) return;
-            if (isStreaming) stop();
-            setConversationId(next);
-        },
-        [conversationId, isStreaming, stop, setConversationId]
-    );
+        void startNew().then(() => {
+            requestAnimationFrame(() => composerRef.current?.focus());
+        });
+    }, [startNew]);
 
     // A starter goes through a render so it's sent with the current options.
     const [pendingStarter, setPendingStarter] = useState<string | null>(null);
@@ -120,26 +116,24 @@ export function PaperChatPanel({ id, paperData, headerSlot }: PaperChatPanelProp
 
     return (
         // Everything below can open the repo code viewer (citations, tool
-        // chips, the repo-connect popover) through this one provider.
+        // chips) through this one provider.
         <CodeViewerProvider
             paperId={id}
             onAttachReference={attachReference}
             chatModel={codeQuestionModel}
         >
             <div className="flex h-full min-h-0 flex-col">
-                <div className="flex items-center justify-between gap-1 px-2 py-1.5 border-b border-border/40">
-                    <div className="flex items-center gap-1">
-                        <ConversationSwitcher
-                            conversations={conversationList.conversations}
-                            activeId={conversationId}
-                            onNew={onNewChat}
-                            onSelect={onSelectConversation}
-                            onDelete={(target) => void conversationList.remove(target)}
-                        />
-                        <RepoConnectPopover paperId={id} />
-                    </div>
-                    {headerSlot}
-                </div>
+                <ChatSessionTabs
+                    paperId={id}
+                    tabs={openTabs}
+                    activeId={conversationId}
+                    closed={closedConversations}
+                    onSelect={conversationList.openConversation}
+                    onClose={conversationList.closeConversation}
+                    onNew={onNewChat}
+                    onDelete={(target) => void conversationList.remove(target)}
+                    onTurnSettled={refreshConversations}
+                />
 
                 <MessageList
                     chat={chat}
@@ -149,7 +143,7 @@ export function PaperChatPanel({ id, paperData, headerSlot }: PaperChatPanelProp
                     onEditFailedTurn={submit.editFailedTurn}
                 />
 
-                <div className="px-3 pb-3 pt-2 space-y-2">
+                <div className="space-y-2 px-3 pb-3 pt-1">
                     {messages.length <= 1 && !chat.history.hasMore && !isStreaming && (
                         <ChatStarters onPick={setPendingStarter} />
                     )}
@@ -157,7 +151,7 @@ export function PaperChatPanel({ id, paperData, headerSlot }: PaperChatPanelProp
                     <PendingReferences />
 
                     {contextMode === "full" && (
-                        <div className="mb-2 flex items-start gap-2 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+                        <div className="flex items-start gap-2 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
                             <AlertTriangleIcon className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                             <span>
                                 This mode sends the entire paper to the model on every turn.

@@ -4,13 +4,6 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
 import { citationStyles, copyToClipboard, PaperBase } from '@/components/utils/paperUtils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useFeatureGate, useStageRefreshKey } from '@/hooks/useIngest';
@@ -22,7 +15,7 @@ import useSWR from 'swr';
 import { toast } from 'sonner';
 
 /** The citation fields of any paper shape the API returns (detail, library, project list). */
-interface CitablePaper {
+export interface CitablePaper {
     id?: string;
     title?: string | null;
     authors?: string[] | null;
@@ -39,24 +32,12 @@ interface CitePaperButtonProps {
     minimalist?: boolean;
     variant?: "ghost" | "outline";
     iconOnly?: boolean;
-    /** Drop the label below `md` (the paper header on phones). */
-    collapseLabel?: boolean;
 }
 
-export function CitePaperButton({ paper, paperId: providedPaperId, minimalist = false, variant = "ghost", iconOnly = false, collapseLabel = false }: CitePaperButtonProps) {
+export function CitePaperButton({ paper, paperId: providedPaperId, minimalist = false, variant = "ghost", iconOnly = false }: CitePaperButtonProps) {
     const pathname = usePathname();
     const [derivedPaperId, setDerivedPaperId] = useState<string | null>(null);
     const [isOpen, setIsOpen] = useState(false);
-    const [selectedStyle, setSelectedStyle] = useState<string>(() => {
-        if (typeof window !== 'undefined') {
-            const saved = localStorage.getItem('citationStyle');
-            // Validate saved preference exists in current options, otherwise use default
-            const isValid = saved && citationStyles.some(style => style.name === saved);
-            return isValid ? saved : citationStyles[0].name;
-        }
-        return citationStyles[0].name;
-    });
-    const [copied, setCopied] = useState(false);
     const isMobile = useIsMobile();
 
     // Determine the paper ID to use (only for single paper mode)
@@ -81,13 +62,6 @@ export function CitePaperButton({ paper, paperId: providedPaperId, minimalist = 
 
     // Check if we're in bibliography mode (more than one paper)
     const isBibliography = paperData && paperData.length > 1;
-
-    // Save selected style to localStorage whenever it changes
-    useEffect(() => {
-        if (typeof window !== 'undefined') {
-            localStorage.setItem('citationStyle', selectedStyle);
-        }
-    }, [selectedStyle]);
 
     useEffect(() => {
         // Paper data from props is used directly
@@ -133,105 +107,20 @@ export function CitePaperButton({ paper, paperId: providedPaperId, minimalist = 
         <Button
             variant={variant}
             size="sm"
-            className={cn(variant === "outline" && "h-8 px-3 text-xs", collapseLabel && "max-md:size-8 max-md:p-0 max-md:has-[>svg]:px-0")}
+            className={cn(variant === "outline" && "h-8 px-3 text-xs")}
             aria-label={isBibliography ? 'Bibliography' : 'Cite'}
         >
-            {(!minimalist || variant === "outline") && <Quote className={cn("h-3.5 w-3.5", collapseLabel ? "md:mr-1.5" : "mr-1.5")} />}
-            <span className={cn(minimalist && variant !== "outline" && "text-sm", collapseLabel && "hidden md:inline")}>{isBibliography ? 'Bibliography' : 'Cite'}</span>
+            {(!minimalist || variant === "outline") && <Quote className="h-3.5 w-3.5 mr-1.5" />}
+            <span className={cn(minimalist && variant !== "outline" && "text-sm")}>{isBibliography ? 'Bibliography' : 'Cite'}</span>
         </Button>
     );
 
-    const content = (
-        <div className="grid gap-4">
-            {!paperData ? (
-                <div className="flex items-center justify-center h-24">
-                    <Loader className="animate-spin h-6 w-6" />
-                </div>
-            ) : (
-                <div className="space-y-4">
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium">Citation Style</label>
-                        <Select value={selectedStyle} onValueChange={setSelectedStyle}>
-                            <SelectTrigger className="w-full">
-                                <SelectValue placeholder="Select citation style" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {citationStyles.map((style) => (
-                                    <SelectItem key={style.name} value={style.name}>
-                                        {style.name}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    {(() => {
-                        const selectedStyleObj = citationStyles.find(s => s.name === selectedStyle);
-                        if (!selectedStyleObj || !paperData) return null;
-
-                        const paperAsPaperBase = (p: CitablePaper, id?: string): PaperBase => ({
-                            id: id || p.id || '',
-                            title: p.title || '',
-                            authors: p.authors || [],
-                            created_at: p.publish_date || p.created_at || undefined,
-                            journal: p.journal ?? undefined,
-                            publisher: p.publisher ?? undefined,
-                            doi: p.doi ?? undefined,
-                        });
-
-                        // Generate citation(s) - special handling for single paper (length === 1)
-                        let citation: string;
-                        if (paperData.length === 1) {
-                            // Single paper citation
-                            const singlePaper = paperData[0];
-                            const paperBase = paperAsPaperBase(singlePaper, effectivePaperId || undefined);
-                            citation = selectedStyleObj.generator(paperBase);
-                        } else {
-                            // Generate bibliography from multiple papers
-                            citation = paperData.map((p, index) => {
-                                const paperBase = paperAsPaperBase(p);
-                                const singleCitation = selectedStyleObj.generator(paperBase);
-                                // For numbered styles like IEEE, add numbering
-                                if (selectedStyle === 'IEEE') {
-                                    return `[${index + 1}] ${singleCitation}`;
-                                }
-                                return singleCitation;
-                            }).join('\n\n');
-                        }
-
-                        return (
-                            <div className="space-y-2">
-                                <div className="text-xs bg-muted p-3 rounded overflow-x-auto overflow-y-auto max-h-96 whitespace-pre-wrap">
-                                    {citation}
-                                </div>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="w-full"
-                                    onClick={() => {
-                                        copyToClipboard(citation, selectedStyle);
-                                        setCopied(true);
-                                        setTimeout(() => setCopied(false), 2000);
-                                    }}
-                                >
-                                    {copied ? (
-                                        <>
-                                            <Check className="h-4 w-4 mr-2" />
-                                            Copied
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Copy className="h-4 w-4 mr-2" />
-                                            Copy
-                                        </>
-                                    )}
-                                </Button>
-                            </div>
-                        );
-                    })()}
-                </div>
-            )}
+    const content = !paperData ? (
+        <div className="flex items-center justify-center h-24">
+            <Loader className="animate-spin h-6 w-6" />
         </div>
+    ) : (
+        <CitationView papers={paperData} paperId={effectivePaperId ?? undefined} />
     );
 
     if (isMobile) {
@@ -264,5 +153,106 @@ export function CitePaperButton({ paper, paperId: providedPaperId, minimalist = 
                 {content}
             </DialogContent>
         </Dialog>
+    );
+}
+
+/** Short chip labels; the full style name is the chip's tooltip and the copy toast. */
+const STYLE_LABELS: Record<string, string> = {
+    'MLA 9th Edition': 'MLA',
+    'Chicago 17th (Author-Date)': 'Chicago',
+    'APA 7th Edition': 'APA',
+    'AMA 11th Edition': 'AMA',
+};
+
+function savedCitationStyle(): string {
+    if (typeof window === 'undefined') return citationStyles[0].name;
+    const saved = localStorage.getItem('citationStyle');
+    // A saved style that no longer exists falls back to the default.
+    return saved && citationStyles.some(style => style.name === saved) ? saved : citationStyles[0].name;
+}
+
+const toPaperBase = (p: CitablePaper, id?: string): PaperBase => ({
+    id: id || p.id || '',
+    title: p.title || '',
+    authors: p.authors || [],
+    created_at: p.publish_date || p.created_at || undefined,
+    journal: p.journal ?? undefined,
+    publisher: p.publisher ?? undefined,
+    doi: p.doi ?? undefined,
+});
+
+/**
+ * Style picker (inline chips, no nested menu), the formatted citation or
+ * bibliography, and a copy button. The chosen style is remembered.
+ */
+export function CitationView({ papers, paperId, className }: { papers: CitablePaper[]; paperId?: string; className?: string }) {
+    const [selectedStyle, setSelectedStyle] = useState(savedCitationStyle);
+    const [copied, setCopied] = useState(false);
+
+    useEffect(() => {
+        localStorage.setItem('citationStyle', selectedStyle);
+    }, [selectedStyle]);
+
+    useEffect(() => {
+        if (!copied) return;
+        const timer = setTimeout(() => setCopied(false), 2000);
+        return () => clearTimeout(timer);
+    }, [copied]);
+
+    const style = citationStyles.find(s => s.name === selectedStyle) ?? citationStyles[0];
+    const citation = papers.length === 1
+        ? style.generator(toPaperBase(papers[0], paperId))
+        : papers
+            .map((p, index) => {
+                const single = style.generator(toPaperBase(p));
+                // Numbered styles get their numbers.
+                return style.name === 'IEEE' ? `[${index + 1}] ${single}` : single;
+            })
+            .join('\n\n');
+
+    return (
+        <div className={cn("space-y-2", className)}>
+            <div role="radiogroup" aria-label="Citation style" className="flex flex-wrap gap-1">
+                {citationStyles.map(({ name }) => {
+                    const active = name === style.name;
+                    return (
+                        <button
+                            key={name}
+                            type="button"
+                            role="radio"
+                            aria-checked={active}
+                            title={name}
+                            onClick={() => {
+                                setSelectedStyle(name);
+                                setCopied(false);
+                            }}
+                            className={cn(
+                                "rounded-md border px-2 py-1 text-xs transition-colors duration-150 ease-out-soft focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-brand/30 max-md:py-1.5",
+                                active
+                                    ? "border-brand/40 bg-brand/10 font-medium text-foreground"
+                                    : "border-border/70 text-muted-foreground hover:bg-accent hover:text-foreground"
+                            )}
+                        >
+                            {STYLE_LABELS[name] ?? name}
+                        </button>
+                    );
+                })}
+            </div>
+            <div className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-muted p-2.5 text-xs leading-relaxed select-text">
+                {citation}
+            </div>
+            <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => {
+                    copyToClipboard(citation, style.name);
+                    setCopied(true);
+                }}
+            >
+                {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                {copied ? 'Copied' : `Copy ${STYLE_LABELS[style.name] ?? style.name}`}
+            </Button>
+        </div>
     );
 }

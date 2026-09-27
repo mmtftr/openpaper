@@ -91,8 +91,6 @@ export interface PdfReaderProps {
 	/** A quote was sent to chat from the selection toolbar. */
 	onAskStarted?: () => void;
 
-	isReadMode?: boolean;
-	onToggleReadMode?: () => void;
 	/** False while mounted but hidden (see `readerActiveAtom`). */
 	active?: boolean;
 
@@ -178,8 +176,6 @@ function PdfReaderInner(props: PdfReaderProps) {
 		annotationsPanelActive,
 		onOpenThread,
 		onAskStarted,
-		isReadMode,
-		onToggleReadMode,
 		active = true,
 		displayedPaperId = "",
 		...toolbarProps
@@ -371,12 +367,7 @@ function PdfReaderInner(props: PdfReaderProps) {
 
 	return (
 		<div className="flex h-full w-full flex-col" data-pdf-reader>
-			<ReaderToolbar
-				{...toolbarProps}
-				displayedPaperId={displayedPaperId}
-				isReadMode={isReadMode}
-				onToggleReadMode={onToggleReadMode}
-			/>
+			<ReaderToolbar {...toolbarProps} displayedPaperId={displayedPaperId} />
 			<div className="relative flex min-h-0 flex-1">
 				<ReaderSidebar displayedPaperId={displayedPaperId} />
 				<div className="relative min-w-0 flex-1">

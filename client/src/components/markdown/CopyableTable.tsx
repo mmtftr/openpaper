@@ -116,12 +116,13 @@ export function CopyableTable({
     }, []);
 
     return (
-        <div className="group/table">
-            {/* Toolbar */}
-            <div className="flex items-center justify-between px-3 py-1.5 bg-accent/50 rounded-t-md border border-b-0 border-border/50 opacity-0 group-hover/table:opacity-100 transition-opacity duration-200">
+        <div className="group/table relative">
+            {/* Hover toolbar over the table's corner: reserving a row for it
+                left a blank band above every table. */}
+            <div className="pointer-events-none absolute top-1 right-1 z-10 flex items-center gap-0.5 rounded-md border border-border/60 bg-background/95 p-0.5 opacity-0 shadow-sm backdrop-blur-sm transition-opacity duration-150 group-hover/table:pointer-events-auto group-hover/table:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
                 <button
                     onClick={handleCopy}
-                    className="inline-flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                     title="Copy to clipboard"
                     type="button"
                 >
@@ -139,16 +140,17 @@ export function CopyableTable({
                 </button>
                 <button
                     onClick={handleExportCsv}
-                    className="inline-flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                     title="Export as CSV"
                     type="button"
                 >
                     <Download className="h-3.5 w-3.5" />
-                    <span>Export CSV</span>
+                    <span>CSV</span>
                 </button>
             </div>
-            {/* Table */}
-            <div className="overflow-x-auto border border-border/50 rounded-b-md group-hover/table:rounded-b-md group-hover/table:rounded-t-none rounded-md px-3">
+            {/* The frame is the block; the table itself carries no margins,
+                and the header row gets the top padding prose leaves off. */}
+            <div className="overflow-x-auto rounded-md border border-border/50 px-3 [&_thead_th]:pt-2 [&>table]:my-0">
                 <table ref={tableRef} className={className ?? "min-w-full border-collapse"} {...props}>
                     {children}
                 </table>

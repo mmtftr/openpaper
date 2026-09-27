@@ -17,13 +17,15 @@ import { bumpAgentDocWrites } from "@/lib/paperDocRevision";
 /**
  * Paper-chat state that must outlive `PaperChatPanel`.
  *
- * The side panel unmounts the chat whenever another tab (Annotations, Doc) is
- * shown. `useChat` with its own options would build a fresh `Chat` on every
- * remount — the in-flight stream kept writing into the orphaned instance and
- * the transcript came back empty. Instead each conversation owns one AI SDK
- * `Chat` (plus its paging and per-turn UI state) held in this module, and the
- * panel attaches to it with `useChat({ chat })`, so a stream keeps running and
- * the transcript survives tab switches. Sessions live for the page's lifetime.
+ * The side panel keeps the chat mounted across tab switches, but it still
+ * remounts (desktop/phone layout swap) and switches conversations while a
+ * stream may be running. `useChat` with its own options would build a fresh
+ * `Chat` each time — the in-flight stream kept writing into the orphaned
+ * instance and the transcript came back empty. Instead each conversation owns
+ * one AI SDK `Chat` (plus its paging and per-turn UI state) held in this
+ * module, and the panel attaches to it with `useChat({ chat })`, so a stream
+ * keeps running and the transcript survives. Sessions live for the page's
+ * lifetime.
  */
 
 /**
@@ -308,6 +310,7 @@ export class PaperChatSession {
 
 const sessions = new Map<string, PaperChatSession>();
 const activeConversationByPaper = new Map<string, string>();
+const openConversationsByPaper = new Map<string, string[]>();
 
 const sessionKey = (paperId: string, conversationId: string | null) =>
     conversationId ?? `pending:${paperId}`;
@@ -334,6 +337,11 @@ export function getPaperChatSession(
     return session;
 }
 
+/** The session for a conversation if one was created, without creating it. */
+export function findPaperChatSession(conversationId: string): PaperChatSession | undefined {
+    return sessions.get(conversationId);
+}
+
 /** Drop a deleted conversation's session (stopping any stream it still has). */
 export function disposePaperChatSession(conversationId: string) {
     const session = sessions.get(conversationId);
@@ -350,4 +358,13 @@ export function rememberActiveConversation(paperId: string, conversationId: stri
 
 export function recallActiveConversation(paperId: string): string | null {
     return activeConversationByPaper.get(paperId) ?? null;
+}
+
+/** In-memory mirror of the panel's open conversation tabs, per paper. */
+export function rememberOpenConversations(paperId: string, conversationIds: string[]) {
+    openConversationsByPaper.set(paperId, conversationIds);
+}
+
+export function recallOpenConversations(paperId: string): string[] | null {
+    return openConversationsByPaper.get(paperId) ?? null;
 }

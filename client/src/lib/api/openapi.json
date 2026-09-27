@@ -267,6 +267,59 @@
         "title": "ApiError",
         "type": "object"
       },
+      "ArchivePapersRequest": {
+        "properties": {
+          "archived": {
+            "default": true,
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "paper_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Paper Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "paper_ids"
+        ],
+        "title": "ArchivePapersRequest",
+        "type": "object"
+      },
+      "ArchivePapersResponse": {
+        "description": "The papers that were (un)archived, and their `archived_at` now.",
+        "properties": {
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
+          "paper_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Paper Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "paper_ids"
+        ],
+        "title": "ArchivePapersResponse",
+        "type": "object"
+      },
       "AuthResponse": {
         "description": "Response model for auth routes.",
         "properties": {
@@ -2840,6 +2893,18 @@
             ],
             "title": "Abstract"
           },
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
           "authors": {
             "anyOf": [
               {
@@ -3695,6 +3760,18 @@
             ],
             "title": "Abstract"
           },
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
           "authors": {
             "anyOf": [
               {
@@ -3995,6 +4072,18 @@
               }
             ],
             "title": "Abstract"
+          },
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
           },
           "authors": {
             "anyOf": [
@@ -9391,7 +9480,7 @@
     },
     "/api/paper/active": {
       "get": {
-        "description": "Get all active paper IDs",
+        "description": "The unarchived papers being read (the command menu).",
         "operationId": "get_active_paper_ids_api_paper_active_get",
         "responses": {
           "200": {
@@ -9435,7 +9524,7 @@
     },
     "/api/paper/all": {
       "get": {
-        "description": "Get all paper IDs",
+        "description": "The library: the owner's unarchived papers, or with `archived=true` the\narchived ones.",
         "operationId": "get_paper_ids_api_paper_all_get",
         "parameters": [
           {
@@ -9445,6 +9534,16 @@
             "schema": {
               "default": false,
               "title": "Detailed",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "archived",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Archived",
               "type": "boolean"
             }
           }
@@ -9487,6 +9586,60 @@
           }
         ],
         "summary": "Get Paper Ids"
+      }
+    },
+    "/api/paper/archive": {
+      "post": {
+        "description": "Archive (or with `archived: false` unarchive) one or many papers.\n\nIds that aren't the owner's are skipped; 404 if none are.",
+        "operationId": "archive_papers_api_paper_archive_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchivePapersRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchivePapersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Client error"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Server error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Archive Papers"
       }
     },
     "/api/paper/conversations": {

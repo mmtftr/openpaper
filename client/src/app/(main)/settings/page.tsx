@@ -43,7 +43,7 @@ export default function SettingsPage() {
 			}));
 			if (data.success) {
 				toast.success("Profile updated.");
-				// Re-fetch auth state to update sidebar etc.
+				// Re-fetch auth state so the header shows the new name.
 				window.location.reload();
 			} else {
 				toast.error(data.message || "Failed to update profile.");

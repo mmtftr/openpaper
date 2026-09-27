@@ -126,7 +126,7 @@ export default function CustomCitationLink({ children, handleCitationClick, mess
 
                         // Create a container for multiple citations
                         parts.push(
-                            <span key={`citations-${match.index}`} className="inline-flex gap-1">
+                            <span key={`citations-${match.index}`} className="ml-[0.3em] inline-flex gap-1">
                                 {individualCitations.map((citationKey, index) => (
                                     <CitationLink
                                         key={`citation-${citationKey}-${index}`}

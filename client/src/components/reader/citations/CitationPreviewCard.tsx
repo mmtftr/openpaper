@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode, RefObject } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
@@ -21,39 +21,60 @@ import {
 import { CollapsibleNoteText } from "@/components/CollapsibleNoteText";
 import { uploadFromUrlWithFallback } from "@/lib/uploadUtils";
 import { citationPreviewAtom } from "../atoms";
+import { toScrollerContent, visibleBounds } from "../visibleBounds";
 import { refreshReference, useResolvedReference, type ResolvedReference } from "./resolve";
 
 const CARD_WIDTH = 540;
 const GAP = 12;
 const VIEWPORT_MARGIN = 8;
+/** Room to want below the anchor before the card's real height is known. */
 const ESTIMATED_HEIGHT = 300;
+const MIN_HEIGHT = 80;
+
+interface CardPosition {
+	left: number;
+	top: number;
+	width: number;
+	above: boolean;
+	maxHeight: number;
+}
 
 /**
- * Prefer a 540px card below the anchor with a 12px gap; clamp horizontally
- * inside the scroller and flip above when there is no room below.
+ * Prefer a 540px card below the anchor with a 12px gap, flipping above when
+ * the other side has more room; clamp horizontally inside the *visible* part
+ * of the scroller. Returned in the scroller's content coordinates (the portal
+ * target), so a horizontally scrolled, zoomed page is accounted for.
  */
 function computePosition(
 	anchorRect: DOMRect,
-	scroller: HTMLElement
-): { left: number; top: number; width: number; above: boolean; maxHeight: number } {
-	const scrollRect = scroller.getBoundingClientRect();
-	const width = Math.min(CARD_WIDTH, scrollRect.width - VIEWPORT_MARGIN * 2);
+	scroller: HTMLElement,
+	cardHeight: number | null,
+	lockedAbove: boolean | null
+): CardPosition {
+	const vis = visibleBounds(scroller);
+	const width = Math.max(0, Math.min(CARD_WIDTH, vis.right - vis.left - VIEWPORT_MARGIN * 2));
 	let left = anchorRect.left + anchorRect.width / 2 - width / 2;
 	left = Math.max(
-		scrollRect.left + VIEWPORT_MARGIN,
-		Math.min(left, scrollRect.right - width - VIEWPORT_MARGIN)
+		vis.left + VIEWPORT_MARGIN,
+		Math.min(left, vis.right - width - VIEWPORT_MARGIN)
 	);
 
-	const spaceBelow = scrollRect.bottom - anchorRect.bottom;
-	const flip =
-		spaceBelow < ESTIMATED_HEIGHT + GAP &&
-		anchorRect.top - scrollRect.top > ESTIMATED_HEIGHT + GAP;
-	// Coordinates are relative to the scroller's content box (the portal target).
-	const top = flip
-		? anchorRect.top - scrollRect.top - GAP + scroller.scrollTop
-		: anchorRect.bottom - scrollRect.top + GAP + scroller.scrollTop;
-	return { left: left - scrollRect.left, top, width, above: flip,
-		maxHeight: Math.max(80, (flip ? anchorRect.top - scrollRect.top : spaceBelow) - GAP - VIEWPORT_MARGIN) };
+	const spaceBelow = vis.bottom - anchorRect.bottom - GAP - VIEWPORT_MARGIN;
+	const spaceAbove = anchorRect.top - vis.top - GAP - VIEWPORT_MARGIN;
+	const needed = Math.max(cardHeight ?? 0, ESTIMATED_HEIGHT);
+	const above = lockedAbove ?? (spaceBelow < needed && spaceAbove > spaceBelow);
+	const content = toScrollerContent(
+		scroller,
+		left,
+		above ? anchorRect.top - GAP : anchorRect.bottom + GAP
+	);
+	return {
+		left: content.left,
+		top: content.top,
+		width,
+		above,
+		maxHeight: Math.max(MIN_HEIGHT, above ? spaceAbove : spaceBelow),
+	};
 }
 
 const ABSTRACT_CLASS = "mt-1 text-xs leading-relaxed text-muted-foreground break-words";
@@ -307,26 +328,52 @@ export default function CitationPreviewCard({
 }) {
 	const preview = useAtomValue(citationPreviewAtom);
 	const setPreview = useSetAtom(citationPreviewAtom);
-	const [pos, setPos] = useState<{
-		left: number;
-		top: number;
-		width: number;
-		above: boolean;
-		maxHeight: number;
-	} | null>(null);
+	const [pos, setPos] = useState<CardPosition | null>(null);
+	const cardRef = useRef<HTMLDivElement>(null);
+	const contentRef = useRef<HTMLDivElement>(null);
+	const [cardHeight, setCardHeight] = useState<number | null>(null);
+	// Above vs. below is decided once per anchor: the card grows as the
+	// reference resolves, and flipping sides mid-read would be jarring.
+	const decided = useRef<{ anchor: DOMRect; above: boolean } | null>(null);
 	const [importing, setImporting] = useState(false);
 	const [imported, setImported] = useState(false);
 	const [refreshing, setRefreshing] = useState(false);
 	const referenceText = preview?.state === "entry" ? preview.referenceText : null;
 	const { data: reference, error: lookupError } = useResolvedReference(referenceText);
 
+	const anchorRect = preview?.anchorRect ?? null;
 	useLayoutEffect(() => {
-		if (!preview || !scrollerRef.current) {
+		const scroller = scrollerRef.current;
+		if (!anchorRect || !scroller) {
+			decided.current = null;
 			setPos(null);
 			return;
 		}
-		setPos(computePosition(preview.anchorRect, scrollerRef.current));
-	}, [preview, scrollerRef]);
+		const locked =
+			decided.current?.anchor === anchorRect && cardHeight != null
+				? decided.current.above
+				: null;
+		const next = computePosition(anchorRect, scroller, cardHeight, locked);
+		if (cardHeight != null) decided.current = { anchor: anchorRect, above: next.above };
+		setPos(next);
+	}, [anchorRect, cardHeight, scrollerRef]);
+
+	// The card's natural height (its content can grow past maxHeight and
+	// scroll): skeleton, raw reference and resolved paper all differ.
+	const mounted = Boolean(preview && pos);
+	useLayoutEffect(() => {
+		const card = cardRef.current;
+		const content = contentRef.current;
+		if (!mounted || !card || !content) {
+			setCardHeight(null);
+			return;
+		}
+		const read = () => setCardHeight(card.scrollHeight);
+		read();
+		const observer = new ResizeObserver(read);
+		observer.observe(content);
+		return () => observer.disconnect();
+	}, [mounted]);
 
 	// A new citation is a new subject; drop any import result from the last one.
 	useEffect(() => {
@@ -469,6 +516,7 @@ export default function CitationPreviewCard({
 
 	return createPortal(
 		<div
+			ref={cardRef}
 			data-citation-preview
 			data-citation-state={resolved ? resolved.kind : preview.state}
 			role="region"
@@ -476,51 +524,53 @@ export default function CitationPreviewCard({
 			style={style}
 			className="z-20 overflow-hidden rounded-xl border border-border bg-popover shadow-lg"
 		>
-			{body}
-			{hasFooter && (
-				<div className="flex items-center justify-between gap-2 border-t border-border px-4 py-2">
-					<div>{jumpButton}</div>
-					<div className="flex items-center gap-2">
-						{importUrl &&
-							(imported ? (
-								<span className="flex items-center gap-1 rounded-lg border border-border px-3 py-1 text-xs font-medium text-muted-foreground">
-									<Check className="size-3" /> Added
-								</span>
-							) : (
-								<button
-									onClick={addToLibrary}
-									disabled={importing}
-									className="flex items-center gap-1 rounded-lg border border-border px-3 py-1 text-xs font-medium hover:bg-muted disabled:opacity-60"
-								>
-									{importing ? (
-										<Loader2 className="size-3 animate-spin" />
-									) : (
-										<Plus className="size-3" />
-									)}
-									{importing ? "Adding…" : "Add to library"}
-								</button>
-							))}
-						{openTarget &&
-							(libraryId ? (
-								<Link
-									href={openTarget}
-									className="flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90"
-								>
-									Open <ArrowUpRight className="size-3" />
-								</Link>
-							) : (
-								<a
-									href={openTarget}
-									target="_blank"
-									rel="noopener noreferrer"
-									className="flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90"
-								>
-									Open <ArrowUpRight className="size-3" />
-								</a>
-							))}
+			<div ref={contentRef}>
+				{body}
+				{hasFooter && (
+					<div className="flex items-center justify-between gap-2 border-t border-border px-4 py-2">
+						<div>{jumpButton}</div>
+						<div className="flex items-center gap-2">
+							{importUrl &&
+								(imported ? (
+									<span className="flex items-center gap-1 rounded-lg border border-border px-3 py-1 text-xs font-medium text-muted-foreground">
+										<Check className="size-3" /> Added
+									</span>
+								) : (
+									<button
+										onClick={addToLibrary}
+										disabled={importing}
+										className="flex items-center gap-1 rounded-lg border border-border px-3 py-1 text-xs font-medium hover:bg-muted disabled:opacity-60"
+									>
+										{importing ? (
+											<Loader2 className="size-3 animate-spin" />
+										) : (
+											<Plus className="size-3" />
+										)}
+										{importing ? "Adding…" : "Add to library"}
+									</button>
+								))}
+							{openTarget &&
+								(libraryId ? (
+									<Link
+										href={openTarget}
+										className="flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90"
+									>
+										Open <ArrowUpRight className="size-3" />
+									</Link>
+								) : (
+									<a
+										href={openTarget}
+										target="_blank"
+										rel="noopener noreferrer"
+										className="flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90"
+									>
+										Open <ArrowUpRight className="size-3" />
+									</a>
+								))}
+						</div>
 					</div>
-				</div>
-			)}
+				)}
+			</div>
 		</div>,
 		scrollerRef.current ?? document.body
 	);

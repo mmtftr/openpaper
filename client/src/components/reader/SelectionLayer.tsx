@@ -10,6 +10,7 @@ import { readerActiveAtom } from "./atoms";
 import { useReaderContext } from "./ReaderContext";
 import { HIGHLIGHT_COLOR_SWATCHES } from "./highlightColors";
 import type { TextAnchor } from "./types";
+import { visibleBounds } from "./visibleBounds";
 
 export interface SelectionLayerProps {
 	/** Persist a highlight for this selection. Omit in read-only views. */
@@ -270,27 +271,43 @@ export default function SelectionLayer({
 
 	if (!sel || !active) return null;
 
-	const toolbarW = window.matchMedia("(pointer: coarse)").matches
-		? TOOLBAR_W_TOUCH
-		: TOOLBAR_W_WITH_HINTS;
-
+	// Clamp to what's visible of the pane, not the window: zoomed pages scroll
+	// sideways under the side panel, and the header / tab bar sit above and
+	// below it.
+	const container = containerRef.current;
+	const vis = container
+		? visibleBounds(container)
+		: { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
 	const line = sel.focusAtEnd ? sel.lines[sel.lines.length - 1] : sel.lines[0];
-	const anchorX =
-		sel.pointerX != null
-			? Math.min(Math.max(sel.pointerX, line.left), line.right)
-			: line.left + line.width / 2;
+	// Scrolled out of the pane: don't leave the toolbar floating over chrome.
+	if (line.bottom < vis.top || line.top > vis.bottom || line.right < vis.left || line.left > vis.right)
+		return null;
 
-	const spaceAbove = line.top;
-	const spaceBelow = window.innerHeight - line.bottom;
-	const needed = TOOLBAR_H + GAP + 16;
+	const toolbarW = Math.min(
+		window.matchMedia("(pointer: coarse)").matches ? TOOLBAR_W_TOUCH : TOOLBAR_W_WITH_HINTS,
+		vis.right - vis.left - VIEWPORT_MARGIN * 2
+	);
+	const anchorX = Math.min(
+		Math.max(
+			sel.pointerX != null
+				? Math.min(Math.max(sel.pointerX, line.left), line.right)
+				: line.left + line.width / 2,
+			vis.left
+		),
+		vis.right
+	);
+
+	const spaceAbove = line.top - vis.top;
+	const spaceBelow = vis.bottom - line.bottom;
+	const needed = TOOLBAR_H + GAP + VIEWPORT_MARGIN;
 	const above = sel.focusAtEnd
 		? !(spaceBelow >= needed || spaceBelow >= spaceAbove)
 		: spaceAbove >= needed || spaceAbove >= spaceBelow;
 
 	let x = anchorX - toolbarW / 2;
 	x = Math.max(
-		VIEWPORT_MARGIN,
-		Math.min(x, window.innerWidth - toolbarW - VIEWPORT_MARGIN)
+		vis.left + VIEWPORT_MARGIN,
+		Math.min(x, vis.right - toolbarW - VIEWPORT_MARGIN)
 	);
 	const arrowX = Math.min(Math.max(anchorX - x, 18), toolbarW - 18);
 	const y = above ? line.top - GAP - TOOLBAR_H : line.bottom + GAP;

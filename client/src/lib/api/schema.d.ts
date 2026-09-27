@@ -634,7 +634,7 @@ export interface paths {
         };
         /**
          * Get Active Paper Ids
-         * @description Get all active paper IDs
+         * @description The unarchived papers being read (the command menu).
          */
         get: operations["get_active_paper_ids_api_paper_active_get"];
         put?: never;
@@ -654,11 +654,34 @@ export interface paths {
         };
         /**
          * Get Paper Ids
-         * @description Get all paper IDs
+         * @description The library: the owner's unarchived papers, or with `archived=true` the
+         *     archived ones.
          */
         get: operations["get_paper_ids_api_paper_all_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/paper/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive Papers
+         * @description Archive (or with `archived: false` unarchive) one or many papers.
+         *
+         *     Ids that aren't the owner's are skipped; 404 if none are.
+         */
+        post: operations["archive_papers_api_paper_archive_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1443,6 +1466,26 @@ export interface components {
         ApiError: {
             /** Detail */
             detail: string;
+        };
+        /** ArchivePapersRequest */
+        ArchivePapersRequest: {
+            /**
+             * Archived
+             * @default true
+             */
+            archived?: boolean;
+            /** Paper Ids */
+            paper_ids: string[];
+        };
+        /**
+         * ArchivePapersResponse
+         * @description The papers that were (un)archived, and their `archived_at` now.
+         */
+        ArchivePapersResponse: {
+            /** Archived At */
+            archived_at?: string | null;
+            /** Paper Ids */
+            paper_ids: string[];
         };
         /**
          * AuthResponse
@@ -2347,6 +2390,8 @@ export interface components {
         LibraryPaper: {
             /** Abstract */
             abstract?: string | null;
+            /** Archived At */
+            archived_at?: string | null;
             /** Authors */
             authors?: string[] | null;
             /** Created At */
@@ -2577,6 +2622,8 @@ export interface components {
         PaperDetail: {
             /** Abstract */
             abstract?: string | null;
+            /** Archived At */
+            archived_at?: string | null;
             /** Authors */
             authors?: string[] | null;
             /** Created At */
@@ -2654,6 +2701,8 @@ export interface components {
         PaperRecord: {
             /** Abstract */
             abstract?: string | null;
+            /** Archived At */
+            archived_at?: string | null;
             /** Authors */
             authors?: string[] | null;
             /** Created At */
@@ -5293,6 +5342,7 @@ export interface operations {
         parameters: {
             query?: {
                 detailed?: boolean;
+                archived?: boolean;
             };
             header?: never;
             path?: never;
@@ -5307,6 +5357,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LibraryPapersResponse"];
+                };
+            };
+            /** @description Client error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Server error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    archive_papers_api_paper_archive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArchivePapersRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArchivePapersResponse"];
                 };
             };
             /** @description Client error */

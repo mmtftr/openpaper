@@ -8,13 +8,17 @@
 // asset URL, so no browser / proxy cache can keep serving a worker from the
 // previous release ("The API version X does not match the Worker version Y").
 //
-// - build/pdf.worker.min.mjs -> public/pdfjs/<version>/pdf.worker.mjs  (GlobalWorkerOptions.workerSrc)
+// - build/pdf.worker.min.mjs -> public/pdfjs/<version>/pdf.worker.polyfilled.mjs
+//   (GlobalWorkerOptions.workerSrc), with src/components/reader/pdfjsPolyfills.js
+//   prepended: the modern build needs Map.getOrInsertComputed, which Safari 18.x lacks.
+//   If the polyfill changes, rename the file (and workerSrc in pdfjs.ts) — the
+//   directory is served `immutable`, so browsers never re-fetch a known URL.
 // - cmaps/          -> public/pdfjs/<version>/cmaps/           (cMapUrl)
 // - standard_fonts/ -> public/pdfjs/<version>/standard_fonts/  (standardFontDataUrl)
 // - wasm/           -> public/pdfjs/<version>/wasm/            (wasmUrl)
 
 import { createRequire } from 'node:module';
-import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -36,10 +40,9 @@ for (const dir of ['cmaps', 'standard_fonts', 'wasm']) {
     await cp(join(pdfjsDir, dir), join(versionDir, dir), { recursive: true });
 }
 
-await cp(
-    join(pdfjsDir, 'build', 'pdf.worker.min.mjs'),
-    join(versionDir, 'pdf.worker.mjs')
-);
+const polyfills = await readFile(join(clientDir, 'src', 'components', 'reader', 'pdfjsPolyfills.js'), 'utf8');
+const worker = await readFile(join(pdfjsDir, 'build', 'pdf.worker.min.mjs'), 'utf8');
+await writeFile(join(versionDir, 'pdf.worker.polyfilled.mjs'), `${polyfills}\n${worker}`);
 
 // Handy for checking what a deployment serves: `curl <host>/pdfjs/version.json`.
 await writeFile(join(outDir, 'version.json'), JSON.stringify({ version }) + '\n');

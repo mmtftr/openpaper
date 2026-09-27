@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PaperSidebar } from "@/components/PaperSidebar";
+import { cn } from "@/lib/utils";
 import { sidePanelTabAtom } from "./paperStore";
 import { usePaperAtomValue } from "./PaperStoreProvider";
 import { PaperReaderPane } from "./PaperReaderPane";
@@ -15,7 +16,7 @@ const clampSplit = (percent: number) => Math.min(Math.max(percent, MIN_SPLIT), M
 /**
  * The reader's share of the row (30–80 %), set by dragging the divider,
  * arrow keys on it, or a double-click to reset. Measured against the row
- * itself, not the window, so an open app sidebar doesn't skew it.
+ * itself, not the window.
  */
 function useResizableSplit() {
     const rowRef = useRef<HTMLDivElement>(null);
@@ -93,7 +94,7 @@ export function DesktopPaperLayout() {
     // No width transition: every intermediate width would refit and re-render
     // the PDF pages.
     return (
-        <div ref={rowRef} className="flex min-h-0 w-full flex-1 flex-row">
+        <div ref={rowRef} className="relative flex min-h-0 w-full flex-1 flex-row">
             <div className="h-full min-w-0" style={{ width: isReadMode ? "100%" : `${leftPercent}%` }}>
                 <div className="relative h-full w-full">
                     <PaperReaderPane />
@@ -112,12 +113,19 @@ export function DesktopPaperLayout() {
                 </div>
             )}
 
+            {/* In read mode the column leaves the flow but keeps its width, so
+                the hidden chat inside keeps its size and scroll position. */}
             <div
-                className="relative flex h-full min-w-0 flex-row"
-                style={{ width: isReadMode ? "auto" : `${100 - leftPercent}%` }}
+                className={cn(
+                    "flex h-full min-w-0 flex-row",
+                    isReadMode ? "pointer-events-none absolute inset-y-0 right-0" : "relative"
+                )}
+                style={{ width: `${100 - leftPercent}%` }}
             >
                 <PaperSidePanel isMobile={false} />
-                <PaperSidebar />
+                <div className="pointer-events-auto contents">
+                    <PaperSidebar />
+                </div>
             </div>
         </div>
     );
