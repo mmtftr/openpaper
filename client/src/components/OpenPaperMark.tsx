@@ -1,10 +1,11 @@
 import { cn } from "@/lib/utils";
 
 /**
- * The logo mark: a dog-eared page with one highlighted line knocked out. Drawn
- * in `currentColor` (brand by default) so it follows the light/dark theme;
- * `public/openpaper.svg` is the same shape with the light brand colour baked in.
- * 24-unit grid, pixel-aligned at 24px.
+ * The logo mark: an open book, two curved pages either side of a 2-unit spine.
+ * Drawn in `currentColor` (brand by default) so it follows the light/dark
+ * theme; `public/openpaper.svg` is the same shape with the light brand colour
+ * baked in, `public/icon.svg` the favicon tile. 24-unit grid: page edges and
+ * the spine gap sit on whole units, so it stays crisp at 24px.
  */
 export function OpenPaperMark({ size = 24, className }: { size?: number; className?: string }) {
 	return (
@@ -17,10 +18,7 @@ export function OpenPaperMark({ size = 24, className }: { size?: number; classNa
 			aria-hidden
 			className={cn("shrink-0 text-brand", className)}
 		>
-			<path
-				fillRule="evenodd"
-				d="M7 2h7l5 5v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Zm0 11v3h10v-3Z"
-			/>
+			<path d="M11 7C8.5 5 5.5 4 2 4v14c3.5 0 6.5.7 9 2Zm2 0c2.5-2 5.5-3 9-3v14c-3.5 0-6.5.7-9 2Z" />
 		</svg>
 	);
 }
