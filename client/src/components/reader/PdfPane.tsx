@@ -8,6 +8,7 @@ import {
 	loadingProgressAtom,
 	pdfDocAtom,
 	pdfUrlAtom,
+	readerActiveAtom,
 	pdfViewerAtom,
 	scaleValueAtom,
 } from "./atoms";
@@ -56,8 +57,12 @@ function PaneOverlays({
 	useCitationLinks(containerRef, viewer, doc, jumpToPage, pushHistory);
 
 	// Alt/⌥ + ← mirrors the browser's own "back", which is the reflex here.
+	const active = useAtomValue(readerActiveAtom);
 	useEffect(() => {
+		if (!active) return;
 		const onKey = (e: KeyboardEvent) => {
+			const target = e.target as HTMLElement | null;
+			if (target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable) return;
 			if (e.altKey && e.key === "ArrowLeft") {
 				e.preventDefault();
 				goBack();
@@ -65,7 +70,7 @@ function PaneOverlays({
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [goBack]);
+	}, [active, goBack]);
 
 	return (
 		<>
@@ -76,7 +81,7 @@ function PaneOverlays({
 					onClick={goBack}
 					title="Back to where you were (⌥←)"
 					aria-label="Back to where you were"
-					className="absolute bottom-4 left-4 z-20 flex items-center gap-1.5 rounded-full border border-border bg-background/95 px-3 py-1.5 text-xs font-medium shadow-lg backdrop-blur transition-colors hover:bg-muted"
+					className="absolute bottom-4 left-4 z-20 flex items-center gap-1.5 rounded-full border border-border bg-background/95 px-3 py-1.5 text-xs font-medium shadow-lg backdrop-blur transition-[background-color,scale] hover:bg-muted motion-safe:active:scale-95 animate-in fade-in slide-in-from-bottom-2 duration-200 ease-out-soft pointer-coarse:py-2.5"
 				>
 					<ArrowLeft className="size-3.5" /> Back
 				</button>
@@ -106,7 +111,9 @@ export default function PdfPane({
 	}, [pdfUrl, setUrl]);
 
 	// Zoom keyboard shortcuts, ignored while typing.
+	const active = useAtomValue(readerActiveAtom);
 	useEffect(() => {
+		if (!active) return;
 		const onKey = (e: KeyboardEvent) => {
 			const target = e.target as HTMLElement | null;
 			if (
@@ -122,7 +129,7 @@ export default function PdfPane({
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [api, setScaleValue]);
+	}, [active, api, setScaleValue]);
 
 	return (
 		<ReaderContextProvider value={{ containerRef, displayedPaperId }}>
@@ -139,17 +146,24 @@ export default function PdfPane({
 				<PaneOverlays viewer={viewer} doc={doc} />
 
 				{progress > 0 && progress < 1 && !error && (
-					<div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background/60">
-						<div className="size-10 animate-spin rounded-full border-2 border-border border-t-blue-500" />
-						<span className="text-sm tabular-nums text-muted-foreground">
-							Loading… {Math.round(progress * 100)}%
-						</span>
+					<div
+						role="progressbar"
+						aria-label="Loading PDF"
+						aria-valuemin={0}
+						aria-valuemax={100}
+						aria-valuenow={Math.round(progress * 100)}
+						className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-brand/15"
+					>
+						<div
+							className="h-full origin-left bg-brand transition-transform duration-300 ease-out-soft"
+							style={{ transform: `scaleX(${progress})` }}
+						/>
 					</div>
 				)}
 
 				{error && (
 					<div className="absolute inset-0 z-10 flex items-center justify-center">
-						<div className="max-w-sm rounded-xl border border-border bg-background p-6 text-center">
+						<div className="max-w-sm rounded-xl border border-border bg-background p-6 text-center shadow-sm animate-in fade-in zoom-in-95 duration-200">
 							<p className="mb-2 text-sm font-medium">Could not load PDF</p>
 							<p className="text-xs break-words text-muted-foreground">{error}</p>
 						</div>

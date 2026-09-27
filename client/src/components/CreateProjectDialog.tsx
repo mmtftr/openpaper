@@ -24,7 +24,9 @@ export function CreateProjectDialog({ open, onOpenChange, onSubmit }: CreateProj
     const [title, setTitle] = useState("");
     const [description, setDescription] = useState("");
 
-    const handleSubmit = () => {
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!title.trim()) return;
         onSubmit(title, description);
     };
 
@@ -37,7 +39,7 @@ export function CreateProjectDialog({ open, onOpenChange, onSubmit }: CreateProj
                         Enter a title and description for your new project.
                     </DialogDescription>
                 </DialogHeader>
-                <div className="space-y-4">
+                <form id="create-project" onSubmit={handleSubmit} className="space-y-4">
                     <div className="space-y-2">
                         <Label htmlFor="title">Title</Label>
                         <Input
@@ -45,6 +47,8 @@ export function CreateProjectDialog({ open, onOpenChange, onSubmit }: CreateProj
                             value={title}
                             onChange={(e) => setTitle(e.target.value)}
                             placeholder="Project title"
+                            autoFocus
+                            autoComplete="off"
                         />
                     </div>
                     <div className="space-y-2">
@@ -56,12 +60,12 @@ export function CreateProjectDialog({ open, onOpenChange, onSubmit }: CreateProj
                             placeholder="Project description"
                         />
                     </div>
-                </div>
+                </form>
                 <DialogFooter>
                     <Button variant="ghost" onClick={() => onOpenChange(false)}>
                         Cancel
                     </Button>
-                    <Button onClick={handleSubmit}>Create</Button>
+                    <Button type="submit" form="create-project" disabled={!title.trim()}>Create</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

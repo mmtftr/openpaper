@@ -1,6 +1,7 @@
 "use client";
 
-import { ArrowLeft, ArrowRight, BookOpen, Library, Loader2, Pencil, PlusCircle, Search, Sparkles, UploadCloud } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, ChevronLeft, Library, Loader2, Pencil, Plus, PlusCircle, Search, Sparkles, UploadCloud } from "lucide-react";
+import Link from "next/link";
 import { useState, useMemo } from "react";
 import { useParams } from "next/navigation";
 import { api, unwrap } from "@/lib/api/client";
@@ -45,18 +46,46 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import {
-	Breadcrumb,
-	BreadcrumbItem,
-	BreadcrumbLink,
-	BreadcrumbList,
-	BreadcrumbPage,
-	BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 import { SIDEBAR_PROJECTS_KEY, useProject, useProjectPapers } from "@/hooks/useProjects";
 import { useSWRConfig } from "swr";
 import ProjectPageSkeleton from "@/components/ProjectPageSkeleton";
 import { PaperListSkeleton } from "@/components/PaperListSkeleton";
+
+function ProjectHeader({ title, description, onEdit }: { title: string | null | undefined; description: string | null | undefined; onEdit: () => void }) {
+	return (
+		<div className="mb-6 sm:mb-8">
+			<Link
+				href="/projects"
+				className="-ml-2 mb-2 inline-flex h-8 items-center gap-1 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+			>
+				<ChevronLeft className="h-4 w-4" />
+				Projects
+			</Link>
+			<div className="group flex items-start gap-1">
+				<h1 className="min-w-0 break-words text-2xl font-semibold tracking-tight sm:text-3xl">{title}</h1>
+				<Button
+					variant="ghost"
+					size="icon"
+					aria-label="Edit project"
+					className="shrink-0 text-muted-foreground transition-opacity hover:text-foreground focus-visible:opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100"
+					onClick={onEdit}
+				>
+					<Pencil className="h-4 w-4" />
+				</Button>
+			</div>
+			{description ? (
+				<p className="mt-1 max-w-3xl text-base text-muted-foreground sm:text-lg">{description}</p>
+			) : (
+				<button
+					className="mt-1 cursor-pointer border-none bg-transparent p-0 text-left text-base text-muted-foreground/60 transition-colors hover:text-muted-foreground sm:text-lg"
+					onClick={onEdit}
+				>
+					Add a description...
+				</button>
+			)}
+		</div>
+	);
+}
 
 export default function ProjectPage() {
 	const params = useParams();
@@ -201,61 +230,38 @@ export default function ProjectPage() {
 
 	if (isEmpty) {
 		return (
-			<div className="container mx-auto p-4">
+			<div className="mx-auto w-full max-w-6xl px-4 py-5 sm:px-6 sm:py-8 lg:px-8">
+				<ProjectHeader title={project.title} description={project.description} onEdit={handleEditClick} />
 
-				<div className="group relative">
-					<div className="flex items-center">
-						<h1 className="text-3xl font-bold text-primary rounded-lg px-0">{project.title}</h1>
-						<Button
-							variant="ghost"
-							size="icon"
-							className="opacity-0 group-hover:opacity-100 ml-2"
-							onClick={handleEditClick}
-						>
-							<Pencil className="h-4 w-4" />
-						</Button>
+				<div className="mx-auto flex max-w-lg animate-rise-in flex-col items-center justify-center py-6 text-center sm:py-12">
+					<div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-brand/10">
+						<BookOpen className="h-7 w-7 text-brand" />
 					</div>
-					{project.description ? (
-						<p className="text-lg text-secondary-foreground mb-8">{project.description}</p>
-					) : (
-						<button
-							className="text-lg text-muted-foreground/60 mb-8 cursor-pointer hover:text-muted-foreground transition-colors bg-transparent border-none p-0 text-left"
-							onClick={handleEditClick}
-						>
-							Add a description...
-						</button>
-					)}
-				</div>
-
-				<div className="flex flex-col items-center justify-center py-12 max-w-lg mx-auto text-center">
-					<div className="p-4 bg-blue-100 dark:bg-blue-900/30 rounded-full w-16 h-16 mb-4 flex items-center justify-center">
-						<BookOpen className="w-8 h-8 text-blue-500" />
-					</div>
-					<h2 className="text-2xl font-bold mb-2">Get Started with Your Project</h2>
+					<h2 className="mb-2 text-xl font-semibold sm:text-2xl">Get started with your project</h2>
 					<p className="text-muted-foreground mb-8">Add research papers to your project, then ask questions and generate insights.</p>
 
 					<div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full mb-8">
 						<button
 							onClick={() => setIsUploadDialogOpen(true)}
-							className="flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-lg hover:bg-accent transition-colors group"
+							className="group grid grid-cols-[auto_1fr] items-center gap-x-4 rounded-xl border-2 border-dashed p-4 text-left transition-[border-color,background-color,transform] duration-200 ease-out-soft hover:border-brand/40 hover:bg-brand/[0.04] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-brand/30 motion-safe:active:scale-[0.98] sm:flex sm:flex-col sm:justify-center sm:p-6 sm:text-center"
 						>
-							<UploadCloud className="w-10 h-10 text-muted-foreground group-hover:text-blue-500 mb-3 transition-colors" />
-							<h3 className="font-semibold group-hover:text-blue-600 transition-colors">Upload Papers</h3>
-							<p className="text-sm text-muted-foreground mt-1">Upload PDFs from your computer</p>
+							<UploadCloud className="row-span-2 h-8 w-8 text-muted-foreground transition-colors group-hover:text-brand sm:mb-3 sm:h-9 sm:w-9" />
+							<h3 className="font-semibold">Upload Papers</h3>
+							<p className="text-sm text-muted-foreground sm:mt-1">Upload PDFs from your computer</p>
 						</button>
 						<button
 							onClick={() => setIsAddPapersSheetOpen(true)}
-							className="flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-lg hover:bg-accent transition-colors group"
+							className="group grid grid-cols-[auto_1fr] items-center gap-x-4 rounded-xl border-2 border-dashed p-4 text-left transition-[border-color,background-color,transform] duration-200 ease-out-soft hover:border-brand/40 hover:bg-brand/[0.04] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-brand/30 motion-safe:active:scale-[0.98] sm:flex sm:flex-col sm:justify-center sm:p-6 sm:text-center"
 						>
-							<Library className="w-10 h-10 text-muted-foreground group-hover:text-blue-500 mb-3 transition-colors" />
-							<h3 className="font-semibold group-hover:text-blue-600 transition-colors">Add from Library</h3>
-							<p className="text-sm text-muted-foreground mt-1">Choose from your existing papers</p>
+							<Library className="row-span-2 h-8 w-8 text-muted-foreground transition-colors group-hover:text-brand sm:mb-3 sm:h-9 sm:w-9" />
+							<h3 className="font-semibold">Add from Library</h3>
+							<p className="text-sm text-muted-foreground sm:mt-1">Choose from your existing papers</p>
 						</button>
 					</div>
 
-					<div className="flex items-center gap-3 text-sm text-muted-foreground">
+					<div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-sm text-muted-foreground">
 						<div className="flex items-center gap-1.5">
-							<span className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 text-xs font-medium">1</span>
+							<span className="flex h-5 w-5 items-center justify-center rounded-full bg-brand/10 text-xs font-medium text-brand">1</span>
 							Add papers
 						</div>
 						<ArrowRight className="h-3 w-3" />
@@ -282,7 +288,7 @@ export default function ProjectPage() {
 							<DialogDescription>You can upload any additional papers to your library here. They will automatically be added to the project.</DialogDescription>
 						</DialogHeader>
 						<PdfDropzone onFileSelect={handleFileSelect} onUrlClick={handleLinkClick} />
-						{uploadError && <p className="text-red-500 mt-4">{uploadError}</p>}
+						{uploadError && <p className="mt-4 text-sm text-destructive">{uploadError}</p>}
 					</DialogContent>
 				</Dialog>
 				<Dialog open={isUrlDialogOpen} onOpenChange={setIsUrlDialogOpen}>
@@ -320,26 +326,26 @@ export default function ProjectPage() {
 							</AlertDialogDescription>
 						</AlertDialogHeader>
 						<div className="grid gap-4 py-4">
-							<div className="grid grid-cols-4 items-center gap-4">
-								<Label htmlFor="title" className="text-right">
+							<div className="grid gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+								<Label htmlFor="title" className="sm:justify-end">
 									Title
 								</Label>
 								<Input
 									id="title"
 									value={currentTitle}
 									onChange={(e) => setCurrentTitle(e.target.value)}
-									className="col-span-3"
+									className="sm:col-span-3"
 								/>
 							</div>
-							<div className="grid grid-cols-4 items-center gap-4">
-								<Label htmlFor="description" className="text-right">
+							<div className="grid gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+								<Label htmlFor="description" className="sm:justify-end">
 									Description
 								</Label>
 								<Textarea
 									id="description"
 									value={currentDescription}
 									onChange={(e) => setCurrentDescription(e.target.value)}
-									className="col-span-3"
+									className="sm:col-span-3"
 								/>
 							</div>
 						</div>
@@ -354,55 +360,18 @@ export default function ProjectPage() {
 	}
 
 	return (
-		<div className="container mx-auto p-4">
-			<Breadcrumb className="mb-4">
-				<BreadcrumbList>
-					<BreadcrumbItem>
-						<BreadcrumbLink href="/projects">Projects</BreadcrumbLink>
-					</BreadcrumbItem>
-					<BreadcrumbSeparator />
-					<BreadcrumbItem>
-						<BreadcrumbPage>{project.title}</BreadcrumbPage>
-					</BreadcrumbItem>
-				</BreadcrumbList>
-			</Breadcrumb>
+		<div className="mx-auto w-full max-w-6xl px-4 py-5 sm:px-6 sm:py-8 lg:px-8">
+			<ProjectHeader title={project.title} description={project.description} onEdit={handleEditClick} />
 
-
-			<div className="group relative">
-				<div className="flex items-start justify-between gap-4">
-					<div className="flex-1">
-						<div className="flex items-center">
-							<h1 className="text-3xl font-bold text-primary p-2 rounded-lg px-0">{project.title}</h1>
-							<Button
-								variant="ghost"
-								size="icon"
-								className="opacity-0 group-hover:opacity-100 ml-2"
-								onClick={handleEditClick}
-							>
-								<Pencil className="h-4 w-4" />
-							</Button>
-						</div>
-						{project.description ? (
-							<p className="text-lg text-secondary-foreground mb-6">{project.description}</p>
-						) : (
-							<button
-								className="text-lg text-muted-foreground/60 mb-6 cursor-pointer hover:text-muted-foreground transition-colors bg-transparent border-none p-0 text-left"
-								onClick={handleEditClick}
-							>
-								Add a description...
-							</button>
-						)}
-					</div>
-				</div>
-			</div>
-
-
-			<div className="flex flex-col lg:flex-row gap-6 -mx-4">
+			<div>
 				{/* Papers */}
-				<div className="w-full px-4">
-					<div className="flex justify-between items-center mb-4">
-						<h2 className="text-2xl font-bold">Papers</h2>
-						<div className="flex gap-2">
+				<div className="w-full">
+					<div className="mb-4 flex items-center justify-between gap-3">
+						<h2 className="flex items-baseline gap-2 text-lg font-semibold">
+							Papers
+							<span className="text-sm font-normal text-muted-foreground tabular-nums">{papers.length}</span>
+						</h2>
+						<div className="flex shrink-0 gap-2">
 							{papers.length > 0 && (
 								<CitePaperButton paper={papers} minimalist={true} />
 							)}
@@ -413,12 +382,12 @@ export default function ProjectPage() {
 								}
 							}}>
 									<SheetTrigger asChild>
-										<Button variant="outline">
-											<PlusCircle className="mr-2 h-4 w-4" />
+										<Button className="bg-brand text-brand-foreground hover:bg-brand/90">
+											<Plus />
 											Add
 										</Button>
 									</SheetTrigger>
-								<SheetContent className="sm:max-w-[90vw]! w-[90vw] overflow-y-auto">
+								<SheetContent className="w-full overflow-y-auto sm:w-[90vw] sm:max-w-[90vw]!">
 									<SheetHeader className="px-6">
 										<SheetTitle>Add Papers to Project</SheetTitle>
 									</SheetHeader>
@@ -427,16 +396,16 @@ export default function ProjectPage() {
 											<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
 												<button
 													onClick={() => setAddPapersView('upload')}
-													className="flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors group"
+													className="group flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 transition-[border-color,background-color,transform] duration-200 ease-out-soft hover:border-brand/40 hover:bg-brand/[0.04] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-brand/30 motion-safe:active:scale-[0.98]"
 												>
 													<div className="relative">
-														<UploadCloud className="w-12 h-12 text-gray-400 group-hover:text-blue-500 mb-4 transition-colors" />
-														<div className="absolute -top-1 -right-1 w-5 h-5 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
-															<span className="text-xs font-medium text-blue-600 dark:text-blue-300"><PlusCircle className="h-4 w-4" /></span>
+														<UploadCloud className="mb-4 h-12 w-12 text-muted-foreground transition-colors group-hover:text-brand" />
+														<div className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-brand/10">
+															<span className="text-xs font-medium text-brand"><PlusCircle className="h-4 w-4" /></span>
 														</div>
 													</div>
-													<h3 className="text-lg font-semibold group-hover:text-blue-600 transition-colors">Upload New Papers</h3>
-													<p className="text-sm text-gray-500 text-center mt-1">
+													<h3 className="text-lg font-semibold">Upload New Papers</h3>
+													<p className="mt-1 text-center text-sm text-muted-foreground">
 														Upload PDFs from your computer or URL
 													</p>
 													<p className="text-xs mt-2 font-medium">
@@ -445,16 +414,16 @@ export default function ProjectPage() {
 												</button>
 												<button
 													onClick={() => setAddPapersView('library')}
-													className="flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors group"
+													className="group flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 transition-[border-color,background-color,transform] duration-200 ease-out-soft hover:border-brand/40 hover:bg-brand/[0.04] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-brand/30 motion-safe:active:scale-[0.98]"
 												>
 													<div className="relative">
-														<Library className="w-12 h-12 text-gray-400 group-hover:text-blue-500 mb-4 transition-colors" />
-														<div className="absolute -top-1 -right-1 w-5 h-5 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
-															<span className="text-xs font-medium text-blue-600 dark:text-blue-300"><BookOpen className="h-4 w-4" /></span>
+														<Library className="mb-4 h-12 w-12 text-muted-foreground transition-colors group-hover:text-brand" />
+														<div className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-brand/10">
+															<span className="text-xs font-medium text-brand"><BookOpen className="h-4 w-4" /></span>
 														</div>
 													</div>
-													<h3 className="text-lg font-semibold group-hover:text-blue-600 transition-colors">Add from Library</h3>
-													<p className="text-sm text-gray-500 text-center mt-1">
+													<h3 className="text-lg font-semibold">Add from Library</h3>
+													<p className="mt-1 text-center text-sm text-muted-foreground">
 														Choose from papers already in your library
 													</p>
 													<p className="text-xs mt-2 font-medium">
@@ -471,9 +440,9 @@ export default function ProjectPage() {
 													Back
 												</Button>
 												<h3 className="text-lg font-semibold mb-2">Upload New Papers</h3>
-												<p className="text-sm text-gray-500 mb-4">Upload papers to your library. They will be automatically added to this project.</p>
+												<p className="mb-4 text-sm text-muted-foreground">Upload papers to your library. They will be automatically added to this project.</p>
 												<PdfDropzone onFileSelect={handleFileSelect} onUrlClick={handleLinkClick} />
-												{uploadError && <p className="text-red-500 mt-4">{uploadError}</p>}
+												{uploadError && <p className="mt-4 text-sm text-destructive">{uploadError}</p>}
 											</div>
 										)}
 
@@ -496,16 +465,17 @@ export default function ProjectPage() {
 					{papers && papers.length > 3 && (
 						<div className="flex gap-2 mb-4">
 							<div className="relative flex-1">
-								<Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+								<Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 								<Input
+									aria-label="Search papers"
 									placeholder="Search papers..."
 									value={paperSearchQuery}
 									onChange={(e) => setPaperSearchQuery(e.target.value)}
-									className="pl-9 h-9"
+									className="h-10 pl-9 sm:h-9"
 								/>
 							</div>
 							<Select value={paperSortBy} onValueChange={(v) => setPaperSortBy(v as "date_added" | "publish_date" | "title")}>
-								<SelectTrigger size="sm">
+								<SelectTrigger size="sm" aria-label="Sort papers" className="data-[size=sm]:h-10 sm:data-[size=sm]:h-8">
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
@@ -522,9 +492,9 @@ export default function ProjectPage() {
 					) : papers && papers.length > 0 ? (
 						<div className="flex flex-col gap-6">
 							<div>
-								<div className="grid grid-cols-1 gap-4">
-									{filteredAndSortedPapers.slice(0, showAllPapers ? filteredAndSortedPapers.length : 3).map((paper) => (
-										<div key={paper.id}>
+								<div className="grid grid-cols-1 gap-3 sm:gap-4">
+									{filteredAndSortedPapers.slice(0, showAllPapers ? filteredAndSortedPapers.length : 3).map((paper, i) => (
+										<div key={paper.id} className="min-w-0 animate-rise-in" style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}>
 											<PaperCard paper={paper} minimalist={true} projectId={projectId} onUnlink={refetchPapers} />
 										</div>
 									))}
@@ -545,12 +515,12 @@ export default function ProjectPage() {
 							)}
 						</div>
 					) : (
-						<div className="text-center p-8 border-dashed border-2 border-gray-300 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800/50">
-							<div className="p-4 bg-gray-100 dark:bg-gray-700/50 rounded-full w-16 h-16 mx-auto mb-4 flex items-center justify-center">
-								<Sparkles className="w-8 h-8 text-gray-400 dark:text-gray-500" />
+						<div className="rounded-xl border-2 border-dashed bg-muted/30 p-8 text-center">
+							<div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-muted">
+								<Sparkles className="h-7 w-7 text-muted-foreground" />
 							</div>
-							<h3 className="text-lg font-semibold text-gray-600 dark:text-gray-300 mb-2">No Papers Yet</h3>
-							<p className="text-gray-500 dark:text-gray-400 mb-4">Add papers to start analyzing and discussing them.</p>
+							<h3 className="mb-2 text-lg font-semibold">No Papers Yet</h3>
+							<p className="mb-4 text-muted-foreground">Add papers to start analyzing and discussing them.</p>
 							<Dialog>
 								<DialogTrigger asChild>
 									<Button variant="outline">Upload Papers</Button>
@@ -561,7 +531,7 @@ export default function ProjectPage() {
 										<DialogDescription>You can upload any additional papers to your library here. They will automatically be added to the project.</DialogDescription>
 									</DialogHeader>
 									<PdfDropzone onFileSelect={handleFileSelect} onUrlClick={handleLinkClick} />
-									{uploadError && <p className="text-red-500 mt-4">{uploadError}</p>}
+									{uploadError && <p className="mt-4 text-sm text-destructive">{uploadError}</p>}
 								</DialogContent>
 							</Dialog>
 						</div>
@@ -579,26 +549,26 @@ export default function ProjectPage() {
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<div className="grid gap-4 py-4">
-						<div className="grid grid-cols-4 items-center gap-4">
-							<Label htmlFor="title" className="text-right">
+						<div className="grid gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+							<Label htmlFor="title" className="sm:justify-end">
 								Title
 							</Label>
 							<Input
 								id="title"
 								value={currentTitle}
 								onChange={(e) => setCurrentTitle(e.target.value)}
-								className="col-span-3"
+								className="sm:col-span-3"
 							/>
 						</div>
-						<div className="grid grid-cols-4 items-center gap-4">
-							<Label htmlFor="description" className="text-right">
+						<div className="grid gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+							<Label htmlFor="description" className="sm:justify-end">
 								Description
 							</Label>
 							<Textarea
 								id="description"
 								value={currentDescription}
 								onChange={(e) => setCurrentDescription(e.target.value)}
-								className="col-span-3"
+								className="sm:col-span-3"
 							/>
 						</div>
 					</div>

@@ -9,71 +9,112 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/lib/auth";
 import { Upload, Highlighter, Quote, FolderKanban } from "lucide-react";
 import { toast } from "sonner";
-import { LibraryTable, type LibraryPaper } from "@/components/LibraryTable";
+import { LibraryTable, LibrarySkeleton, type LibraryPaper } from "@/components/LibraryTable";
+import { cn } from "@/lib/utils";
 import { CreateProjectDialog } from "@/components/CreateProjectDialog";
 import { useRouter } from "next/navigation";
 import { UploadModal } from "@/components/UploadModal";
 import { usePapers } from "@/hooks/usePapers";
 
+const PAGE_CLASS = "mx-auto flex w-full min-w-0 flex-1 flex-col gap-4 px-4 pt-4 md:h-app md:flex-none md:px-6 md:pt-6 md:pb-4";
+
 const PageSkeleton = () => (
-    <div className="w-full mx-auto p-4">
-        {/* Header skeleton */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4">
-            <Skeleton className="h-9 w-32 mb-2 md:mb-0" />
-            <div className="flex items-center gap-x-4">
-                <Skeleton className="h-10 w-24" />
-                <Skeleton className="h-10 w-32" />
-            </div>
+    <div className={PAGE_CLASS}>
+        <div className="flex items-center justify-between gap-3">
+            <Skeleton className="h-8 w-40" />
+            <Skeleton className="size-10 sm:h-9 sm:w-28" />
         </div>
-        {/* Search/filter bar skeleton */}
-        <div className="flex flex-col md:flex-row md:items-center gap-4 mb-4">
-            <Skeleton className="h-10 w-full md:max-w-xl" />
-            <Skeleton className="h-10 w-24" />
-        </div>
-        {/* Table skeleton */}
-        <div className="border bg-card rounded-md overflow-hidden">
-            {/* Table header */}
-            <div className="border-b-2 bg-card p-4">
-                <div className="flex items-center gap-4">
-                    <Skeleton className="h-4 w-4" />
-                    <Skeleton className="h-4 w-48" />
-                    <Skeleton className="h-4 w-32 hidden md:block" />
-                    <Skeleton className="h-4 w-32 hidden lg:block" />
-                    <Skeleton className="h-4 w-24 hidden lg:block" />
-                    <Skeleton className="h-4 w-20 hidden xl:block" />
-                    <Skeleton className="h-4 w-20 hidden xl:block" />
-                    <Skeleton className="h-4 w-20 hidden xl:block" />
-                </div>
-            </div>
-            {/* Table rows */}
-            {Array.from({ length: 8 }).map((_, index) => (
-                <div
-                    key={index}
-                    className={`p-4 border-b ${index % 2 === 0 ? 'bg-background' : 'bg-muted/20'}`}
-                >
-                    <div className="flex items-center gap-4">
-                        <Skeleton className="h-4 w-4 flex-shrink-0" />
-                        <div className="flex-1 min-w-0 space-y-2">
-                            <Skeleton className="h-4 w-full max-w-md" />
-                            <Skeleton className="h-3 w-3/4 max-w-sm md:hidden" />
-                        </div>
-                        <Skeleton className="h-4 w-32 hidden md:block flex-shrink-0" />
-                        <Skeleton className="h-4 w-32 hidden lg:block flex-shrink-0" />
-                        <div className="hidden lg:flex gap-1 flex-shrink-0">
-                            <Skeleton className="h-6 w-16 rounded-sm" />
-                            <Skeleton className="h-6 w-14 rounded-sm" />
-                        </div>
-                        <div className="hidden xl:flex gap-1 flex-shrink-0">
-                            <Skeleton className="h-6 w-14 rounded-sm" />
-                        </div>
-                        <Skeleton className="h-4 w-20 hidden xl:block flex-shrink-0" />
-                        <Skeleton className="h-4 w-20 hidden xl:block flex-shrink-0" />
-                    </div>
-                </div>
-            ))}
-        </div>
+        <LibrarySkeleton />
     </div>
 );
+
+function LibraryEmptyState({ onUploadClick }: { onUploadClick: () => void }) {
+    const [isDragging, setIsDragging] = useState(false);
+
+    const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(true);
+    };
+
+    const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.relatedTarget && !(e.currentTarget.contains(e.relatedTarget as Node))) {
+            setIsDragging(false);
+        } else if (!e.relatedTarget) {
+            setIsDragging(false);
+        }
+    };
+
+    const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(true);
+    };
+
+    const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+
+        const files = Array.from(e.dataTransfer.files).filter(
+            file => file.type === 'application/pdf'
+        );
+
+        if (files.length > 0) {
+            onUploadClick();
+        }
+
+        if (e.dataTransfer) {
+            e.dataTransfer.items.clear();
+        }
+    };
+
+    return (
+        <div
+            className={cn(
+                "mx-auto flex w-full max-w-2xl flex-col items-center justify-center rounded-2xl px-4 py-16 text-center transition-colors duration-200 ease-out-soft md:h-full",
+                isDragging && "bg-brand/5 outline-2 outline-offset-4 outline-brand/60 outline-dashed",
+            )}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+        >
+            <div className="mb-5 flex size-14 animate-rise-in items-center justify-center rounded-2xl bg-brand/10 text-brand">
+                <Upload className="size-6" />
+            </div>
+            <h2 className="mb-2 animate-rise-in text-2xl font-semibold tracking-tight [animation-delay:40ms]">Build your research library</h2>
+            <p className="mb-8 max-w-md animate-rise-in text-muted-foreground [animation-delay:80ms]">
+                Drop a PDF here or upload one to get started.
+            </p>
+
+            <Button
+                size="lg"
+                className="animate-rise-in bg-brand text-brand-foreground [animation-delay:120ms] hover:bg-brand/90"
+                onClick={onUploadClick}
+            >
+                <Upload className="h-4 w-4" />
+                Upload your first paper
+            </Button>
+
+            <div className="mt-12 grid w-full max-w-md animate-rise-in grid-cols-3 gap-4 [animation-delay:160ms]">
+                {[
+                    { icon: Highlighter, title: "Annotations", text: "Highlight and take notes" },
+                    { icon: FolderKanban, title: "Projects", text: "Organize by topic" },
+                    { icon: Quote, title: "Citations", text: "Export in any format" },
+                ].map(({ icon: Icon, title, text }) => (
+                    <div key={title} className="flex flex-col items-center gap-1">
+                        <Icon className="mb-1 size-5 text-brand" />
+                        <span className="text-xs font-medium">{title}</span>
+                        <span className="text-xs text-muted-foreground">{text}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
 
 function PapersPageContent() {
     const { papers, isLoading, mutate } = usePapers();
@@ -152,134 +193,49 @@ function PapersPageContent() {
         }
     };
 
-    const EmptyState = () => {
-        const [isDragging, setIsDragging] = useState(false);
-
-        const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setIsDragging(true);
-        };
-
-        const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (e.relatedTarget && !(e.currentTarget.contains(e.relatedTarget as Node))) {
-                setIsDragging(false);
-            } else if (!e.relatedTarget) {
-                setIsDragging(false);
-            }
-        };
-
-        const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setIsDragging(true);
-        };
-
-        const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setIsDragging(false);
-
-            const files = Array.from(e.dataTransfer.files).filter(
-                file => file.type === 'application/pdf'
-            );
-
-            if (files.length > 0) {
-                handleUploadClick();
-            }
-
-            if (e.dataTransfer) {
-                e.dataTransfer.items.clear();
-            }
-        };
-
-        // No papers uploaded at all
-        if (papers && papers.length === 0) {
-            return (
-                <div
-                    className={`flex flex-col items-center justify-center py-16 px-4 text-center max-w-2xl mx-auto min-h-[60vh] transition-colors duration-200 rounded-lg ${
-                        isDragging ? 'bg-primary/5 ring-2 ring-primary ring-dashed' : ''
-                    }`}
-                    onDragEnter={handleDragEnter}
-                    onDragLeave={handleDragLeave}
-                    onDragOver={handleDragOver}
-                    onDrop={handleDrop}
-                >
-                    <h3 className="text-2xl font-bold text-foreground mb-3">Build Your Research Library</h3>
-                    <p className="text-muted-foreground max-w-md mb-8">
-                        Drop a PDF anywhere or click below to get started.
-                    </p>
-
-                    <Button
-                        size="lg"
-                        className="bg-primary hover:bg-primary/90"
-                        onClick={handleUploadClick}
-                    >
-                        <Upload className="h-4 w-4 mr-2" />
-                        Upload your first paper
-                    </Button>
-
-                    {/* Feature highlights */}
-                    <div className="flex items-center justify-center gap-8 mt-12 text-blue-500">
-                        <div className="flex flex-col items-center gap-1 max-w-24">
-                            <Highlighter className="h-5 w-5" />
-                            <span className="text-xs font-medium text-foreground">Annotations</span>
-                            <span className="text-xs text-muted-foreground text-center">Highlight and take notes</span>
-                        </div>
-                        <div className="flex flex-col items-center gap-1 max-w-24">
-                            <FolderKanban className="h-5 w-5" />
-                            <span className="text-xs font-medium text-foreground">Projects</span>
-                            <span className="text-xs text-muted-foreground text-center">Organize by topic</span>
-                        </div>
-                        <div className="flex flex-col items-center gap-1 max-w-24">
-                            <Quote className="h-5 w-5" />
-                            <span className="text-xs font-medium text-foreground">Citations</span>
-                            <span className="text-xs text-muted-foreground text-center">Export in any format</span>
-                        </div>
-                    </div>
-                </div>
-            );
-        }
-
-        return null;
-    }
-
     if (isLoading) {
         return <PageSkeleton />;
     }
 
+    const paperCount = papers?.length ?? 0;
+
     return (
-        <div className="w-full mx-auto p-4 flex flex-col flex-1 min-w-0" style={{ height: 'calc(100vh - 5rem)' }}>
+        <div className={PAGE_CLASS}>
             <CreateProjectDialog
                 open={isCreateProjectDialogOpen}
                 onOpenChange={setCreateProjectDialogOpen}
                 onSubmit={handleCreateProjectSubmit}
             />
             <UploadModal open={isUploadModalOpen} onOpenChange={setUploadModalOpen} onUploadComplete={() => { mutate(); }} />
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4 flex-shrink-0">
-                <h1 className="text-3xl font-bold tracking-tight">Library</h1>
-                <div className="flex items-center gap-x-4 mt-2 md:mt-0">
-                    <Button onClick={handleUploadClick}>
-                        <Upload className="h-4 w-4 mr-2" />
-                        Upload
-                    </Button>
+            <div className="flex shrink-0 items-center justify-between gap-3">
+                <div className="flex min-w-0 items-baseline gap-2.5">
+                    <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Library</h1>
+                    {paperCount > 0 && (
+                        <span className="text-sm text-muted-foreground tabular-nums">
+                            {paperCount} {paperCount === 1 ? "paper" : "papers"}
+                        </span>
+                    )}
                 </div>
+                <Button onClick={handleUploadClick} aria-label="Upload paper" className="size-10 shrink-0 sm:h-9 sm:w-auto sm:px-4">
+                    <Upload className="h-4 w-4" />
+                    <span className="hidden sm:inline">Upload</span>
+                </Button>
             </div>
-            <div className="flex-1 min-h-0">
-                {papers && papers.length === 0 ? (
-                    <EmptyState />
-                ) : (
-                    <LibraryTable
-                        handleDelete={deletePaper}
-                        selectable={true}
-                        actionOptions={["Make Project"]}
-                        onSelectFiles={handleTableAction}
-                        onUploadClick={handleUploadClick}
-                    />
-                )}
-            </div>
+            {papers && papers.length === 0 ? (
+                <div className="flex-1 md:min-h-0">
+                    <LibraryEmptyState onUploadClick={handleUploadClick} />
+                </div>
+            ) : (
+                <LibraryTable
+                    fillHeight
+                    className="md:min-h-0 md:flex-1"
+                    handleDelete={deletePaper}
+                    selectable={true}
+                    actionOptions={["Make Project"]}
+                    onSelectFiles={handleTableAction}
+                    onUploadClick={handleUploadClick}
+                />
+            )}
         </div>
     )
 }

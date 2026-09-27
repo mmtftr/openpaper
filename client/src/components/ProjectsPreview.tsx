@@ -11,7 +11,7 @@ interface ProjectsPreviewProps {
 }
 
 import { ProjectCard } from "@/components/ProjectCard";
-import { ArrowRight, FolderKanban } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
 function ProjectCardSkeleton() {
     return (
@@ -59,24 +59,23 @@ export function ProjectsPreview({ limit = 4 }: ProjectsPreviewProps) {
     }
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-3 sm:space-y-4">
             <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                    <FolderKanban className="h-5 w-5 text-primary" />
-                    <h2 className="text-lg font-semibold">Active Projects</h2>
-                </div>
+                <h2 className="text-base font-semibold sm:text-lg">Active projects</h2>
                 <Link
                     href="/projects"
-                    className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+                    className="-mr-2 flex h-9 items-center gap-1 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
                 >
                     View all
                     <ArrowRight className="h-3.5 w-3.5" />
                 </Link>
             </div>
 
-            <div className="space-y-2">
-                {projects.map((project) => (
-                    <ProjectCard key={project.id} project={project} compact={true} />
+            <div className="grid gap-2 sm:grid-cols-2 sm:gap-3">
+                {projects.map((project, i) => (
+                    <div key={project.id} className="animate-rise-in" style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}>
+                        <ProjectCard project={project} compact={true} />
+                    </div>
                 ))}
             </div>
         </div>

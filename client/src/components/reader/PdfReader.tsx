@@ -11,7 +11,7 @@ import type {
 	ScaledPosition,
 	SupplementaryMaterialSummary,
 } from "@/lib/schema";
-import { findMatchCountAtom, findQueryAtom, outlineOpenAtom, outlineTabAtom, pdfDocAtom } from "./atoms";
+import { findMatchCountAtom, findQueryAtom, outlineOpenAtom, outlineTabAtom, pdfDocAtom, readerActiveAtom } from "./atoms";
 import { viewerApiAtom } from "./useViewer";
 import PdfPane from "./PdfPane";
 import { ReaderToolbar } from "./ReaderToolbar";
@@ -93,6 +93,8 @@ export interface PdfReaderProps {
 
 	isReadMode?: boolean;
 	onToggleReadMode?: () => void;
+	/** False while mounted but hidden (see `readerActiveAtom`). */
+	active?: boolean;
 
 	parentPaperId?: string;
 	displayedPaperId?: string;
@@ -112,17 +114,27 @@ function ReaderSidebar({ displayedPaperId }: { displayedPaperId: string }) {
 	const open = useAtomValue(outlineOpenAtom);
 	const setTab = useSetAtom(outlineTabAtom);
 	const tab = useAtomValue(outlineTabAtom);
+	const setOpen = useSetAtom(outlineOpenAtom);
 	if (!open) return null;
+	// Beside the pages when there's room; over them in a narrow reader
+	// (phones), where pushing the pages aside would leave them unreadable.
 	return (
-		<aside className="flex w-56 shrink-0 flex-col border-r border-border bg-background">
+		<>
+		<button
+			type="button"
+			aria-label="Close thumbnails and outline"
+			onClick={() => setOpen(false)}
+			className="absolute inset-0 z-20 bg-black/20 animate-in fade-in duration-200 md:hidden"
+		/>
+		<aside className="flex w-56 shrink-0 flex-col border-r border-border bg-background max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-30 max-md:w-64 max-md:max-w-[80%] max-md:shadow-xl animate-in fade-in slide-in-from-left-2 duration-200 ease-out-soft">
 			<div className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-2">
 				{(["thumbnails", "outline"] as const).map((id) => (
 					<button
 						key={id}
 						onClick={() => setTab(id)}
-						className={`rounded-md px-2 py-1 text-[11px] capitalize ${
+						className={`rounded-md px-2 py-1 text-[11px] capitalize transition-colors ${
 							tab === id
-								? "bg-blue-500/10 text-blue-500"
+								? "bg-brand/10 text-brand"
 								: "text-muted-foreground hover:bg-muted hover:text-foreground"
 						}`}
 					>
@@ -138,6 +150,7 @@ function ReaderSidebar({ displayedPaperId }: { displayedPaperId: string }) {
 				)}
 			</div>
 		</aside>
+		</>
 	);
 }
 
@@ -167,9 +180,15 @@ function PdfReaderInner(props: PdfReaderProps) {
 		onAskStarted,
 		isReadMode,
 		onToggleReadMode,
+		active = true,
 		displayedPaperId = "",
 		...toolbarProps
 	} = props;
+
+	const setReaderActive = useSetAtom(readerActiveAtom);
+	useEffect(() => {
+		setReaderActive(active);
+	}, [active, setReaderActive]);
 
 	const api = useAtomValue(viewerApiAtom);
 	const pdfDoc = useAtomValue(pdfDocAtom);
@@ -358,7 +377,7 @@ function PdfReaderInner(props: PdfReaderProps) {
 				isReadMode={isReadMode}
 				onToggleReadMode={onToggleReadMode}
 			/>
-			<div className="flex min-h-0 flex-1">
+			<div className="relative flex min-h-0 flex-1">
 				<ReaderSidebar displayedPaperId={displayedPaperId} />
 				<div className="relative min-w-0 flex-1">
 					<PdfPane

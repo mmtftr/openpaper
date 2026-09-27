@@ -19,9 +19,9 @@ export function HeaderPaperStatusButton() {
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="ghost" className="h-7 px-2 gap-1.5 text-xs">
+                <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2 text-xs max-md:w-8 max-md:px-0 max-md:has-[>svg]:px-0" aria-label={`Status: ${paperStatus}`}>
                     {getStatusIcon(paperStatus)}
-                    <span className="capitalize hidden sm:inline">{paperStatus}</span>
+                    <span className="capitalize hidden md:inline">{paperStatus}</span>
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">

@@ -1,7 +1,6 @@
 'use client';
 
 import { api, ApiRequestError, unwrap, type Schemas } from '@/lib/api/client';
-import { useIsMobile } from '@/hooks/use-mobile';
 import { agentDocWritesAtom } from '@/lib/paperDocRevision';
 import { useAtomValue } from 'jotai';
 import dynamic from 'next/dynamic';
@@ -89,7 +88,6 @@ interface PaperDocEditorProps {
 }
 
 export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
-    const isMobile = useIsMobile();
     const [docs, setDocs] = useState<DocumentSummary[]>([]);
     const [activeDocId, setActiveDocId] = useState<string | null>(null);
     const [doc, setDoc] = useState<DocumentResponse | null>(null);
@@ -650,7 +648,7 @@ export function PaperDocEditor({ paperId }: PaperDocEditorProps) {
                     )}
                 </div>
             </div>
-            <div className={`flex-1 overflow-y-auto ${isMobile ? 'pb-24' : ''}`}>
+            <div className="flex-1 overflow-y-auto">
                 {activeDoc ? (
                     <MilkdownImpl
                         initialContent={activeDoc.content}

@@ -14,41 +14,45 @@ import { cn } from "@/lib/utils";
 interface QuickActionCardProps {
     icon: React.ReactNode;
     title: string;
+    /** Label for the compact phone tile. */
+    shortTitle: string;
     description: string;
     onClick: () => void;
     variant?: "default" | "primary";
-    badge?: string;
 }
 
-function QuickActionCard({ icon, title, description, onClick, variant = "default", badge }: QuickActionCardProps) {
+// Phones: a compact 3-up row of icon tiles. From `sm`: lighter cards with
+// the description.
+function QuickActionCard({ icon, title, shortTitle, description, onClick, variant = "default" }: QuickActionCardProps) {
+    const primary = variant === "primary";
     return (
         <button
+            type="button"
             onClick={onClick}
             className={cn(
-                "group relative flex flex-col items-start gap-3 p-5 rounded-xl border-2 transition-all duration-200 text-left w-full",
-                "hover:shadow-md hover:-translate-y-0.5",
-                variant === "primary"
-                    ? "border-primary/20 bg-primary/5 hover:border-primary/40 hover:bg-primary/10"
-                    : "border-border/50 bg-card hover:border-border hover:bg-accent/50"
+                "group flex w-full flex-col items-center justify-center gap-2 rounded-xl border px-2 py-3 text-center",
+                "sm:flex-row sm:justify-start sm:gap-3.5 sm:p-4 sm:text-left",
+                "transition-[transform,box-shadow,border-color,background-color] duration-200 ease-out-soft",
+                "hover:-translate-y-0.5 hover:shadow-md motion-safe:active:translate-y-0 motion-safe:active:scale-[0.98]",
+                "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-brand/30",
+                primary
+                    ? "border-brand/25 bg-brand/[0.07] hover:border-brand/40 hover:bg-brand/10"
+                    : "border-border/60 bg-card hover:border-border"
             )}
         >
-            {badge && (
-                <span className="absolute top-3 right-3 px-2 py-0.5 text-xs font-medium rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                    {badge}
-                </span>
-            )}
-            <div className={cn(
-                "flex items-center justify-center w-10 h-10 rounded-lg transition-colors",
-                variant === "primary"
-                    ? "bg-primary/10 text-primary group-hover:bg-primary/20"
-                    : "bg-muted text-muted-foreground group-hover:bg-accent group-hover:text-foreground"
+            <span className={cn(
+                "flex size-9 shrink-0 items-center justify-center rounded-lg transition-colors duration-200 sm:size-10",
+                primary
+                    ? "bg-brand text-brand-foreground shadow-sm"
+                    : "bg-muted text-muted-foreground group-hover:text-foreground"
             )}>
                 {icon}
-            </div>
-            <div>
-                <h3 className="font-semibold text-foreground">{title}</h3>
-                <p className="text-sm text-muted-foreground mt-0.5">{description}</p>
-            </div>
+            </span>
+            <span className="min-w-0">
+                <span className={cn("block text-xs font-medium sm:hidden", primary && "text-brand")}>{shortTitle}</span>
+                <span className="hidden font-semibold text-foreground sm:block">{title}</span>
+                <span className="mt-0.5 hidden text-sm text-muted-foreground sm:line-clamp-1">{description}</span>
+            </span>
         </button>
     );
 }
@@ -106,10 +110,11 @@ export function QuickActions({ onUploadComplete, onProjectCreated, onUploadStart
 
     return (
         <>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full">
+            <div className="grid w-full grid-cols-3 gap-2 sm:gap-4">
                 <QuickActionCard
                     icon={<Upload className="h-5 w-5" />}
                     title="Upload Paper"
+                    shortTitle="Upload"
                     description="Start your next study"
                     onClick={handleUploadClick}
                     variant="primary"
@@ -117,13 +122,15 @@ export function QuickActions({ onUploadComplete, onProjectCreated, onUploadStart
                 <QuickActionCard
                     icon={<FolderPlus className="h-5 w-5" />}
                     title="New Project"
+                    shortTitle="New project"
                     description="Organize your research"
                     onClick={() => setCreateProjectOpen(true)}
                 />
                 <QuickActionCard
                     icon={<Globe2 className="h-5 w-5" />}
                     title="Discover Research"
-                    description="Find relevant research from academic sources"
+                    shortTitle="Discover"
+                    description="Find papers across academic sources"
                     onClick={handleFindPapers}
                 />
             </div>

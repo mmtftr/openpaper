@@ -1,9 +1,8 @@
 import { AppSidebar } from "@/components/AppSidebar";
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { Separator } from "@/components/ui/separator";
+import { AppHeader } from "@/components/AppHeader";
+import { MobileTabBar } from "@/components/MobileTabBar";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { SidebarController } from "@/components/utils/SidebarAutoCollapse";
-import Image from "next/image";
-import Link from "next/link";
 
 export default function MainLayout({
 	children,
@@ -14,22 +13,12 @@ export default function MainLayout({
 		<SidebarProvider>
 			<AppSidebar />
 			<SidebarInset>
-				<header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-					<SidebarTrigger className="-ml-1" />
-					<Separator orientation="vertical" className="mr-2 h-4" />
-					<Link href="/" className="flex flex-1 items-center gap-2 hover:opacity-80 transition-opacity">
-						<Image
-							src="/openpaper.svg"
-							width={24}
-							height={24}
-							alt="Open Paper Logo"
-						/>
-						<span className="text-sm font-semibold">Open Paper</span>
-					</Link>
-				</header>
+				<AppHeader />
 				<SidebarController>
-					{children}
+					{/* Clears the phone tab bar; pages scroll the document. */}
+					<div className="flex flex-1 flex-col pb-tabbar md:pb-0">{children}</div>
 				</SidebarController>
+				<MobileTabBar />
 			</SidebarInset>
 		</SidebarProvider>
 	);

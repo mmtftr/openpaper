@@ -24,6 +24,8 @@ interface CollapsibleSidebarMenuProps<T extends { id: string; title?: string | n
     defaultOpen?: boolean;
     maxItems?: number;
     tag?: string;
+    /** The current route, to mark the section and the open item as active. */
+    pathname?: string;
 }
 
 export function CollapsibleSidebarMenu<T extends { id: string; title?: string | null; }>({
@@ -38,13 +40,15 @@ export function CollapsibleSidebarMenu<T extends { id: string; title?: string | 
     defaultOpen = false,
     maxItems = 7,
     tag,
+    pathname = "",
 }: CollapsibleSidebarMenuProps<T>) {
+    const sectionActive = pathname === url;
     return (
         <Collapsible asChild defaultOpen={defaultOpen} className="group/collapsible">
             <SidebarMenuItem>
-                <div className="flex items-center w-full">
-                    <Link href={url} className="flex items-center flex-1" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-                        <SidebarMenuButton className="flex-1">
+                <div className="flex items-center w-full gap-0.5">
+                    <SidebarMenuButton asChild isActive={sectionActive} className="flex-1">
+                        <Link href={url} aria-current={sectionActive ? "page" : undefined}>
                             <Icon />
                             <span>{title}</span>
                             {tag && (
@@ -52,30 +56,44 @@ export function CollapsibleSidebarMenu<T extends { id: string; title?: string | 
                                     {tag}
                                 </span>
                             )}
-                        </SidebarMenuButton>
-                    </Link>
+                        </Link>
+                    </SidebarMenuButton>
                     <CollapsibleTrigger asChild>
-                        <button className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded">
-                            <ChevronDown className="h-4 w-4 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-180" />
+                        <button
+                            className="flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                            aria-label={`Toggle ${title}`}
+                        >
+                            <ChevronDown className="h-4 w-4 transition-transform duration-200 ease-out-soft group-data-[state=open]/collapsible:rotate-180" />
                         </button>
                     </CollapsibleTrigger>
                 </div>
-                <CollapsibleContent>
+                <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down ease-out-soft">
                     <SidebarMenuSub>
-                        {items.slice(0, maxItems).map((item) => (
-                            <SidebarMenuSubItem key={item.id}>
-                                <SidebarMenuSubButton asChild>
-                                    <Link href={getItemUrl(item)} className="text-xs font-medium w-full h-fit my-1">
-                                        <p className="line-clamp-3">{getItemName ? getItemName(item) : item.title}</p>
-                                    </Link>
-                                </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                        ))}
+                        {items.slice(0, maxItems).map((item) => {
+                            const href = getItemUrl(item);
+                            const name = (getItemName ? getItemName(item) : item.title) || "Untitled";
+                            const active = pathname === href;
+                            return (
+                                <SidebarMenuSubItem key={item.id}>
+                                    <SidebarMenuSubButton asChild isActive={active}>
+                                        <Link
+                                            href={href}
+                                            title={name}
+                                            aria-current={active ? "page" : undefined}
+                                            className="h-fit py-1.5 text-xs text-sidebar-foreground/80 data-[active=true]:text-sidebar-accent-foreground"
+                                        >
+                                            <p className="line-clamp-2 leading-snug">{name}</p>
+                                        </Link>
+                                    </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                            );
+                        })}
                         {items.length > maxItems && (
                             <SidebarMenuSubItem>
                                 <SidebarMenuSubButton asChild>
-                                    <Link href={viewAllUrl} className="text-xs font-medium h-fit my-1">
-                                        {viewAllText} <ArrowRight className="inline h-3 w-3 ml-1" />
+                                    <Link href={viewAllUrl} className="group/viewall h-fit py-1.5 text-xs text-muted-foreground">
+                                        {viewAllText}
+                                        <ArrowRight className="inline h-3 w-3 transition-transform duration-200 ease-out-soft group-hover/viewall:translate-x-0.5" />
                                     </Link>
                                 </SidebarMenuSubButton>
                             </SidebarMenuSubItem>

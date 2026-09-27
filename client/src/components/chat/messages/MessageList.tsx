@@ -60,18 +60,24 @@ export function MessageList({
         body = messages.map((msg, index) => {
             const isLast = index === messages.length - 1;
             const notice = noticeForMessage(msg, isLast);
+            // Only the turn in flight rises in (the question, then its answer);
+            // loaded history just appears.
+            const risesIn =
+                isStreaming &&
+                (isLast || (msg.role === "user" && messages[messages.length - 1]?.role === "assistant" && index === messages.length - 2));
             return (
-                <PaperMessage
-                    key={msg.id || index}
-                    message={msg}
-                    index={index}
-                    isStreamingMessage={isStreaming && isLast && msg.role === "assistant"}
-                    user={user}
-                    handleCitationClick={handleCitationClick}
-                    notice={notice}
-                    onRetry={onRetryLastTurn}
-                    retryDisabled={notice ? isStreaming : false}
-                />
+                <div key={msg.id || index} className={risesIn ? "animate-rise-in" : undefined}>
+                    <PaperMessage
+                        message={msg}
+                        index={index}
+                        isStreamingMessage={isStreaming && isLast && msg.role === "assistant"}
+                        user={user}
+                        handleCitationClick={handleCitationClick}
+                        notice={notice}
+                        onRetry={onRetryLastTurn}
+                        retryDisabled={notice ? isStreaming : false}
+                    />
+                </div>
             );
         });
     }
@@ -104,7 +110,7 @@ export function MessageList({
                 {body}
 
                 {showThinkingPlaceholder && (
-                    <Message from="assistant">
+                    <Message from="assistant" className="animate-rise-in">
                         <MessageContent>
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <Loader size={14} />

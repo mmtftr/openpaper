@@ -1,6 +1,5 @@
 'use client';
 
-import { Button } from '@/components/ui/button';
 import {
     Tooltip,
     TooltipContent,
@@ -9,6 +8,8 @@ import {
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { FileText, Highlighter, MessageCircle } from 'lucide-react';
+import { LayoutGroup, motion } from 'motion/react';
+import { PILL_SPRING } from '@/lib/motion';
 import type { ComponentType } from 'react';
 import {
     SIDE_PANEL_TOOLS,
@@ -37,32 +38,49 @@ export function PaperSidebar() {
     return (
         <TooltipProvider>
             <div
+                role="toolbar"
+                aria-orientation="vertical"
+                aria-label="Side panel"
                 className={cn(
-                    'absolute right-2 z-20 flex flex-col gap-1 p-1 bg-background/95 backdrop-blur-sm border border-border rounded-lg shadow-lg transition-[top] duration-200 dark:bg-zinc-900/95 dark:border-zinc-600 dark:ring-1 dark:ring-white/10 dark:shadow-black/40',
+                    'absolute right-2 z-20 flex flex-col gap-1 p-1 bg-background/90 backdrop-blur-md border border-border rounded-xl shadow-md transition-[top] duration-200 ease-out-soft dark:bg-zinc-900/90 dark:border-zinc-700 dark:shadow-black/40',
                     toolbarTopClass,
                 )}
             >
-                {TOOLS.map((item) => (
-                    <Tooltip key={item.name}>
-                        <TooltipTrigger asChild>
-                            <Button
-                                variant="ghost"
-                                className={`h-8 w-8 p-0 rounded-md ${
-                                    item.name === tab
-                                        ? 'bg-blue-500 text-blue-100 hover:bg-blue-600 dark:bg-blue-600 dark:text-white dark:hover:bg-blue-500'
-                                        : 'text-secondary-foreground hover:bg-blue-100 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:hover:text-foreground'
-                                }`}
-                                onClick={() => setTab(item.name)}
-                                aria-label={item.label}
-                            >
-                                <item.icon className="h-5 w-5" />
-                            </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="left" sideOffset={8}>
-                            {item.label}
-                        </TooltipContent>
-                    </Tooltip>
-                ))}
+                <LayoutGroup id="paper-side-rail">
+                    {TOOLS.map((item) => {
+                        const active = item.name === tab;
+                        return (
+                            <Tooltip key={item.name}>
+                                <TooltipTrigger asChild>
+                                    <button
+                                        type="button"
+                                        aria-pressed={active}
+                                        className={cn(
+                                            'relative isolate flex h-8 w-8 items-center justify-center rounded-lg transition-colors duration-150',
+                                            active
+                                                ? 'text-brand-foreground'
+                                                : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                                        )}
+                                        onClick={() => setTab(item.name)}
+                                        aria-label={item.label}
+                                    >
+                                        {active && (
+                                            <motion.span
+                                                layoutId="pill"
+                                                transition={PILL_SPRING}
+                                                className="absolute inset-0 -z-10 rounded-lg bg-brand shadow-sm"
+                                            />
+                                        )}
+                                        <item.icon className="h-[18px] w-[18px]" />
+                                    </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="left" sideOffset={8}>
+                                    {item.label}
+                                </TooltipContent>
+                            </Tooltip>
+                        );
+                    })}
+                </LayoutGroup>
             </div>
         </TooltipProvider>
     );

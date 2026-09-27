@@ -20,11 +20,11 @@ export default function DiscoverHistoryPage() {
     }
 
     return (
-        <div className="w-full max-w-2xl mx-auto px-4 py-6">
+        <div className="mx-auto w-full max-w-2xl animate-rise-in px-4 py-6">
             <div className="mb-6">
                 <Link
                     href="/discover"
-                    className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                    className="-ml-2 inline-flex h-9 items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
                 >
                     <ArrowLeft className="h-4 w-4" />
                     Back to Discover
@@ -43,7 +43,7 @@ export default function DiscoverHistoryPage() {
                         <button
                             key={search.id}
                             onClick={() => handleSelect(search)}
-                            className="w-full px-3 py-3 text-left hover:bg-accent rounded-md transition-colors border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
+                            className="w-full rounded-lg px-3 py-3 text-left transition-colors hover:bg-accent"
                         >
                             <div className="text-sm font-medium">{search.question}</div>
                             <div className="text-xs text-muted-foreground mt-1">

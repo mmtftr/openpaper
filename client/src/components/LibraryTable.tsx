@@ -8,22 +8,33 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { api, unwrap } from "@/lib/api/client";
+import { cn } from "@/lib/utils";
+import { EASE_OUT_SOFT } from "@/lib/motion";
 import { Checkbox } from "./ui/checkbox";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
+import { Skeleton } from "./ui/skeleton";
 import { useSidebar } from "./ui/sidebar";
 import {
 	Sheet,
 	SheetContent,
+	SheetTitle,
 } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { ArrowUpDown, CheckCheck, Trash2, X, ChevronDown, Tag } from "lucide-react";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ArrowDown, ArrowDownUp, ArrowUp, ArrowUpDown, CheckCheck, Search, Trash2, X, Tag } from "lucide-react";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuLabel,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { PaperPreview } from "./PaperPreview";
 import { PaperFiltering, Filter, Sort, NO_TAGS_FILTER_VALUE } from "@/components/PaperFiltering";
-import { Badge } from "@/components/ui/badge";
 import { TagSelector } from "./TagSelector";
 import { toast } from "sonner";
 import { usePapers } from "@/hooks/usePapers";
@@ -41,6 +52,113 @@ import {
 /** A paper as listed by `usePapers` (`GET /api/paper/all`). */
 export type LibraryPaper = NonNullable<ReturnType<typeof usePapers>["papers"]>[number];
 
+type SortKey = keyof LibraryPaper;
+type SortDirection = 'ascending' | 'descending';
+
+const MOBILE_SORTS: { label: string; key: SortKey; direction: SortDirection }[] = [
+	{ label: "Date added (newest)", key: "created_at", direction: "descending" },
+	{ label: "Date added (oldest)", key: "created_at", direction: "ascending" },
+	{ label: "Published (newest)", key: "publish_date", direction: "descending" },
+	{ label: "Published (oldest)", key: "publish_date", direction: "ascending" },
+	{ label: "Title (A–Z)", key: "title", direction: "ascending" },
+	{ label: "Title (Z–A)", key: "title", direction: "descending" },
+];
+
+/** Rows/cards that fade up on first paint; the rest appear instantly. */
+const ENTRANCE_ITEMS = 8;
+
+// Lists scroll the document on phones; on desktop a bounded box scrolls
+// internally, either filling the parent (`fillHeight`) or capped.
+const CAPPED_HEIGHT = "max-h-[calc(100dvh-16rem)]";
+
+function formatDate(value?: string | null) {
+	return value
+		? new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+		: 'N/A';
+}
+
+function entrance(index: number, active: boolean) {
+	if (!active || index >= ENTRANCE_ITEMS) return {};
+	return { className: "animate-rise-in", style: { animationDelay: `${index * 40}ms` } };
+}
+
+function SortHeader({
+	label,
+	sortKey,
+	sortConfig,
+	onSort,
+}: {
+	label: string;
+	sortKey: SortKey;
+	sortConfig: { key: SortKey; direction: SortDirection } | null;
+	onSort: (key: SortKey) => void;
+}) {
+	const active = sortConfig?.key === sortKey;
+	const Icon = !active ? ArrowUpDown : sortConfig.direction === 'ascending' ? ArrowUp : ArrowDown;
+	return (
+		<button
+			type="button"
+			onClick={() => onSort(sortKey)}
+			className={cn(
+				"-ml-2 inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium uppercase tracking-wide transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:outline-none",
+				active ? "text-foreground" : "text-muted-foreground",
+			)}
+		>
+			{label}
+			<Icon className={cn("size-3.5", active ? "text-brand" : "opacity-50")} />
+		</button>
+	);
+}
+
+const headerLabel = "text-xs font-medium uppercase tracking-wide text-muted-foreground";
+
+/** Placeholder for the toolbar and list: table rows on desktop, cards on phones. */
+export function LibrarySkeleton() {
+	return (
+		<div className="flex flex-col gap-3">
+			<div className="flex items-center gap-2">
+				<Skeleton className="h-10 flex-1 md:max-w-2xl" />
+				<Skeleton className="h-10 w-24" />
+				<Skeleton className="size-10 md:hidden" />
+			</div>
+			<div className="hidden overflow-hidden rounded-xl border bg-card md:block">
+				<div className="flex h-11 items-center gap-6 border-b px-4">
+					<Skeleton className="size-4" />
+					<Skeleton className="h-3 w-16" />
+					<Skeleton className="ml-auto h-3 w-40" />
+				</div>
+				{Array.from({ length: 8 }).map((_, i) => (
+					<div key={i} className="flex items-center gap-6 border-b px-4 py-4 last:border-0">
+						<Skeleton className="size-4 shrink-0" />
+						<div className="min-w-0 flex-1 space-y-2">
+							<Skeleton className="h-4 w-full max-w-md" />
+							<Skeleton className="h-4 w-2/3 max-w-xs" />
+						</div>
+						<Skeleton className="hidden h-4 w-36 shrink-0 lg:block" />
+						<div className="hidden shrink-0 gap-1 xl:flex">
+							<Skeleton className="h-5 w-20" />
+							<Skeleton className="h-5 w-14" />
+						</div>
+						<Skeleton className="h-4 w-24 shrink-0" />
+					</div>
+				))}
+			</div>
+			<div className="divide-y overflow-hidden rounded-xl border bg-card md:hidden">
+				{Array.from({ length: 6 }).map((_, i) => (
+					<div key={i} className="flex gap-3 px-4 py-3.5">
+						<Skeleton className="mt-0.5 size-4 shrink-0" />
+						<div className="min-w-0 flex-1 space-y-2">
+							<Skeleton className="h-4 w-full" />
+							<Skeleton className="h-4 w-3/4" />
+							<Skeleton className="h-3 w-1/2" />
+						</div>
+					</div>
+				))}
+			</div>
+		</div>
+	);
+}
+
 interface LibraryTableProps extends React.HTMLAttributes<HTMLDivElement> {
 	selectable?: boolean;
 	onSelectFiles?: (papers: LibraryPaper[], action: string) => void;
@@ -49,6 +167,8 @@ interface LibraryTableProps extends React.HTMLAttributes<HTMLDivElement> {
 	handleDelete?: (paperId: string) => Promise<void>;
 	setPapers?: (papers: LibraryPaper[]) => void;
 	onUploadClick?: () => void;
+	/** On desktop, fill the parent's height and scroll the table inside it. */
+	fillHeight?: boolean;
 }
 
 export function LibraryTable({
@@ -58,6 +178,9 @@ export function LibraryTable({
 	projectPaperIds = [],
 	handleDelete,
 	onUploadClick,
+	fillHeight = false,
+	className,
+	setPapers: _setPapers,
 	...props
 }: LibraryTableProps) {
 	const selectable = selectableProp ?? (onSelectFiles ? true : false);
@@ -68,14 +191,18 @@ export function LibraryTable({
 	const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 	const [searchTerm, setSearchTerm] = useState('');
 	const [filters, setFilters] = useState<Filter[]>([]);
-	type SortKey = keyof LibraryPaper;
-	const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'ascending' | 'descending' } | null>({ key: 'created_at', direction: 'descending' });
+	const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: SortDirection } | null>({ key: 'created_at', direction: 'descending' });
 	const [selectedPaperForPreview, setSelectedPaperForPreview] = useState<LibraryPaper | null>(null);
 	const [taggingPopoverOpen, setTaggingPopoverOpen] = useState(false);
 	const [expandedTags, setExpandedTags] = useState<Set<string>>(new Set());
-	const tableContainerRef = useRef<HTMLDivElement>(null);
+	// Only the first paint of the list gets the entrance; rows that come back
+	// after a search or filter change just appear.
+	const [entranceActive, setEntranceActive] = useState(true);
 
-	const maxHeight = 'calc(100vh - 16rem)';
+	useEffect(() => {
+		const timer = window.setTimeout(() => setEntranceActive(false), 800);
+		return () => window.clearTimeout(timer);
+	}, []);
 
 	const sort: Sort = { type: "publish_date", order: "desc" };
 
@@ -168,7 +295,7 @@ export function LibraryTable({
 	}, [processedPapers, projectPaperIds]);
 
 	const requestSort = (key: SortKey) => {
-		let direction: 'ascending' | 'descending' = 'ascending';
+		let direction: SortDirection = 'ascending';
 		if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
 			direction = 'descending';
 		}
@@ -235,20 +362,19 @@ export function LibraryTable({
 		});
 	};
 
-	const handleTagClick = (tagName: string) => {
-		const newFilter: Filter = { type: 'tag', value: tagName };
-		if (!filters.some(f => f.type === 'tag' && f.value === tagName)) {
-			setFilters([...filters, newFilter]);
+	const addFilter = (filter: Filter) => {
+		if (!filters.some(f => f.type === filter.type && f.value === filter.value)) {
+			setFilters([...filters, filter]);
 		}
 	};
+
+	const handleTagClick = (tagName: string) => addFilter({ type: 'tag', value: tagName });
 
 	const handleRemoveTag = async (paperId: string, tagId: string) => {
 		try {
 			await unwrap(api.DELETE("/api/paper/tag/papers/{paper_id}/tags/{tag_id}", {
 				params: { path: { paper_id: paperId, tag_id: tagId } },
 			}));
-			// Don't need to send a toast for success - can be noisy.
-			// toast.success("Tag removed.");
 			mutate(); // Revalidate the papers list
 		} catch (error) {
 			console.error("Failed to remove tag", error);
@@ -256,14 +382,13 @@ export function LibraryTable({
 		}
 	};
 
-
+	const clearSearchAndFilters = () => {
+		setSearchTerm('');
+		setFilters([]);
+	};
 
 	if (isLoading) {
-		return (
-			<div className="flex items-center justify-center py-12">
-				<div className="text-muted-foreground">Loading papers...</div>
-			</div>
-		);
+		return <LibrarySkeleton />;
 	}
 
 	// A failed revalidation keeps the cached list on screen.
@@ -279,441 +404,548 @@ export function LibraryTable({
 
 	const numCols = 7 + (selectable ? 1 : 0);
 	const allAvailableSelected = availablePapers.length > 0 && selectedPapers.size === availablePapers.length;
+	const totalCount = (papers || []).length;
+	const isNarrowed = processedPapers.length !== totalCount;
+	const hasSelection = selectedPapers.size > 0;
+	const showBulkBar = selectable && hasSelection;
+	const activeMobileSort = sortConfig ? `${String(sortConfig.key)}:${sortConfig.direction}` : "";
 
+	const emptyContent = searchTerm || filters.length > 0 ? (
+		<div className="flex flex-col items-center gap-3 py-10 text-center">
+			<p className="text-sm text-muted-foreground">No papers match your search.</p>
+			<Button variant="outline" size="sm" onClick={clearSearchAndFilters}>Clear search and filters</Button>
+		</div>
+	) : (
+		<div className="flex flex-col items-center gap-4 px-4 py-10 text-center">
+			<div className="text-muted-foreground">
+				<p className="mb-1 text-base font-medium text-foreground">No papers in your library yet</p>
+				<p className="text-sm">Upload a paper and it will show up here.</p>
+			</div>
+			{onUploadClick && (
+				<Button className="bg-brand text-brand-foreground hover:bg-brand/90" onClick={onUploadClick}>
+					Upload your first paper
+				</Button>
+			)}
+		</div>
+	);
+
+	const renderTagChip = (paperId: string, tag: { id: string; name: string }) => (
+		<span
+			key={tag.id}
+			className="group/tag inline-flex max-w-full items-center rounded-md bg-brand/10 text-xs font-medium text-brand"
+		>
+			<button
+				type="button"
+				onClick={(e) => { e.stopPropagation(); handleTagClick(tag.name); }}
+				className="truncate rounded-md py-0.5 pl-2 pr-1 focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:outline-none"
+				title={`Filter by ${tag.name}`}
+			>
+				{tag.name}
+			</button>
+			<button
+				type="button"
+				aria-label={`Remove tag ${tag.name}`}
+				onClick={(e) => {
+					e.stopPropagation();
+					handleRemoveTag(paperId, tag.id);
+				}}
+				className="mr-0.5 rounded p-0.5 opacity-0 transition-opacity duration-150 group-hover/tag:opacity-100 hover:bg-brand/15 focus-visible:opacity-100 focus-visible:outline-none pointer-coarse:opacity-100"
+			>
+				<X className="size-3" />
+			</button>
+		</span>
+	);
+
+	const scrollBoxHeight = fillHeight ? "md:h-full" : CAPPED_HEIGHT;
 
 	return (
-		<div className="space-y-4 w-full max-w-full overflow-hidden" {...props}>
-			<div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-				<div className="flex flex-col md:flex-row items-start md:items-center gap-4 w-full">
+		<div
+			className={cn("flex w-full min-w-0 flex-col gap-3", fillHeight && "md:h-full md:min-h-0", className)}
+			{...props}
+		>
+			{/* Toolbar: search, filter, and (phones) sort */}
+			<div className="flex items-center gap-2">
+				<div className="relative min-w-0 flex-1 md:max-w-2xl">
+					<Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
 					<Input
-						placeholder="Filter papers by title, authors, organizations, or keywords..."
+						type="search"
+						aria-label="Search papers"
+						placeholder="Search papers"
 						value={searchTerm}
 						onChange={(e) => setSearchTerm(e.target.value)}
-						className="w-full md:max-w-xl"
+						className="h-10 pl-9"
 					/>
-					<PaperFiltering
-						papers={papers || []}
-						onFilterChange={setFilters}
-						onSortChange={() => { }}
-						filters={filters}
-						sort={sort}
-						showSort={false}
-					/>
-					{processedPapers.length !== (papers || []).length && (
-						<div className="text-sm text-muted-foreground">
-							Showing {processedPapers.length} of {(papers || []).length} papers
-						</div>
-					)}
 				</div>
-				{(!isMobile || selectedPapers.size > 0) && (
-					<div className="fixed md:relative bottom-4 md:bottom-auto right-4 md:right-auto z-50 md:z-auto bg-background md:bg-transparent p-4 md:p-0 rounded-lg md:rounded-none shadow-lg md:shadow-none border md:border-none">
-						<div className="flex flex-col md:flex-row md:items-center gap-4">
-							{selectable && onSelectFiles && (
-								<div
-									className={`flex flex-col md:flex-row items-start md:items-center gap-3 transition-all duration-200 ${selectedPapers.size > 0
-										? "opacity-100 translate-y-0"
-										: "opacity-0 translate-y-2 pointer-events-none"
-										}`}
-								>
-									{selectedPapers.size > 0 && (
-										<div className="flex items-center gap-2">
-											<span className="text-sm font-medium text-muted-foreground whitespace-nowrap">
-												{selectedPapers.size} paper{selectedPapers.size !== 1 ? 's' : ''}
-											</span>
-											<Button
-												variant="ghost"
-												size="icon"
-												className="h-6 w-6"
-												onClick={() => setSelectedPapers(new Set())}
-											>
-												<X className="h-4 w-4" />
-											</Button>
-										</div>
-									)}
-									<div className="flex items-center gap-2">
-										{actionOptions.map((action) => (
-											<Button
-												key={action}
-												variant="default"
-												size="sm"
-												onClick={() => handleAction(action)}
-												className="font-medium bg-blue-500 text-white hover:bg-blue-600 dark:hover:bg-blue-400 cursor-pointer"
-											>
-												{action}
-											</Button>
-										))}
-									</div>
-								</div>
-							)}
-							<div className={`flex items-center gap-2 transition-all duration-200 ${selectedPapers.size > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-								{selectable && (
-									<>
-										<DropdownMenu open={taggingPopoverOpen} onOpenChange={setTaggingPopoverOpen}>
-											<DropdownMenuTrigger asChild>
-												<Button variant="outline">
-													<Tag className="h-4 w-4 mr-2" />
-													Tag
-												</Button>
-											</DropdownMenuTrigger>
-											<DropdownMenuContent className="w-80">
-												<TagSelector
-													paperIds={Array.from(selectedPapers)}
-													onTagsApplied={() => {
-														setTaggingPopoverOpen(false);
-														mutate();
-													}}
-												/>
-											</DropdownMenuContent>
-										</DropdownMenu>
-
-										<DropdownMenu>
-											<DropdownMenuTrigger asChild>
-												<Button variant="outline">
-													Actions <ChevronDown className="h-4 w-4 ml-2" />
-												</Button>
-											</DropdownMenuTrigger>
-											<DropdownMenuContent>
-												{handleDelete && (
-													<DropdownMenuItem
-														onSelect={() => setConfirmDeleteOpen(true)}
-														disabled={selectedPapers.size === 0}
-														className="text-red-500"
-													>
-														<Trash2 className="h-4 w-4 mr-2" />
-														Delete ({selectedPapers.size})
-													</DropdownMenuItem>
-												)}
-											</DropdownMenuContent>
-										</DropdownMenu>
-										<AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
-											<AlertDialogContent>
-												<AlertDialogHeader>
-													<AlertDialogTitle>
-														Delete {selectedPapers.size} {selectedPapers.size === 1 ? 'paper' : 'papers'}?
-													</AlertDialogTitle>
-													<AlertDialogDescription>
-														{selectedPapers.size === 1 ? 'The selected paper' : `All ${selectedPapers.size} selected papers`} will be permanently deleted. This cannot be undone.
-													</AlertDialogDescription>
-												</AlertDialogHeader>
-												<AlertDialogFooter>
-													<AlertDialogCancel>Cancel</AlertDialogCancel>
-													<AlertDialogAction
-														onClick={handleDeletePapers}
-														className="bg-destructive text-white hover:bg-destructive/90"
-													>
-														Delete
-													</AlertDialogAction>
-												</AlertDialogFooter>
-											</AlertDialogContent>
-										</AlertDialog>
-									</>
-								)}
-							</div>
-						</div>
-					</div>
+				<PaperFiltering
+					papers={papers || []}
+					onFilterChange={setFilters}
+					onSortChange={() => { }}
+					filters={filters}
+					sort={sort}
+					showSort={false}
+				/>
+				<DropdownMenu>
+					<DropdownMenuTrigger asChild>
+						<Button variant="outline" size="icon-lg" className="shrink-0 md:hidden" aria-label="Sort papers">
+							<ArrowDownUp className="size-4" />
+						</Button>
+					</DropdownMenuTrigger>
+					<DropdownMenuContent align="end" className="w-52">
+						<DropdownMenuLabel>Sort by</DropdownMenuLabel>
+						<DropdownMenuRadioGroup
+							value={activeMobileSort}
+							onValueChange={(value) => {
+								const option = MOBILE_SORTS.find(o => `${String(o.key)}:${o.direction}` === value);
+								if (option) setSortConfig({ key: option.key, direction: option.direction });
+							}}
+						>
+							{MOBILE_SORTS.map(option => (
+								<DropdownMenuRadioItem key={option.label} value={`${String(option.key)}:${option.direction}`}>
+									{option.label}
+								</DropdownMenuRadioItem>
+							))}
+						</DropdownMenuRadioGroup>
+					</DropdownMenuContent>
+				</DropdownMenu>
+				{isNarrowed && (
+					<span className="ml-auto hidden shrink-0 text-sm text-muted-foreground tabular-nums md:block">
+						{processedPapers.length} of {totalCount}
+					</span>
 				)}
 			</div>
 
-			<div className="flex flex-wrap gap-2 mb-4">
-				{filters.map(filter => (
-					<Badge key={`${filter.type}-${filter.value}`} variant="secondary" className="flex items-center gap-1">
-						{filter.type}: {filter.value === NO_TAGS_FILTER_VALUE ? 'No tags' : filter.value}
-						<Button
-							variant="ghost"
-							size="sm"
-							className="h-4 w-4 p-0"
-							onClick={() => setFilters(filters.filter(f => f.value !== filter.value))}
+			{(filters.length > 0 || (isNarrowed && searchTerm)) && (
+				<div className="flex flex-wrap items-center gap-1.5">
+					{filters.map(filter => (
+						<span
+							key={`${filter.type}-${filter.value}`}
+							className="inline-flex h-7 items-center gap-1 rounded-full border bg-secondary pr-1 pl-2.5 text-xs text-secondary-foreground"
 						>
-							<X className="h-3 w-3" />
+							<span className="text-muted-foreground">{filter.type}:</span>
+							<span className="max-w-[12rem] truncate font-medium">
+								{filter.value === NO_TAGS_FILTER_VALUE ? 'No tags' : filter.value}
+							</span>
+							<button
+								type="button"
+								aria-label={`Remove ${filter.type} filter`}
+								className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+								onClick={() => setFilters(filters.filter(f => !(f.type === filter.type && f.value === filter.value)))}
+							>
+								<X className="size-3" />
+							</button>
+						</span>
+					))}
+					<span className="px-1 text-xs text-muted-foreground tabular-nums md:hidden">
+						{processedPapers.length} of {totalCount}
+					</span>
+					{filters.length > 0 && (
+						<Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" onClick={() => setFilters([])}>
+							Clear filters
 						</Button>
-					</Badge>
-				))}
-			</div>
+					)}
+				</div>
+			)}
 
-			<div className="grid grid-cols-1 gap-4 min-h-0" style={{
-				gridTemplateColumns: selectedPaperForPreview && !isMobile
-					? sidebarState === 'expanded'
-						? '1fr 320px'
-						: '1fr 384px'
-					: '1fr'
-			}}>
-				<div className="border bg-card transition-all duration-300 ease-in-out min-w-0 overflow-hidden">
-					<div
-						ref={tableContainerRef}
-						className="overflow-auto"
-						style={{ maxHeight }}
-					>
-						<Table noWrapperOverflow>
-							<TableHeader className="sticky top-0 bg-card z-10">
-								<TableRow className="border-b-2 bg-card">
-									{selectable && (
-										<TableHead className="w-12 text-center">
-											<Checkbox
-												checked={allAvailableSelected}
-												onCheckedChange={handleSelectAll}
-												disabled={availablePapers.length === 0}
-											/>
+			<div
+				className={cn(
+					"grid min-w-0 gap-4",
+					fillHeight && "md:min-h-0 md:flex-1 md:grid-rows-[minmax(0,1fr)]",
+					selectedPaperForPreview && (sidebarState === 'expanded'
+						? "md:grid-cols-[minmax(0,1fr)_320px]"
+						: "md:grid-cols-[minmax(0,1fr)_384px]"),
+				)}
+			>
+				<div className={cn("relative min-w-0", fillHeight && "md:min-h-0")}>
+					{/* Desktop: table */}
+					<div className={cn("hidden overflow-hidden rounded-xl border bg-card md:block", fillHeight && "md:h-full")}>
+						<div className={cn("overflow-auto", scrollBoxHeight, showBulkBar && "pb-16")}>
+							<Table noWrapperOverflow>
+								<TableHeader className="sticky top-0 z-10 [&_th]:bg-card/80 [&_th]:backdrop-blur-md [&_tr]:border-b-0">
+									<TableRow className="hover:bg-transparent [&_th]:shadow-[inset_0_-1px_0_var(--border)]">
+										{selectable && (
+											<TableHead className="w-12 pl-4 text-center">
+												<Checkbox
+													aria-label="Select all papers"
+													checked={allAvailableSelected}
+													onCheckedChange={(checked) => handleSelectAll(!!checked)}
+													disabled={availablePapers.length === 0}
+												/>
+											</TableHead>
+										)}
+										<TableHead
+											className={cn(selectedPaperForPreview ? "min-w-[17rem]" : "min-w-[20rem]", !selectable && "pl-4")}
+											aria-sort={sortConfig?.key === 'title' ? sortConfig.direction : 'none'}
+										>
+											<SortHeader label="Title" sortKey="title" sortConfig={sortConfig} onSort={requestSort} />
 										</TableHead>
-									)}
-									<TableHead className="min-w-[24rem]">
-										<Button
-											variant="ghost"
-											onClick={() => requestSort('title')}
-											className="h-auto p-0 font-semibold hover:bg-transparent hover:text-primary"
+										<TableHead className={cn("min-w-[11rem]", headerLabel)}>Authors</TableHead>
+										<TableHead className={cn("min-w-[11rem]", headerLabel, selectedPaperForPreview && "hidden")}>Organizations</TableHead>
+										<TableHead className={cn("min-w-[12rem]", headerLabel)}>Keywords</TableHead>
+										<TableHead className={cn("min-w-[9rem]", headerLabel)}>Tags</TableHead>
+										<TableHead
+											className="min-w-[7.5rem]"
+											aria-sort={sortConfig?.key === 'created_at' ? sortConfig.direction : 'none'}
 										>
-											Title
-											<ArrowUpDown className="ml-2 h-4 w-4" />
-										</Button>
-									</TableHead>
-									<TableHead className="min-w-[12rem]">
-										<Button
-											variant="ghost"
-											className="h-auto p-0 font-semibold hover:bg-transparent"
+											<SortHeader label="Added" sortKey="created_at" sortConfig={sortConfig} onSort={requestSort} />
+										</TableHead>
+										<TableHead
+											className={cn("min-w-[7.5rem] pr-4", selectedPaperForPreview && "hidden")}
+											aria-sort={sortConfig?.key === 'publish_date' ? sortConfig.direction : 'none'}
 										>
-											Authors
-										</Button>
-									</TableHead>
-									<TableHead className="min-w-[12rem]">
-										<Button
-											variant="ghost"
-											className="h-auto p-0 font-semibold hover:bg-transparent"
-										>
-											Organizations
-										</Button>
-									</TableHead>
-									<TableHead className="min-w-[10rem]">
-										<Button
-											variant="ghost"
-											className="h-auto p-0 font-semibold hover:bg-transparent"
-										>
-											Keywords
-										</Button>
-									</TableHead>
-									<TableHead className="min-w-[10rem]">
-										<Button
-											variant="ghost"
-											className="h-auto p-0 font-semibold hover:bg-transparent hover:text-primary"
-										>
-											Tags
-										</Button>
-									</TableHead>
-									<TableHead className="min-w-[8rem]">
-										<Button
-											variant="ghost"
-											onClick={() => requestSort('created_at')}
-											className="h-auto p-0 font-semibold hover:bg-transparent hover:text-primary"
-										>
-											Added
-											<ArrowUpDown className="ml-1 h-4 w-4" />
-										</Button>
-									</TableHead>
-									<TableHead className="min-w-[8rem]">
-										<Button
-											variant="ghost"
-											onClick={() => requestSort('publish_date')}
-											className="h-auto p-0 font-semibold hover:bg-transparent hover:text-primary"
-										>
-											Published
-											<ArrowUpDown className="ml-1 h-4 w-4" />
-										</Button>
-									</TableHead>
-								</TableRow>
-							</TableHeader>
-							<TableBody>
-							{processedPapers.length > 0 ? (
-								processedPapers.map((paper, index) => {
-									const isAlreadyInProject = projectPaperIds.includes(paper.id);
-									return (
-										<TableRow
-											key={paper.id}
-											onClick={() => {
-												if (selectable && !isAlreadyInProject) {
-													handleSelect(paper.id)
-												}
-											}}
-											className={`
-												border-b hover:bg-muted/50
-												${index % 2 === 0 ? 'bg-background' : 'bg-muted/20'}
-												${selectable && !isAlreadyInProject ? 'cursor-pointer' : ''}
-												${!selectable ? 'cursor-pointer' : ''}
-												${isAlreadyInProject ? 'opacity-60' : ''}
-											`}
-										>
-											{selectable && (
-												<TableCell
-													className="text-center py-4"
-													onClick={(e) => e.stopPropagation()}
-												>
-													{isAlreadyInProject ? (
-														<CheckCheck className="h-5 w-5 text-green-500 mx-auto" />
-													) : (
-														<Checkbox
-															checked={selectedPapers.has(paper.id)}
-															onCheckedChange={(checked) =>
-																handleSelect(paper.id, !!checked)
-															}
-														/>
-													)}
-												</TableCell>
-											)}
-											<TableCell className="py-4 pr-4 whitespace-normal">
-												<div
-													className="font-medium text-sm leading-relaxed break-words hyphens-auto line-clamp-3 underline cursor-pointer"
-													onClick={(e: React.MouseEvent<HTMLDivElement>) => {
-														e.stopPropagation();
-														setSelectedPaperForPreview(paper);
+											<SortHeader label="Published" sortKey="publish_date" sortConfig={sortConfig} onSort={requestSort} />
+										</TableHead>
+									</TableRow>
+								</TableHeader>
+								<TableBody>
+									{processedPapers.length > 0 ? (
+										processedPapers.map((paper, index) => {
+											const isAlreadyInProject = projectPaperIds.includes(paper.id);
+											const isSelected = selectedPapers.has(paper.id);
+											const isPreviewed = selectedPaperForPreview?.id === paper.id;
+											const enter = entrance(index, entranceActive);
+											return (
+												<TableRow
+													key={paper.id}
+													data-state={isSelected ? "selected" : undefined}
+													onClick={() => {
+														if (selectable && !isAlreadyInProject) {
+															handleSelect(paper.id)
+														}
 													}}
+													style={enter.style}
+													className={cn(
+														"border-b border-border/70 transition-colors duration-150 hover:bg-muted/40 data-[state=selected]:bg-brand/[0.06] data-[state=selected]:hover:bg-brand/10",
+														isPreviewed && !isSelected && "bg-muted/50",
+														(selectable && !isAlreadyInProject) || !selectable ? "cursor-pointer" : "",
+														isAlreadyInProject && "opacity-60",
+														enter.className,
+													)}
 												>
-													{paper.title || 'Untitled'}
-												</div>
-												{paper.processing && (
-													<Badge variant="outline" className="mt-1 text-[10px] font-normal text-muted-foreground">
-														processing
-													</Badge>
-												)}
-											</TableCell>
-											<TableCell className="py-4 pr-4 whitespace-normal">
-												<div className="text-sm text-muted-foreground leading-relaxed break-words hyphens-auto line-clamp-2">
-													{paper.authors?.length ? paper.authors.join(", ") : 'No authors'}
-												</div>
-											</TableCell>
-											<TableCell className="py-4 pr-4 whitespace-normal">
-												<div className="text-sm text-muted-foreground leading-relaxed break-words hyphens-auto line-clamp-2">
-													{paper.institutions?.length ? paper.institutions.join(", ") : 'No organizations'}
-												</div>
-											</TableCell>
-											<TableCell className="py-4 pr-4">
-												<div className="text-xs leading-relaxed">
-													{paper.keywords?.length ? (
-														<div className="flex flex-wrap gap-1">
-															{paper.keywords.slice(0, 3).map((keyword, i) => (
-																<span
-																	key={i}
-																	className="inline-block px-2 py-1 bg-secondary text-secondary-foreground rounded-sm"
-																>
-																	{keyword}
-																</span>
-															))}
-															{paper.keywords.length > 3 && (
-																<span className="text-muted-foreground text-xs">
-																	+{paper.keywords.length - 3} more
-																</span>
+													{selectable && (
+														<TableCell
+															className="pl-4 text-center"
+															onClick={(e) => e.stopPropagation()}
+														>
+															{isAlreadyInProject ? (
+																<CheckCheck className="mx-auto size-4 text-emerald-600 dark:text-emerald-400" aria-label="Already in project" />
+															) : (
+																<Checkbox
+																	aria-label={`Select ${paper.title || 'Untitled'}`}
+																	checked={isSelected}
+																	onCheckedChange={(checked) =>
+																		handleSelect(paper.id, !!checked)
+																	}
+																/>
 															)}
-														</div>
-													) : (
-														<span className="text-muted-foreground">No keywords</span>
+														</TableCell>
 													)}
-												</div>
-											</TableCell>
-											<TableCell className="py-4 pr-4">
-												<div className="text-xs leading-relaxed">
-													{paper.tags?.length ? (
-														<div className="flex flex-wrap gap-1 items-center">
-															{(expandedTags.has(paper.id) ? paper.tags : paper.tags.slice(0, 3)).map((tag) => (
-																<span
-																	key={tag.id}
-																	onClick={(e) => { e.stopPropagation(); handleTagClick(tag.name); }}
-																	className="group relative inline-flex items-center px-2 py-1 bg-blue-100 text-blue-800 rounded-sm dark:bg-blue-900 dark:text-blue-200 cursor-pointer"
-																>
-																	{tag.name}
-																	<button
-																		onClick={(e) => {
-																			e.stopPropagation();
-																			handleRemoveTag(paper.id, tag.id);
-																		}}
-																		className="ml-1.5 -mr-1 p-0.5 bg-blue-200/50 dark:bg-blue-800/50 text-blue-700 dark:text-blue-100 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+													<TableCell className={cn("py-3 pr-4 whitespace-normal", !selectable && "pl-4")}>
+														<button
+															type="button"
+															className={cn(
+																"line-clamp-2 rounded-sm text-left text-sm leading-snug font-semibold break-words transition-colors duration-150 hover:text-brand focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:ring-offset-2 focus-visible:ring-offset-card focus-visible:outline-none",
+																isPreviewed && "text-brand",
+															)}
+															onClick={(e) => {
+																e.stopPropagation();
+																setSelectedPaperForPreview(paper);
+															}}
+														>
+															{paper.title || 'Untitled'}
+														</button>
+														{paper.processing && (
+															<span className="mt-1.5 inline-flex items-center rounded-full border px-2 py-px text-[10px] font-medium text-muted-foreground">
+																Processing
+															</span>
+														)}
+													</TableCell>
+													<TableCell className="py-3 pr-4 whitespace-normal">
+														<div className="line-clamp-2 text-sm leading-snug break-words text-muted-foreground">
+															{paper.authors?.length ? paper.authors.join(", ") : <span className="text-muted-foreground/60">No authors</span>}
+														</div>
+													</TableCell>
+													<TableCell className={cn("py-3 pr-4 whitespace-normal", selectedPaperForPreview && "hidden")}>
+														<div className="line-clamp-2 text-sm leading-snug break-words text-muted-foreground">
+															{paper.institutions?.length ? paper.institutions.join(", ") : <span className="text-muted-foreground/60">—</span>}
+														</div>
+													</TableCell>
+													<TableCell className="py-3 pr-4 whitespace-normal">
+														{paper.keywords?.length ? (
+															<div className="flex flex-wrap items-center gap-1">
+																{paper.keywords.slice(0, 2).map((keyword, i) => (
+																	<span
+																		key={i}
+																		className="inline-block max-w-[11rem] truncate rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
+																		title={keyword}
 																	>
-																		<X className="h-2.5 w-2.5" />
+																		{keyword}
+																	</span>
+																))}
+																{paper.keywords.length > 2 && (
+																	<span className="text-xs text-muted-foreground/80 tabular-nums">
+																		+{paper.keywords.length - 2}
+																	</span>
+																)}
+															</div>
+														) : (
+															<span className="text-sm text-muted-foreground/60">—</span>
+														)}
+													</TableCell>
+													<TableCell className="py-3 pr-4 whitespace-normal">
+														{paper.tags?.length ? (
+															<div className="flex flex-wrap items-center gap-1">
+																{(expandedTags.has(paper.id) ? paper.tags : paper.tags.slice(0, 3)).map((tag) => renderTagChip(paper.id, tag))}
+																{paper.tags.length > 3 && !expandedTags.has(paper.id) && (
+																	<button
+																		type="button"
+																		onClick={(e) => { e.stopPropagation(); toggleExpandedTags(paper.id); }}
+																		className="rounded px-1 text-xs text-muted-foreground hover:text-foreground"
+																	>
+																		+{paper.tags.length - 3} more
 																	</button>
-																</span>
-															))}
-															{paper.tags.length > 3 && !expandedTags.has(paper.id) && (
-																<button
-																	onClick={(e) => { e.stopPropagation(); toggleExpandedTags(paper.id); }}
-																	className="text-muted-foreground text-xs hover:underline"
-																>
-																	+ {paper.tags.length - 3} more
-																</button>
-															)}
-														</div>
-													) : (
-														<span
-														className="text-muted-foreground cursor-pointer hover:underline"
-														onClick={(e) => {
-															e.stopPropagation();
-															const noTagsFilter: Filter = { type: 'tag', value: NO_TAGS_FILTER_VALUE };
-															if (!filters.some(f => f.type === 'tag' && f.value === NO_TAGS_FILTER_VALUE)) {
-																setFilters([...filters, noTagsFilter]);
-															}
-														}}
-													>
-														No tags
-													</span>
-													)}
-												</div>
-											</TableCell>
-											<TableCell className="py-4 pr-4">
-												<div className="text-sm text-muted-foreground whitespace-nowrap">
-													{paper.created_at ? new Date(paper.created_at).toLocaleDateString('en-US', {
-														month: 'short',
-														day: 'numeric',
-														year: 'numeric'
-													}) : 'N/A'}
-												</div>
-											</TableCell>
-											<TableCell className="py-4">
-												<div className="text-sm text-muted-foreground whitespace-nowrap">
-													{paper.publish_date ? new Date(paper.publish_date).toLocaleDateString('en-US', {
-														month: 'short',
-														day: 'numeric',
-														year: 'numeric'
-													}) : 'N/A'}
-												</div>
+																)}
+															</div>
+														) : (
+															<button
+																type="button"
+																className="rounded text-xs text-muted-foreground/70 transition-colors hover:text-foreground"
+																onClick={(e) => {
+																	e.stopPropagation();
+																	addFilter({ type: 'tag', value: NO_TAGS_FILTER_VALUE });
+																}}
+															>
+																No tags
+															</button>
+														)}
+													</TableCell>
+													<TableCell className="py-3 pr-4 text-sm whitespace-nowrap text-muted-foreground tabular-nums">
+														{formatDate(paper.created_at)}
+													</TableCell>
+													<TableCell className={cn("py-3 pr-4 text-sm whitespace-nowrap text-muted-foreground tabular-nums", selectedPaperForPreview && "hidden")}>
+														{formatDate(paper.publish_date)}
+													</TableCell>
+												</TableRow>
+											);
+										})
+									) : (
+										<TableRow className="hover:bg-transparent">
+											<TableCell colSpan={numCols} className="whitespace-normal">
+												{emptyContent}
 											</TableCell>
 										</TableRow>
-									);
-								})
-							) : (
-								<TableRow>
-									<TableCell colSpan={numCols} className="h-32 text-center">
-										{searchTerm || filters.length > 0 ? (
-											"No papers match your search criteria."
-										) : (
-											<div className="flex flex-col items-center gap-4 py-8">
-												<div className="text-muted-foreground text-center">
-													<p className="text-lg font-medium mb-2">No papers in your library yet</p>
-													<p className="text-sm">Upload your first research paper to get started. All your papers will appear here for easy access and organization.</p>
-												</div>
-												{onUploadClick && (
-													<Button variant="default" className="bg-blue-500 hover:bg-blue-600 text-white" onClick={onUploadClick}>
-														Upload Your First Paper
-													</Button>
+									)}
+								</TableBody>
+							</Table>
+						</div>
+					</div>
+
+					{/* Phones: card list */}
+					{selectable && availablePapers.length > 0 && (
+						<label className="-mt-1 flex h-10 w-fit cursor-pointer items-center gap-3 px-3 text-sm text-muted-foreground md:hidden">
+							<Checkbox
+								checked={allAvailableSelected}
+								onCheckedChange={(checked) => handleSelectAll(!!checked)}
+							/>
+							Select all
+						</label>
+					)}
+					{processedPapers.length > 0 ? (
+						<ul className={cn("divide-y divide-border/70 overflow-hidden rounded-xl border bg-card md:hidden", showBulkBar && "mb-20")}>
+							{processedPapers.map((paper, index) => {
+								const isAlreadyInProject = projectPaperIds.includes(paper.id);
+								const isSelected = selectedPapers.has(paper.id);
+								const authors = paper.authors ?? [];
+								const tags = paper.tags ?? [];
+								const enter = entrance(index, entranceActive);
+								return (
+									<li
+										key={paper.id}
+										style={enter.style}
+										className={cn(
+											"flex items-stretch transition-colors duration-150",
+											isSelected && "bg-brand/[0.06]",
+											isAlreadyInProject && "opacity-60",
+											enter.className,
+										)}
+									>
+										{selectable && (
+											<div className="flex w-12 shrink-0 justify-center pt-4">
+												{isAlreadyInProject ? (
+													<CheckCheck className="size-4 text-emerald-600 dark:text-emerald-400" aria-label="Already in project" />
+												) : (
+													// The pseudo-element widens the hit area to 40px.
+													<Checkbox
+														aria-label={`Select ${paper.title || 'Untitled'}`}
+														checked={isSelected}
+														onCheckedChange={(checked) => handleSelect(paper.id, !!checked)}
+														className="relative after:absolute after:-inset-3 after:content-['']"
+													/>
 												)}
 											</div>
 										)}
-									</TableCell>
-								</TableRow>
-							)}
-							</TableBody>
-						</Table>
-					</div>
-				</div>
-				{selectedPaperForPreview && (
-					isMobile ? (
-						<Sheet open={!!selectedPaperForPreview} onOpenChange={(open) => { if (!open) setSelectedPaperForPreview(null); }}>
-							<SheetContent side="bottom" className="h-[90vh] w-full flex flex-col p-0 overflow-hidden [&>button]:hidden">
-								<div className="overflow-y-auto flex-1">
-									<PaperPreview paper={selectedPaperForPreview} onClose={() => setSelectedPaperForPreview(null)} setPaper={setPaper} />
-								</div>
-							</SheetContent>
-						</Sheet>
+										<button
+											type="button"
+											onClick={() => setSelectedPaperForPreview(paper)}
+											className={cn(
+												"min-w-0 flex-1 py-3 pr-4 text-left transition-colors duration-150 focus-visible:bg-muted/60 focus-visible:outline-none active:bg-muted/60",
+												!selectable && "pl-4",
+											)}
+										>
+											<span className="line-clamp-2 text-[15px] leading-snug font-semibold break-words">
+												{paper.title || 'Untitled'}
+											</span>
+											<span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+												<span className="truncate">
+													{authors.length ? authors[0] : 'No authors'}
+													{authors.length > 1 && <span className="tabular-nums"> +{authors.length - 1}</span>}
+												</span>
+												<span aria-hidden className="text-muted-foreground/50">·</span>
+												<span className="shrink-0 tabular-nums">{formatDate(paper.created_at)}</span>
+											</span>
+											{(paper.processing || tags.length > 0) && (
+												<span className="mt-2 flex flex-wrap items-center gap-1">
+													{paper.processing && (
+														<span className="rounded-full border px-2 py-px text-[10px] font-medium text-muted-foreground">
+															Processing
+														</span>
+													)}
+													{tags.slice(0, 2).map(tag => (
+														<span key={tag.id} className="max-w-[9rem] truncate rounded-md bg-brand/10 px-1.5 py-px text-[11px] font-medium text-brand">
+															{tag.name}
+														</span>
+													))}
+													{tags.length > 2 && (
+														<span className="text-[11px] text-muted-foreground tabular-nums">+{tags.length - 2}</span>
+													)}
+												</span>
+											)}
+										</button>
+									</li>
+								);
+							})}
+						</ul>
 					) : (
-						<div className="overflow-hidden" style={{ maxHeight }}>
-							<PaperPreview paper={selectedPaperForPreview} onClose={() => setSelectedPaperForPreview(null)} setPaper={setPaper} />
-						</div>
-					)
+						<div className="rounded-xl border bg-card md:hidden">{emptyContent}</div>
+					)}
+
+					{/* Bulk actions: floating over the table on desktop, above the tab bar on phones. */}
+					<AnimatePresence>
+						{showBulkBar && (
+							<motion.div
+								key="bulk-bar"
+								role="toolbar"
+								aria-label="Selected papers"
+								initial={{ opacity: 0, y: 12 }}
+								animate={{ opacity: 1, y: 0 }}
+								exit={{ opacity: 0, y: 12, transition: { duration: 0.15 } }}
+								transition={{ duration: 0.22, ease: EASE_OUT_SOFT }}
+								className="fixed inset-x-0 bottom-[calc(var(--app-tabbar-h)+env(safe-area-inset-bottom)+0.75rem)] z-40 mx-auto flex w-fit max-w-[calc(100%-1.5rem)] items-center gap-1 rounded-full border bg-popover/95 p-1.5 shadow-lg shadow-black/10 backdrop-blur-md md:absolute md:bottom-4"
+							>
+								<Button
+									variant="ghost"
+									size="icon"
+									className="rounded-full text-muted-foreground"
+									aria-label="Clear selection"
+									onClick={() => setSelectedPapers(new Set())}
+								>
+									<X className="size-4" />
+								</Button>
+								<span className="pr-2 text-sm font-medium whitespace-nowrap tabular-nums">
+									{selectedPapers.size}<span className="max-[359px]:hidden"> selected</span>
+								</span>
+								{onSelectFiles && actionOptions.map((action) => (
+									<Button
+										key={action}
+										size="sm"
+										onClick={() => handleAction(action)}
+										className="h-9 rounded-full bg-brand px-4 font-medium text-brand-foreground hover:bg-brand/90"
+									>
+										{action}
+									</Button>
+								))}
+								<DropdownMenu open={taggingPopoverOpen} onOpenChange={setTaggingPopoverOpen}>
+									<DropdownMenuTrigger asChild>
+										<Button variant="ghost" size="sm" className="h-9 rounded-full px-3" aria-label="Tag selected papers">
+											<Tag className="size-4" />
+											<span className="max-[359px]:hidden">Tag</span>
+										</Button>
+									</DropdownMenuTrigger>
+									<DropdownMenuContent className="w-80 max-w-[calc(100vw-1.5rem)]" side="top" align="center">
+										<TagSelector
+											paperIds={Array.from(selectedPapers)}
+											onTagsApplied={() => {
+												setTaggingPopoverOpen(false);
+												mutate();
+											}}
+										/>
+									</DropdownMenuContent>
+								</DropdownMenu>
+								{handleDelete && (
+									<Button
+										variant="ghost"
+										size="icon"
+										className="rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+										aria-label={`Delete ${selectedPapers.size} selected`}
+										onClick={() => setConfirmDeleteOpen(true)}
+									>
+										<Trash2 className="size-4" />
+									</Button>
+								)}
+							</motion.div>
+						)}
+					</AnimatePresence>
+				</div>
+
+				{selectedPaperForPreview && !isMobile && (
+					<div
+						className={cn(
+							"hidden min-h-0 animate-in flex-col overflow-hidden duration-200 ease-out-soft fade-in slide-in-from-right-4 md:flex",
+							fillHeight ? "md:h-full" : CAPPED_HEIGHT,
+						)}
+					>
+						<PaperPreview paper={selectedPaperForPreview} onClose={() => setSelectedPaperForPreview(null)} setPaper={setPaper} />
+					</div>
 				)}
 			</div>
+
+			{selectedPaperForPreview && isMobile && (
+				<Sheet open={!!selectedPaperForPreview} onOpenChange={(open) => { if (!open) setSelectedPaperForPreview(null); }}>
+					<SheetContent side="bottom" className="flex h-[90dvh] w-full flex-col gap-0 overflow-hidden rounded-t-2xl p-0 [&>button]:hidden">
+						<SheetTitle className="sr-only">{selectedPaperForPreview.title || 'Paper preview'}</SheetTitle>
+						<div aria-hidden className="mx-auto mt-2 mb-1 h-1 w-10 shrink-0 rounded-full bg-muted-foreground/25" />
+						<div className="min-h-0 flex-1 overflow-y-auto">
+							<PaperPreview
+								paper={selectedPaperForPreview}
+								onClose={() => setSelectedPaperForPreview(null)}
+								setPaper={setPaper}
+								className="rounded-none border-0"
+							/>
+						</div>
+					</SheetContent>
+				</Sheet>
+			)}
+
+			<AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>
+							Delete {selectedPapers.size} {selectedPapers.size === 1 ? 'paper' : 'papers'}?
+						</AlertDialogTitle>
+						<AlertDialogDescription>
+							{selectedPapers.size === 1 ? 'The selected paper' : `All ${selectedPapers.size} selected papers`} will be permanently deleted. This cannot be undone.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							onClick={handleDeletePapers}
+							className="bg-destructive text-white hover:bg-destructive/90"
+						>
+							Delete
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</div>
 	);
 }

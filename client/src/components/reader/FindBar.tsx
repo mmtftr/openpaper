@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useAtom, useAtomValue } from "jotai";
 import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
-import { findMatchCountAtom, findOpenAtom, findQueryAtom } from "./atoms";
+import { findMatchCountAtom, findOpenAtom, findQueryAtom, readerActiveAtom } from "./atoms";
 import { viewerApiAtom } from "./useViewer";
 
 /**
@@ -20,7 +20,9 @@ export default function FindBar() {
 	const inputRef = useRef<HTMLInputElement>(null);
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+	const active = useAtomValue(readerActiveAtom);
 	useEffect(() => {
+		if (!active) return;
 		const onKey = (e: KeyboardEvent) => {
 			if ((e.ctrlKey || e.metaKey) && (e.key === "f" || e.code === "KeyF")) {
 				e.preventDefault();
@@ -29,7 +31,7 @@ export default function FindBar() {
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [setOpen]);
+	}, [active, setOpen]);
 
 	useEffect(() => {
 		if (open) inputRef.current?.focus();

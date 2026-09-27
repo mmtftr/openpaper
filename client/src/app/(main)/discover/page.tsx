@@ -280,9 +280,9 @@ function DiscoverPageContent() {
     const hasResults = submittedQuestion !== null
 
     return (
-        <div className={`w-full px-4 overflow-x-hidden ${!hasResults ? "min-h-[calc(100vh-4rem)] flex flex-col items-center justify-center" : "py-6 space-y-6"}`}>
+        <div className={`w-full flex-1 overflow-x-hidden px-4 ${!hasResults ? "flex flex-col items-center pt-8 pb-10 md:justify-center md:pb-16 md:pt-0" : "space-y-6 pt-6 pb-24"}`}>
             {!hasResults ? (
-                <div className="w-full space-y-6">
+                <div className="w-full animate-rise-in space-y-4">
                     <DiscoverInput
                         value={question}
                         onChange={setQuestion}
@@ -310,8 +310,8 @@ function DiscoverPageContent() {
             ) : (
                 <>
                     {/* Results header */}
-                    <div className="max-w-2xl mx-auto">
-                        <h1 className="text-xl font-semibold">{submittedQuestion}</h1>
+                    <div className="mx-auto max-w-2xl animate-rise-in">
+                        <h1 className="text-xl font-semibold tracking-tight text-balance">{submittedQuestion}</h1>
                     </div>
 
                     {(subqueries.length > 0 || loading) && (
@@ -336,7 +336,7 @@ function DiscoverPageContent() {
                         {loading && resultGroups.length === 0 && subqueries.length > 0 && (
                             <div className="space-y-4">
                                 {[...Array(4)].map((_, i) => (
-                                    <div key={i} className="py-4 border-b border-slate-200 dark:border-slate-800">
+                                    <div key={i} className="py-4 border-b border-border/70">
                                         <Skeleton className="h-5 w-3/4 mb-2" />
                                         <Skeleton className="h-3 w-1/3 mb-2" />
                                         <Skeleton className="h-4 w-full mb-1" />
@@ -349,9 +349,10 @@ function DiscoverPageContent() {
                         {dedupedGroups.map((group) => {
                             if (group.results.length === 0) return null
                             return (
-                                <div key={group.subquery}>
-                                    <div className="bg-slate-100 dark:bg-slate-800/50 rounded-md px-3 py-2 mb-2">
-                                        <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                // One fade/rise per group as it streams in; no per-item stagger.
+                                <div key={group.subquery} className="animate-rise-in">
+                                    <div className="mb-1 rounded-lg bg-muted/70 px-3 py-2">
+                                        <h3 className="text-sm font-medium text-foreground/80">
                                             {group.subquery}
                                         </h3>
                                     </div>
@@ -377,7 +378,7 @@ function DiscoverPageContent() {
                                         <button
                                             key={example}
                                             onClick={() => handleExampleClick(example)}
-                                            className="text-sm px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-left"
+                                            className="rounded-full border px-3 py-1.5 text-left text-sm transition-colors hover:bg-accent"
                                         >
                                             {example}
                                         </button>
@@ -389,8 +390,8 @@ function DiscoverPageContent() {
 
                     {/* Ask another question */}
                     {!loading && (
-                        <div className="fixed bottom-6 right-6">
-                            <Button onClick={handleReset} className="gap-2 shadow-lg">
+                        <div className="fixed right-4 bottom-[calc(var(--app-tabbar-h)+env(safe-area-inset-bottom)+0.75rem)] z-30 animate-rise-in md:right-6 md:bottom-6">
+                            <Button onClick={handleReset} className="h-10 gap-2 rounded-full px-4 shadow-lg">
                                 <Search className="h-4 w-4" />
                                 Find more literature
                             </Button>

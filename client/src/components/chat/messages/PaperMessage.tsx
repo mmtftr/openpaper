@@ -110,7 +110,7 @@ function UserMessage({
         <div data-message-index={index}>
             <Message from="user">
                 {user && (
-                    <Avatar className="size-6 shrink-0 ring-1 ring-border">
+                    <Avatar className="size-6 shrink-0 self-end ring-1 ring-border">
                         <AvatarImage
                             src={user.picture ?? undefined}
                             alt={user.name || user.email}

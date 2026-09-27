@@ -57,14 +57,14 @@ export default function SettingsPage() {
 
 	if (loading || !user) {
 		return (
-			<div className="flex items-center justify-center h-full">
+			<div className="flex items-center justify-center p-12">
 				<Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
 			</div>
 		);
 	}
 
 	return (
-		<div className="max-w-2xl p-6 space-y-6">
+		<div className="max-w-2xl animate-rise-in space-y-6 px-4 py-6 sm:px-6">
 			<div className="space-y-1">
 				<h2 className="text-lg font-medium">Profile</h2>
 				<p className="text-sm text-muted-foreground">Manage your account details.</p>
@@ -89,7 +89,7 @@ export default function SettingsPage() {
 						className="bg-muted"
 					/>
 				</div>
-				<Button type="submit" disabled={isSaving || !name.trim()}>
+				<Button type="submit" className="min-w-20" disabled={isSaving || !name.trim()}>
 					{isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
 					Save
 				</Button>

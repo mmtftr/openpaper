@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangleIcon } from "lucide-react";
 
-import { cn } from "@/lib/utils";
 import { PaperData } from "@/lib/schema";
 import { MAX_USER_REFERENCES, truncateReference } from "@/lib/userReferences";
 import { CodeViewerProvider } from "@/components/code/CodeViewerProvider";
@@ -27,7 +26,6 @@ import { useTurnFailures } from "./useTurnFailures";
 interface PaperChatPanelProps {
     id: string;
     paperData: PaperData;
-    isMobile: boolean;
     headerSlot?: React.ReactNode;
 }
 
@@ -36,7 +34,7 @@ interface PaperChatPanelProps {
  * references and citation jumps go through the paper store; the chat session
  * itself lives outside React (paperChatSessions.ts).
  */
-export function PaperChatPanel({ id, paperData, isMobile, headerSlot }: PaperChatPanelProps) {
+export function PaperChatPanel({ id, paperData, headerSlot }: PaperChatPanelProps) {
     const conversationList = useConversationList(id, Boolean(paperData));
     const { conversationId, setConversationId } = conversationList;
     const chat = usePaperChat(id, conversationId);
@@ -120,8 +118,6 @@ export function PaperChatPanel({ id, paperData, isMobile, headerSlot }: PaperCha
         [selectedModelOption, supportsReasoningEffort, reasoningEffort]
     );
 
-    const heightClass = isMobile ? "h-[calc(100vh-128px)]" : "h-[calc(100vh-64px)]";
-
     return (
         // Everything below can open the repo code viewer (citations, tool
         // chips, the repo-connect popover) through this one provider.
@@ -130,7 +126,7 @@ export function PaperChatPanel({ id, paperData, isMobile, headerSlot }: PaperCha
             onAttachReference={attachReference}
             chatModel={codeQuestionModel}
         >
-            <div className={cn("flex flex-col", heightClass, "min-h-0")}>
+            <div className="flex h-full min-h-0 flex-col">
                 <div className="flex items-center justify-between gap-1 px-2 py-1.5 border-b border-border/40">
                     <div className="flex items-center gap-1">
                         <ConversationSwitcher

@@ -313,6 +313,7 @@ export const ChatComposer = memo(
                                 : undefined
                         }
                         disabled={isStreaming ? false : !text.trim() || !canSend}
+                        className="rounded-xl"
                     />
                 </PromptInputFooter>
             </PromptInput>

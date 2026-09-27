@@ -11,6 +11,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { ArrowDownNarrowWide, Calendar, Check, ChevronDown, Search } from "lucide-react"
 import { useRef } from "react"
+import { LayoutGroup, motion } from "motion/react"
+import { PILL_SPRING } from "@/lib/motion"
 import type { Schemas } from "@/lib/api/client"
 
 export type DiscoverSource = Schemas["DiscoverSource"]
@@ -96,53 +98,63 @@ export default function DiscoverInput({
     const currentSortLabel = SORT_OPTIONS.find(o => o.value === sort)?.label || "Relevance"
     const currentYearFilterLabel = YEAR_FILTER_OPTIONS.find(o => o.value === yearFilter)?.label || "All time"
 
+    const chip = cn(
+        "flex h-10 items-center gap-1.5 rounded-md px-2.5 text-sm transition-colors sm:h-8 sm:px-2",
+        "hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    )
+
     return (
-        <div className="w-full max-w-2xl mx-auto space-y-4">
-            <h1 className="text-2xl font-semibold text-center">Discover Research</h1>
-            <p className="text-sm text-muted-foreground text-center">
-                Enter a research question and we&apos;ll find relevant papers across the web.
-            </p>
-            <div className="relative">
+        <div className="mx-auto w-full max-w-2xl space-y-4">
+            <div className="space-y-1.5 text-center">
+                <h1 className="text-2xl font-semibold tracking-tight">Discover Research</h1>
+                <p className="text-sm text-muted-foreground">
+                    Enter a research question and we&apos;ll find relevant papers across the web.
+                </p>
+            </div>
+            <div className="rounded-xl border bg-background shadow-xs transition-[border-color,box-shadow] duration-200 ease-out-soft focus-within:border-brand/50 focus-within:ring-4 focus-within:ring-brand/15 dark:bg-input/30">
                 <Textarea
                     ref={textareaRef}
+                    aria-label="Research question"
                     placeholder={PLACEHOLDERS[mode]}
                     value={value}
                     onChange={(e) => onChange(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    className="min-h-[100px] resize-none pb-12"
+                    enterKeyHint="search"
+                    // Leaves room for the Search button when the phone
+                    // keyboard scrolls the field into view.
+                    className="min-h-[88px] scroll-mb-28 resize-none rounded-xl border-0 bg-transparent px-3.5 pt-3 shadow-none focus-visible:ring-0 dark:bg-transparent"
                     rows={3}
                 />
 
-                {/* Controls inside textarea */}
-                <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
+                {/* Controls: in flow under the text so they can wrap on phones */}
+                <div className="flex flex-col gap-2 p-2 pt-0 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex flex-wrap items-center gap-1">
                         {/* Mode toggle */}
-                        <div className="flex items-center bg-muted rounded-md p-0.5">
-                            <button
-                                type="button"
-                                onClick={() => onModeChange("scholarly")}
-                                className={cn(
-                                    "px-2.5 py-1 text-sm rounded transition-colors",
-                                    mode === "scholarly"
-                                        ? "bg-background text-foreground shadow-sm"
-                                        : "text-muted-foreground hover:text-foreground"
-                                )}
-                            >
-                                Scholarly
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => onModeChange("explore")}
-                                className={cn(
-                                    "px-2.5 py-1 text-sm rounded transition-colors",
-                                    mode === "explore"
-                                        ? "bg-background text-foreground shadow-sm"
-                                        : "text-muted-foreground hover:text-foreground"
-                                )}
-                            >
-                                Explore
-                            </button>
-                        </div>
+                        <LayoutGroup id="discover-mode">
+                            <div className="mr-1 flex items-center rounded-lg bg-muted p-0.5" role="group" aria-label="Search mode">
+                                {(["scholarly", "explore"] as const).map((m) => (
+                                    <button
+                                        key={m}
+                                        type="button"
+                                        onClick={() => onModeChange(m)}
+                                        aria-pressed={mode === m}
+                                        className={cn(
+                                            "relative isolate h-9 rounded-md px-3 text-sm capitalize transition-colors sm:h-7 sm:px-2.5",
+                                            mode === m ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                                        )}
+                                    >
+                                        {mode === m && (
+                                            <motion.span
+                                                layoutId="mode-pill"
+                                                transition={PILL_SPRING}
+                                                className="absolute inset-0 -z-10 rounded-md bg-background shadow-sm dark:bg-accent"
+                                            />
+                                        )}
+                                        {m}
+                                    </button>
+                                ))}
+                            </div>
+                        </LayoutGroup>
 
                         {/* Academic mode: sort dropdown and open access filter */}
                         {mode === "scholarly" && (
@@ -151,11 +163,7 @@ export default function DiscoverInput({
                                     <PopoverTrigger asChild>
                                         <button
                                             type="button"
-                                            className={cn(
-                                                "flex items-center gap-1.5 text-sm rounded-md px-2 py-1 transition-colors",
-                                                "hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                                sort ? "text-foreground" : "text-muted-foreground"
-                                            )}
+                                            className={cn(chip, sort ? "text-foreground" : "text-muted-foreground")}
                                         >
                                             <ArrowDownNarrowWide className="h-3.5 w-3.5" />
                                             {currentSortLabel}
@@ -186,7 +194,7 @@ export default function DiscoverInput({
                                     </PopoverContent>
                                 </Popover>
 
-                                <label className="flex items-center gap-1.5 text-sm rounded-md px-2 py-1 cursor-pointer hover:bg-accent transition-colors">
+                                <label className={cn(chip, "cursor-pointer whitespace-nowrap")}>
                                     <Checkbox
                                         checked={onlyOpenAccess}
                                         onCheckedChange={(checked) => onOpenAccessChange(checked === true)}
@@ -196,7 +204,6 @@ export default function DiscoverInput({
                                         Open Access
                                     </span>
                                 </label>
-
                             </>
                         )}
 
@@ -206,11 +213,7 @@ export default function DiscoverInput({
                                 <PopoverTrigger asChild>
                                     <button
                                         type="button"
-                                        className={cn(
-                                            "flex items-center gap-1.5 text-sm rounded-md px-2 py-1 transition-colors",
-                                            "hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                            selectedCount > 0 ? "text-foreground" : "text-muted-foreground"
-                                        )}
+                                        className={cn(chip, selectedCount > 0 ? "text-foreground" : "text-muted-foreground")}
                                     >
                                         {sourcesLabel}
                                         <ChevronDown className="h-3.5 w-3.5" />
@@ -247,11 +250,7 @@ export default function DiscoverInput({
                             <PopoverTrigger asChild>
                                 <button
                                     type="button"
-                                    className={cn(
-                                        "flex items-center gap-1.5 text-sm rounded-md px-2 py-1 transition-colors",
-                                        "hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                        yearFilter ? "text-foreground" : "text-muted-foreground"
-                                    )}
+                                    className={cn(chip, yearFilter ? "text-foreground" : "text-muted-foreground")}
                                 >
                                     <Calendar className="h-3.5 w-3.5" />
                                     {currentYearFilterLabel}
@@ -286,8 +285,7 @@ export default function DiscoverInput({
                     <Button
                         onClick={onSubmit}
                         disabled={!value.trim() || loading}
-                        size="sm"
-                        className="gap-2"
+                        className="h-10 w-full shrink-0 gap-2 sm:h-8 sm:w-auto"
                     >
                         <Search className="h-4 w-4" />
                         Search

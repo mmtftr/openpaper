@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer';
 import {
@@ -38,9 +39,11 @@ interface CitePaperButtonProps {
     minimalist?: boolean;
     variant?: "ghost" | "outline";
     iconOnly?: boolean;
+    /** Drop the label below `md` (the paper header on phones). */
+    collapseLabel?: boolean;
 }
 
-export function CitePaperButton({ paper, paperId: providedPaperId, minimalist = false, variant = "ghost", iconOnly = false }: CitePaperButtonProps) {
+export function CitePaperButton({ paper, paperId: providedPaperId, minimalist = false, variant = "ghost", iconOnly = false, collapseLabel = false }: CitePaperButtonProps) {
     const pathname = usePathname();
     const [derivedPaperId, setDerivedPaperId] = useState<string | null>(null);
     const [isOpen, setIsOpen] = useState(false);
@@ -127,9 +130,14 @@ export function CitePaperButton({ paper, paperId: providedPaperId, minimalist = 
             <Quote className="h-4 w-4" />
         </Button>
     ) : (
-        <Button variant={variant} size="sm" className={variant === "outline" ? "h-8 px-3 text-xs" : ""}>
-            {(!minimalist || variant === "outline") && <Quote className="h-3.5 w-3.5 mr-1.5" />}
-            <span className={minimalist && variant !== "outline" ? "text-sm" : ""}>{isBibliography ? 'Bibliography' : 'Cite'}</span>
+        <Button
+            variant={variant}
+            size="sm"
+            className={cn(variant === "outline" && "h-8 px-3 text-xs", collapseLabel && "max-md:size-8 max-md:p-0 max-md:has-[>svg]:px-0")}
+            aria-label={isBibliography ? 'Bibliography' : 'Cite'}
+        >
+            {(!minimalist || variant === "outline") && <Quote className={cn("h-3.5 w-3.5", collapseLabel ? "md:mr-1.5" : "mr-1.5")} />}
+            <span className={cn(minimalist && variant !== "outline" && "text-sm", collapseLabel && "hidden md:inline")}>{isBibliography ? 'Bibliography' : 'Cite'}</span>
         </Button>
     );
 

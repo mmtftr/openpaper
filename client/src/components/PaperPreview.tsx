@@ -17,6 +17,7 @@ import useSWR from "swr";
 import { CitePaperButton } from "./CitePaperButton";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 
 function autoResize(el: HTMLTextAreaElement) {
     el.style.height = "auto";
@@ -27,6 +28,7 @@ interface PaperPreviewProps {
     paper: LibraryPaper;
     onClose: () => void;
     setPaper: (paperId: string, updatedPaper: LibraryPaper) => void;
+    className?: string;
 }
 
 function EditableField({
@@ -199,7 +201,7 @@ function EditableListField({
     );
 }
 
-export function PaperPreview({ paper, onClose, setPaper }: PaperPreviewProps) {
+export function PaperPreview({ paper, onClose, setPaper, className }: PaperPreviewProps) {
     const { highlights } = useHighlighterHighlights(paper.id);
     const [showAllHighlights, setShowAllHighlights] = useState(false);
     const [previewLoaded, setPreviewLoaded] = useState(false);
@@ -259,39 +261,43 @@ export function PaperPreview({ paper, onClose, setPaper }: PaperPreviewProps) {
     };
 
     return (
-        <div className="h-full border bg-card rounded-none transition-all duration-300 ease-in-out min-w-0 overflow-hidden flex flex-col">
+        <div className={cn("flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border bg-card", className)}>
             <div className="flex-grow p-4 relative overflow-y-auto">
                 <Button
                     variant="ghost"
                     size="icon"
-                    className="absolute top-2 right-2 z-10"
+                    className="absolute top-2 right-2 z-10 text-muted-foreground"
                     onClick={onClose}
+                    aria-label="Close preview"
                 >
                     <X className="h-4 w-4" />
                 </Button>
 
                 {/* Title + Actions */}
                 <div>
-                    <Link href={`/paper/${paper.id}`} passHref>
-                        <h3 className="font-bold text-lg mb-2 pr-8 hover:underline cursor-pointer flex items-center gap-2">
+                    <h3 className="mb-3 pr-10 text-lg leading-snug font-semibold">
+                        <Link
+                            href={`/paper/${paper.id}`}
+                            className="group/title rounded-sm transition-colors duration-150 hover:text-brand focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:outline-none"
+                        >
                             {paper.title || 'Untitled'}
-                            <ExternalLink className="h-4 w-4 flex-shrink-0" />
-                        </h3>
-                    </Link>
+                            <ExternalLink className="ml-1.5 inline-block size-3.5 -translate-y-px text-muted-foreground transition-colors group-hover/title:text-brand" />
+                        </Link>
+                    </h3>
                     <div className="flex items-center gap-2 flex-wrap">
-                        <Link href={`/paper/${paper.id}`} passHref>
-                            <Button size="sm" variant="outline" className="h-8 px-3 text-xs">
+                        <Button asChild size="sm" className="h-8 bg-brand px-3 text-xs text-brand-foreground hover:bg-brand/90">
+                            <Link href={`/paper/${paper.id}`}>
                                 <FileText className="h-3.5 w-3.5 mr-1.5" />
                                 Open
-                            </Button>
-                        </Link>
+                            </Link>
+                        </Button>
                         {loadedPaper?.file_url && (
-                            <a href={loadedPaper.file_url} target="_blank" rel="noopener noreferrer">
-                                <Button size="sm" variant="outline" className="h-8 px-3 text-xs">
+                            <Button asChild size="sm" variant="outline" className="h-8 px-3 text-xs">
+                                <a href={loadedPaper.file_url} target="_blank" rel="noopener noreferrer">
                                     <Download className="h-3.5 w-3.5 mr-1.5" />
                                     Download
-                                </Button>
-                            </a>
+                                </a>
+                            </Button>
                         )}
                         <CitePaperButton paper={[loadedPaper ?? paper]} minimalist={true} variant="outline" />
                         {paper.status && (
@@ -334,7 +340,7 @@ export function PaperPreview({ paper, onClose, setPaper }: PaperPreviewProps) {
                             key={paper.id}
                             src={paper.preview_url}
                             alt="Paper preview"
-                            className={`w-full h-auto rounded-md ${!previewLoaded ? "hidden" : ""}`}
+                            className={`w-full h-auto rounded-md border animate-in fade-in duration-200 ${!previewLoaded ? "hidden" : ""}`}
                             onLoad={() => setPreviewLoaded(true)}
                         />
                     </div>
@@ -498,7 +504,7 @@ export function PaperPreview({ paper, onClose, setPaper }: PaperPreviewProps) {
                         <h4 className="font-semibold text-sm">Tags</h4>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                                <Button variant="outline" size="sm" className="h-7 text-xs"><Plus className="h-2.5 w-2.5" /></Button>
+                                <Button variant="outline" size="icon-sm" className="size-7" aria-label="Add tag"><Plus className="size-3.5" /></Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent className="w-80" align="start">
                                 <TagSelector
@@ -510,13 +516,15 @@ export function PaperPreview({ paper, onClose, setPaper }: PaperPreviewProps) {
                     </div>
                     <div className="flex flex-wrap gap-2 items-center">
                         {paper.tags?.map(tag => (
-                            <span key={tag.id} className="group relative inline-flex items-center px-2 py-1 bg-blue-100 text-blue-800 rounded-sm dark:bg-blue-900 dark:text-blue-200 text-xs">
+                            <span key={tag.id} className="group/tag inline-flex items-center rounded-md bg-brand/10 py-0.5 pr-0.5 pl-2 text-xs font-medium text-brand">
                                 {tag.name}
                                 <button
+                                    type="button"
+                                    aria-label={`Remove tag ${tag.name}`}
                                     onClick={() => handleRemoveTag(tag.id)}
-                                    className="ml-1.5 -mr-1 p-0.5 bg-blue-200/50 dark:bg-blue-800/50 text-blue-700 dark:text-blue-100 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                                    className="ml-0.5 rounded p-0.5 opacity-0 transition-opacity duration-150 group-hover/tag:opacity-100 hover:bg-brand/15 focus-visible:opacity-100 focus-visible:outline-none pointer-coarse:opacity-100"
                                 >
-                                    <X className="h-2.5 w-2.5" />
+                                    <X className="size-3" />
                                 </button>
                             </span>
                         ))}

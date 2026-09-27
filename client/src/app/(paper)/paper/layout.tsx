@@ -1,16 +1,18 @@
 import { AppSidebar } from "@/components/AppSidebar";
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { Separator } from "@/components/ui/separator";
+import { AppHeader } from "@/components/AppHeader";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { SidebarController } from "@/components/utils/SidebarAutoCollapse";
-import Image from "next/image";
-import Link from "next/link";
 import { ManageProjectsButton } from "@/components/ManageProjectsButton";
-import { MobilePaperMenu } from "@/components/MobilePaperMenu";
 import { CitePaperButton } from "@/components/CitePaperButton";
 import { PaperStoreProvider } from "@/components/paper/PaperStoreProvider";
+import { PaperHeaderTitle } from "@/components/paper/PaperHeaderTitle";
 import { HeaderPaperStatusButton } from "@/components/HeaderPaperStatusButton";
 import { IngestFailureButton } from "@/components/ingest/IngestStatus";
 
+/**
+ * The reader is an app-like screen: the inset is exactly one viewport tall
+ * and the panes inside own their scrolling (the document never scrolls).
+ */
 export default function PaperLayout({
 	children,
 }: Readonly<{
@@ -19,33 +21,24 @@ export default function PaperLayout({
 	return (
 		<SidebarProvider>
 			<AppSidebar />
-			<SidebarInset>
+			<SidebarInset className="h-dvh overflow-hidden">
 				<PaperStoreProvider>
-					<header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-						<SidebarTrigger className="-ml-1" />
-						<Separator orientation="vertical" className="mr-2 h-4" />
-						<Link href="/" className="flex flex-1 items-center gap-2 hover:opacity-80 transition-opacity">
-							<Image
-								src="/openpaper.svg"
-								width={24}
-								height={24}
-								alt="Open Paper Logo"
-							/>
-							<span className="text-sm font-semibold">Open Paper</span>
-						</Link>
-						{/* Desktop buttons */}
-						<div className="hidden md:flex items-center gap-2">
-							<IngestFailureButton />
-							<ManageProjectsButton />
-							<HeaderPaperStatusButton />
-							<CitePaperButton />
-						</div>
-						{/* Mobile menu */}
-						<MobilePaperMenu />
-					</header>
-					<SidebarController>
-						{children}
-					</SidebarController>
+					<AppHeader
+						title={<PaperHeaderTitle />}
+						actions={
+							<div className="flex shrink-0 items-center gap-0.5 md:gap-1">
+								<IngestFailureButton />
+								<ManageProjectsButton />
+								<HeaderPaperStatusButton />
+								<CitePaperButton collapseLabel />
+							</div>
+						}
+					/>
+					<div className="flex min-h-0 flex-1 flex-col">
+						<SidebarController>
+							{children}
+						</SidebarController>
+					</div>
 				</PaperStoreProvider>
 			</SidebarInset>
 		</SidebarProvider>

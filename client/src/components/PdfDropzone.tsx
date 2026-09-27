@@ -102,15 +102,24 @@ export function PdfDropzone({ onFileSelect, onUrlClick, maxSizeMb = MAX_UPLOAD_S
     return (
         <div className="flex flex-col items-center space-y-6 w-full max-w-lg mx-auto">
             <div
+                role="button"
+                tabIndex={disabled ? -1 : 0}
+                aria-disabled={disabled}
                 onClick={handleClick}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleClick();
+                    }
+                }}
                 onDrop={handleDrop}
                 onDragOver={handleDragOver}
                 onDragEnter={handleDragEnter}
                 onDragLeave={handleDragLeave}
-                className={`flex flex-col items-center justify-center w-full p-8 border-2 border-dashed rounded-lg transition-colors duration-200 ease-in-out
-                    ${isDragging && !disabled ? 'border-primary bg-primary/10' : 'border-border'}
+                className={`flex w-full flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition-[border-color,background-color] duration-200 ease-out-soft focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-brand/30 sm:p-8
+                    ${isDragging && !disabled ? 'border-brand bg-brand/10' : 'border-border'}
                     ${error ? 'border-destructive' : ''}
-                    ${disabled ? 'cursor-not-allowed bg-secondary/50' : 'cursor-pointer hover:border-primary/50 hover:bg-secondary/50'}
+                    ${disabled ? 'cursor-not-allowed bg-secondary/50' : 'cursor-pointer hover:border-brand/40 hover:bg-brand/[0.04]'}
                 `}
                 style={{ minHeight: '200px' }}
             >
@@ -123,8 +132,8 @@ export function PdfDropzone({ onFileSelect, onUrlClick, maxSizeMb = MAX_UPLOAD_S
                     multiple={maxPapers > 1}
                     disabled={disabled}
                 />
-                <UploadCloud className={`h-12 w-12 mb-4 ${isDragging && !disabled ? 'text-primary' : 'text-muted-foreground'}`} />
-                <p className="text-center text-lg font-medium">
+                <UploadCloud className={`mb-4 h-12 w-12 transition-[color,transform] duration-200 ease-out-soft ${isDragging && !disabled ? 'scale-110 text-brand' : 'text-muted-foreground'}`} />
+                <p className="text-base font-medium sm:text-lg">
                     Click to upload, or drag and drop
                 </p>
                 <p className="text-sm text-muted-foreground mt-1">

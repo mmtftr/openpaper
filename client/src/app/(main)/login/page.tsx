@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { AlertCircle, ArrowLeft, Loader2 } from "lucide-react";
+import Image from "next/image";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
@@ -172,8 +173,8 @@ function LoginContent() {
 
 	if (loading) {
 		return (
-			<div className="h-full flex flex-col items-center justify-center py-8 space-y-6">
-				<Loader2 className="h-12 w-12 animate-spin text-primary" />
+			<div className="flex flex-1 items-center justify-center py-8">
+				<Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
 			</div>
 		);
 	}
@@ -196,18 +197,19 @@ function LoginContent() {
 	}
 
 	return (
-		<div className="flex items-center justify-center h-full p-4">
-			<Card className="w-full max-w-md relative">
-				<CardHeader className="text-center">
-					{ (showNameInput || showOtp) && (
-						<Button variant="ghost" size="icon" className="absolute top-6 left-5" onClick={handleBackToStart}>
+		<div className="flex flex-1 items-center justify-center px-4 py-10">
+			<Card className="relative w-full max-w-sm animate-rise-in gap-5 py-7 shadow-md sm:max-w-md">
+				<CardHeader className="gap-2 px-6 text-center sm:px-7">
+					{(showNameInput || showOtp) && (
+						<Button variant="ghost" size="icon" aria-label="Back" className="absolute top-4 left-4" onClick={handleBackToStart}>
 							<ArrowLeft className="h-5 w-5" />
 						</Button>
 					)}
-					<CardTitle className="text-2xl">{headerContent.title}</CardTitle>
-					<CardDescription>{headerContent.description}</CardDescription>
+					<Image src="/openpaper.svg" width={40} height={40} alt="" className="mx-auto mb-2" />
+					<CardTitle className="text-xl font-semibold tracking-tight sm:text-2xl">{headerContent.title}</CardTitle>
+					<CardDescription className="text-balance">{headerContent.description}</CardDescription>
 				</CardHeader>
-				<CardContent>
+				<CardContent className="px-6 sm:px-7">
 					<div className="space-y-4">
 						{(error || authError) && (
 							<Alert variant="destructive">
@@ -232,12 +234,16 @@ function LoginContent() {
 										</InputOTPGroup>
 									</InputOTP>
 								</div>
-								{isEmailLoading && <Loader2 className="h-6 w-6 animate-spin mx-auto" />}
+								{isEmailLoading && <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />}
 							</div>
 						) : showNameInput ? (
 							<form onSubmit={handleNameSubmit}>
-								<div className="space-y-2">
+								<div className="space-y-3">
 									<Input
+										aria-label="First name"
+										autoComplete="given-name"
+										autoFocus
+										className="h-10"
 										placeholder="First Name"
 										value={firstName}
 										onChange={(e) => setFirstName(e.target.value)}
@@ -245,6 +251,9 @@ function LoginContent() {
 										required
 									/>
 									<Input
+										aria-label="Last name"
+										autoComplete="family-name"
+										className="h-10"
 										placeholder="Last Name"
 										value={lastName}
 										onChange={(e) => setLastName(e.target.value)}
@@ -253,7 +262,7 @@ function LoginContent() {
 									/>
 									<Button
 										type="submit"
-										className="w-full"
+										className="h-10 w-full"
 										disabled={isEmailLoading || !firstName || !lastName}
 									>
 										{isEmailLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Continue"}
@@ -262,9 +271,14 @@ function LoginContent() {
 							</form>
 						) : (
 							<form onSubmit={handleEmailSignIn}>
-								<div className="space-y-2">
+								<div className="space-y-3">
 									<Input
 										type="email"
+										aria-label="Email"
+										autoComplete="email"
+										inputMode="email"
+										autoFocus
+										className="h-10"
 										placeholder="m@example.com"
 										value={email}
 										onChange={(e) => setEmail(e.target.value)}
@@ -273,11 +287,11 @@ function LoginContent() {
 									/>
 									<Button
 										type="submit"
-										className="w-full"
+										className="relative h-10 w-full"
 										disabled={isEmailLoading || !email}
 									>
 										{isEmailLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Continue with Email"}
-										{!isEmailLoading && lastUsedProvider === 'email' && <Badge variant="secondary" className="ml-auto">Last Used</Badge>}
+										{!isEmailLoading && lastUsedProvider === 'email' && <Badge variant="secondary" className="absolute right-2">Last used</Badge>}
 									</Button>
 								</div>
 							</form>
@@ -301,8 +315,8 @@ function LoginContent() {
 export default function LoginPage() {
 	return (
 		<Suspense fallback={
-			<div className="h-full flex items-center justify-center">
-				<Loader2 className="h-12 w-12 animate-spin text-primary" />
+			<div className="flex flex-1 items-center justify-center">
+				<Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
 			</div>
 		}>
 			<LoginContent />

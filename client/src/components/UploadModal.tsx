@@ -76,12 +76,16 @@ function UrlImportDialog({
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
                     <Input
+                        type="url"
+                        inputMode="url"
+                        autoFocus
+                        aria-label="PDF URL"
                         placeholder="https://arxiv.org/pdf/..."
                         value={url}
                         onChange={e => setUrl(e.target.value)}
                         onKeyDown={e => e.key === "Enter" && handleSubmit()}
                     />
-                    {errorMessage && <p className="text-red-500 text-sm">{errorMessage}</p>}
+                    {errorMessage && <p className="text-sm text-destructive">{errorMessage}</p>}
                     <Button onClick={handleSubmit}>Import</Button>
                 </div>
             </DialogContent>
@@ -173,7 +177,7 @@ export function UploadModal({ open, onOpenChange, uploadLimit = DEFAULT_UPLOAD_L
     return (
         <>
             <Dialog open={open} onOpenChange={onOpenChange}>
-                <DialogContent className="max-w-3xl">
+                <DialogContent className="sm:max-w-xl">
                     <DialogHeader>
                         <DialogTitle>Upload Papers</DialogTitle>
                         <DialogDescription>
@@ -184,7 +188,7 @@ export function UploadModal({ open, onOpenChange, uploadLimit = DEFAULT_UPLOAD_L
                         {isSubmitting ? (
                             <div className="flex flex-col items-center justify-center h-64 space-y-4">
                                 <LoadingIndicator />
-                                <p className="text-sm text-gray-600 dark:text-gray-400">Uploading your papers...</p>
+                                <p className="text-sm text-muted-foreground">Uploading your papers...</p>
                             </div>
                         ) : (
                             <PdfDropzone
@@ -195,7 +199,7 @@ export function UploadModal({ open, onOpenChange, uploadLimit = DEFAULT_UPLOAD_L
                             />
                         )}
                         {importError && (
-                            <p className="text-red-500 text-sm mt-2">{importError}</p>
+                            <p className="text-sm text-destructive">{importError}</p>
                         )}
                         {uploaded.length > 0 && (
                             <ul className="space-y-1">

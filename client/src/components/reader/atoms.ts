@@ -34,6 +34,12 @@ export const findQueryAtom = atom("");
 export const findMatchCountAtom = atom({ current: 0, total: 0 });
 
 export const outlineOpenAtom = atom(false);
+/**
+ * False while the reader is mounted but out of view (the phone layout keeps
+ * it alive behind other tabs): window-level shortcuts and the body-portaled
+ * selection toolbar stand down.
+ */
+export const readerActiveAtom = atom(true);
 export const outlineTabAtom = atom<"thumbnails" | "outline">("thumbnails");
 
 // --- Citation hover previews (see components/reader/citations) ---

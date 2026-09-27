@@ -8,7 +8,6 @@ import { ChevronDown, FileText, Loader } from 'lucide-react';
 import { api, unwrap, type Schemas } from '@/lib/api/client';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { useIsMobile } from '@/hooks/use-mobile';
 import { useStageRefreshKey } from '@/hooks/useIngest';
 import { FeatureGate } from '@/components/ingest/FeatureGate';
 
@@ -57,7 +56,6 @@ export function PaperMarkdownReader({
     supplementaryMaterials = [],
     onChangeDisplayed,
 }: PaperMarkdownReaderProps) {
-    const isMobile = useIsMobile();
     const [switcherOpen, setSwitcherOpen] = useState(false);
 
     // The markdown is OCR repair's output; figures are rendered by their own
@@ -176,7 +174,7 @@ export function PaperMarkdownReader({
         <div className="flex flex-col h-full">
             {header}
             <FeatureGate paperId={paperId} feature="figures" variant="inline" className="border-b" />
-            <div className={`flex-1 overflow-y-auto ${isMobile ? 'pb-24' : ''}`}>
+            <div className="flex-1 overflow-y-auto">
                 {loading ? (
                     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                         <Loader className="mr-2 h-4 w-4 animate-spin" />

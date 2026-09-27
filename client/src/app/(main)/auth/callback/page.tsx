@@ -30,9 +30,9 @@ function CallbackContent() {
 
 	if (error) {
 		return (
-			<div className="flex items-center justify-center min-h-screen">
+			<div className="flex flex-1 items-center justify-center px-4 py-10">
 				<div className="text-center">
-					<div className="mx-auto mb-4 rounded-full bg-red-100 p-3 text-red-600">
+					<div className="mx-auto mb-4 w-fit rounded-full bg-destructive/10 p-3 text-destructive">
 						<Info className="h-6 w-6" />
 					</div>
 					<h2 className="text-xl font-medium">Authentication Failed</h2>
@@ -44,10 +44,10 @@ function CallbackContent() {
 	}
 
 	return (
-		<div className="flex items-center justify-center min-h-[calc(100vh-64px)]">
+		<div className="flex flex-1 items-center justify-center px-4 py-10">
 			<div className="text-center">
 				<div className="h-full flex flex-col items-center justify-center py-8 space-y-6">
-					<Loader2 className="h-12 w-12 animate-spin text-primary" />
+					<Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
 				</div>
 				<h2 className="text-xl font-medium">Completing sign in...</h2>
 				<p className="text-muted-foreground">Please wait while we finish authenticating your account.</p>
@@ -60,10 +60,10 @@ export default function AuthCallback() {
 	return (
 		<Suspense
 			fallback={
-				<div className="flex items-center justify-center min-h-screen">
+				<div className="flex flex-1 items-center justify-center px-4 py-10">
 					<div className="text-center">
 						<div className="h-full flex flex-col items-center justify-center py-8 space-y-6">
-							<Loader2 className="h-12 w-12 animate-spin text-primary" />
+							<Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
 						</div>
 						<h2 className="text-xl font-medium">Loading...</h2>
 					</div>

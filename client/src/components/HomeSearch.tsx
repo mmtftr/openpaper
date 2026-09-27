@@ -210,21 +210,28 @@ export function HomeSearch() {
     }, [isOpen, selectableItems, selectedIndex, handleSelect]);
 
     return (
-        <div ref={containerRef} className="relative w-full max-w-2xl mx-auto px-4">
+        <div ref={containerRef} className="relative mx-auto w-full max-w-2xl">
             <div className="relative">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
                 <Input
                     ref={inputRef}
-                    type="text"
-                    placeholder="Search papers, projects, or ask a question..."
+                    type="search"
+                    aria-label="Search papers, projects and highlights"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     onFocus={() => setIsOpen(true)}
                     onKeyDown={handleKeyDown}
-                    className="w-full h-12 pl-12 pr-16 text-base rounded-xl border border-input bg-background focus:border-primary/50 focus-visible:ring-0 transition-all"
+                    className="h-12 w-full rounded-xl border border-input bg-background pl-12 pr-4 text-base shadow-xs md:text-base transition-[border-color,box-shadow] duration-200 ease-out-soft focus-visible:border-brand/50 focus-visible:ring-4 focus-visible:ring-brand/15 sm:pr-16 [&::-webkit-search-cancel-button]:hidden"
                 />
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1 text-xs text-muted-foreground pointer-events-none">
-                    <kbd className="hidden sm:inline-flex h-6 items-center gap-1 rounded border bg-background px-2 font-mono text-xs">
+                {/* The placeholder differs by width, which the attribute can't do. */}
+                {!query && (
+                    <span aria-hidden className="pointer-events-none absolute inset-y-0 left-12 right-4 flex items-center truncate text-base text-muted-foreground sm:right-16">
+                        <span className="truncate sm:hidden">Search your library</span>
+                        <span className="hidden truncate sm:inline">Search papers, projects and highlights…</span>
+                    </span>
+                )}
+                <div className="pointer-events-none absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1 text-xs text-muted-foreground">
+                    <kbd className="hidden h-6 items-center gap-1 rounded border bg-background px-2 font-mono text-xs sm:inline-flex">
                         <Command className="h-3 w-3" />K
                     </kbd>
                 </div>
@@ -232,7 +239,7 @@ export function HomeSearch() {
 
             {/* Search Results Dropdown */}
             {isOpen && query.trim() && (
-                <div className="absolute top-full left-0 right-0 mt-2 bg-background border rounded-xl shadow-lg overflow-hidden z-50">
+                <div className="absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-xl border bg-popover shadow-lg animate-in fade-in-0 slide-in-from-top-1 duration-150">
                     {isLoading ? (
                         <div className="flex items-center gap-2 px-4 py-3 text-muted-foreground">
                             <Loader2 className="h-4 w-4 animate-spin" />
@@ -253,7 +260,7 @@ export function HomeSearch() {
                                             onMouseEnter={() => setSelectedIndex(idx)}
                                             className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors ${selectedIndex === idx ? "bg-accent" : "hover:bg-accent"}`}
                                         >
-                                            <FolderKanban className="h-4 w-4 text-primary flex-shrink-0" />
+                                            <FolderKanban className="h-4 w-4 text-brand flex-shrink-0" />
                                             <div className="min-w-0">
                                                 <p className="font-medium truncate">{project.title}</p>
                                                 {project.description && (
@@ -288,7 +295,7 @@ export function HomeSearch() {
                                                     onMouseEnter={() => setSelectedIndex(itemIndex)}
                                                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors ${selectedIndex === itemIndex ? "bg-accent" : "hover:bg-accent"}`}
                                                 >
-                                                    <FileText className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                                                    <FileText className="h-4 w-4 text-brand flex-shrink-0" />
                                                     <div className="min-w-0 flex-1">
                                                         <p className="font-medium truncate">{paper.title || "Untitled Paper"}</p>
                                                         {paper.authors && paper.authors.length > 0 && (

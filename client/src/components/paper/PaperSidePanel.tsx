@@ -31,14 +31,12 @@ export function PaperSidePanel({ isMobile }: { isMobile: boolean }) {
     const parentPaperId = usePaperAtomValue(parentPaperIdAtom);
     const displayedPaperId = usePaperAtomValue(displayedPaperIdAtom);
 
-    const heightClass = isMobile ? "h-[calc(100vh-128px)]" : "h-[calc(100vh-64px)]";
-
     if (tab === "Read" || !paper) return null;
 
     return (
-        <div className={`flex-grow h-full overflow-hidden ${isMobile ? "" : "pr-[60px]"}`}>
+        <div className={`min-w-0 flex-grow h-full overflow-hidden ${isMobile ? "" : "pr-[52px]"}`}>
             {tab === "Annotations" && user && (
-                <div className={`flex flex-col ${heightClass} overflow-y-auto`}>
+                <div className={`flex flex-col h-full overflow-y-auto`}>
                     <FeatureGate
                         paperId={displayedPaperId || parentPaperId}
                         feature="ai_highlights"
@@ -50,17 +48,16 @@ export function PaperSidePanel({ isMobile }: { isMobile: boolean }) {
             )}
 
             {tab === "Doc" && (
-                <div className={`flex flex-col ${heightClass}`}>
+                <div className={`flex flex-col h-full`}>
                     <PaperDocEditor paperId={parentPaperId} />
                 </div>
             )}
 
             {tab === "Chat" && (
-                <FeatureGate paperId={parentPaperId} feature="chat" className={heightClass}>
+                <FeatureGate paperId={parentPaperId} feature="chat" className="h-full">
                     <PaperChatPanel
                         id={parentPaperId}
                         paperData={paper}
-                        isMobile={isMobile}
                         headerSlot={<MetadataPopover paperData={paper} />}
                     />
                 </FeatureGate>

@@ -5,6 +5,8 @@ import { createPortal } from "react-dom";
 import { Copy, Highlighter, MessageCircle, StickyNote } from "lucide-react";
 import type { HighlightColor } from "@/lib/schema";
 import { captureAnchor, clearSelection } from "./anchoring";
+import { useAtomValue } from "jotai";
+import { readerActiveAtom } from "./atoms";
 import { useReaderContext } from "./ReaderContext";
 import { HIGHLIGHT_COLOR_SWATCHES } from "./highlightColors";
 import type { TextAnchor } from "./types";
@@ -109,6 +111,15 @@ export default function SelectionLayer({
 		setSel(null);
 		setPickerOpen(false);
 	}, []);
+
+	// The toolbar is portaled to <body>, outside the hidden reader: drop the
+	// selection when the reader goes out of view.
+	const active = useAtomValue(readerActiveAtom);
+	useEffect(() => {
+		if (active) return;
+		clearSelection();
+		dismiss();
+	}, [active, dismiss]);
 
 	const captureFromSelection = useCallback(
 		(clientX: number | null): SelState | null => {
@@ -257,7 +268,7 @@ export default function SelectionLayer({
 		};
 	}, [hasSel]);
 
-	if (!sel) return null;
+	if (!sel || !active) return null;
 
 	const toolbarW = window.matchMedia("(pointer: coarse)").matches
 		? TOOLBAR_W_TOUCH

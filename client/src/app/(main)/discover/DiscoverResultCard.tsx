@@ -58,13 +58,13 @@ export default function DiscoverResultCard({ result }: DiscoverResultCardProps) 
     const hasMetadata = authorsDisplay || publishedYear || result.source || (result.cited_by_count != null && result.cited_by_count > 0)
 
     return (
-        <div className="py-4 border-b border-slate-200 dark:border-slate-800 last:border-b-0 group">
+        <div className="group border-b border-border/70 py-4 last:border-b-0">
             <div className="space-y-1.5">
                 <a
                     href={result.url ?? undefined}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="font-medium text-sm hover:underline flex items-start gap-1.5"
+                    className="flex items-start gap-1.5 text-sm font-medium underline-offset-2 hover:underline"
                 >
                     {result.favicon && (
                         <img
@@ -74,7 +74,7 @@ export default function DiscoverResultCard({ result }: DiscoverResultCardProps) 
                         />
                     )}
                     <span className="flex-1">{result.title}</span>
-                    <ExternalLink className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <ExternalLink className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-muted-foreground opacity-60 transition-opacity pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100" />
                 </a>
 
                 {hasMetadata && (

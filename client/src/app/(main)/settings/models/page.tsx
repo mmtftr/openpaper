@@ -128,18 +128,18 @@ function SlotRow({
 	};
 
 	return (
-		<div className="space-y-3 rounded-lg border p-4">
+		<div className="space-y-3 rounded-xl border p-4">
 			<div className="space-y-1">
-				<div className="flex items-center gap-2">
-					<h3 className="font-medium">{slot.description || slot.slot}</h3>
-					{saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+				<div className="flex items-start gap-2">
+					<h3 className="min-w-0 font-medium leading-snug">{slot.description || slot.slot}</h3>
+					{saving && <Loader2 className="mt-1 h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />}
 				</div>
-				<p className="font-mono text-xs text-muted-foreground">{slot.slot}</p>
+				<p className="break-all font-mono text-xs text-muted-foreground">{slot.slot}</p>
 			</div>
 
-			<div className="flex flex-wrap gap-2">
+			<div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
 				<Select value={selected} onValueChange={onModelChange} disabled={saving}>
-					<SelectTrigger className="w-80">
+					<SelectTrigger aria-label="Model" className="w-full min-w-0 data-[size=default]:h-10 sm:w-80 sm:data-[size=default]:h-9">
 						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
@@ -184,7 +184,7 @@ function SlotRow({
 						onValueChange={onEffortChange}
 						disabled={saving}
 					>
-						<SelectTrigger className="w-44">
+						<SelectTrigger aria-label="Reasoning effort" className="w-full data-[size=default]:h-10 sm:w-44 sm:data-[size=default]:h-9">
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
@@ -261,7 +261,7 @@ export default function ModelSettingsPage() {
 	}
 
 	return (
-		<div className="max-w-3xl p-6 space-y-6">
+		<div className="animate-rise-in space-y-6 px-4 py-6 sm:px-6">
 			<div className="space-y-1">
 				<h2 className="text-lg font-medium">Models</h2>
 				<p className="text-sm text-muted-foreground">
@@ -274,7 +274,7 @@ export default function ModelSettingsPage() {
 					{error instanceof Error ? error.message : "Failed to load model settings."}
 				</p>
 			) : (
-				<div className="space-y-4">
+				<div className="space-y-3">
 					{settings.slots.map((slot) => (
 						<SlotRow
 							key={slot.slot}

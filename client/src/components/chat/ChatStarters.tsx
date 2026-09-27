@@ -23,6 +23,8 @@ export function ChatStarters({ onPick }: { onPick: (prompt: string) => void }) {
                     key={i}
                     suggestion={q === COMPREHENSIVE_OVERVIEW_DISPLAY ? COMPREHENSIVE_OVERVIEW_PROMPT : q}
                     onClick={onPick}
+                    className="animate-rise-in font-normal text-muted-foreground hover:text-foreground"
+                    style={{ animationDelay: `${i * 40}ms` }}
                 >
                     {q}
                 </Suggestion>

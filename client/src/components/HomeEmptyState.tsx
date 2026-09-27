@@ -66,7 +66,7 @@ export function HomeEmptyState({ onUploadComplete, onUploadStart, onUrlImportSta
 
     return (
         <div
-            className={`flex flex-col items-center justify-center py-16 px-4 text-center max-w-2xl mx-auto min-h-[60vh] transition-colors duration-200 rounded-lg ${isDragging ? 'bg-primary/5 ring-2 ring-primary ring-dashed' : ''
+            className={`mx-auto flex min-h-[60vh] max-w-2xl animate-rise-in flex-col items-center justify-center rounded-xl px-4 py-16 text-center transition-[background-color,box-shadow] duration-200 ease-out-soft ${isDragging ? 'bg-brand/5 ring-2 ring-brand/60' : ''
                 }`}
             onDragEnter={handleDragEnter}
             onDragLeave={handleDragLeave}
@@ -82,7 +82,7 @@ export function HomeEmptyState({ onUploadComplete, onUploadStart, onUrlImportSta
 
             <Button
                 size="lg"
-                className="bg-primary hover:bg-primary/90"
+                className="bg-brand text-brand-foreground hover:bg-brand/90"
                 onClick={handleUploadClick}
             >
                 <Upload className="h-4 w-4 mr-2" />
@@ -90,7 +90,7 @@ export function HomeEmptyState({ onUploadComplete, onUploadStart, onUrlImportSta
             </Button>
 
             {/* Feature highlights */}
-            <div className="flex items-center justify-center gap-8 mt-12 text-blue-500">
+            <div className="mt-12 flex items-start justify-center gap-6 text-brand sm:gap-8">
                 <div className="flex flex-col items-center gap-1 max-w-24">
                     <Library className="h-5 w-5" />
                     <span className="text-xs font-medium text-foreground">Library</span>

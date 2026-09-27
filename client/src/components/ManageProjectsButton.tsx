@@ -20,9 +20,9 @@ export function ManageProjectsButton() {
     }
 
     const triggerButton = (
-        <Button variant="ghost" size="sm">
-            <FolderKanban className="h-4 w-4 mr-2" />
-            <span>Projects</span>
+        <Button variant="ghost" size="sm" className="max-md:size-8 max-md:p-0 max-md:has-[>svg]:px-0" aria-label="Projects">
+            <FolderKanban className="h-4 w-4" />
+            <span className="hidden md:inline">Projects</span>
         </Button>
     );
 

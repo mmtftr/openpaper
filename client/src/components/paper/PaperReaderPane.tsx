@@ -29,9 +29,10 @@ import { useSupplementaryMaterials } from "./useSupplementaryMaterials";
  * reader itself stays prop-driven (the benchmarks mount it bare).
  *
  * `mobile`: the reader shares the screen with nothing, so there is no read
- * mode and no Annotations panel to keep in step.
+ * mode and no Annotations panel to keep in step. `active`: false while the
+ * phone layout keeps the reader mounted behind another tab.
  */
-export function PaperReaderPane({ mobile = false }: { mobile?: boolean }) {
+export function PaperReaderPane({ mobile = false, active = true }: { mobile?: boolean; active?: boolean }) {
     const { user } = useAuth();
     const paper = usePaperAtomValue(paperAtom);
     const displayedPaper = usePaperAtomValue(displayedPaperAtom);
@@ -130,6 +131,7 @@ export function PaperReaderPane({ mobile = false }: { mobile?: boolean }) {
             supplementaryMaterials={materials}
             onChangeDisplayed={setDisplayedPaperId}
             onSupplementaryUploaded={refetch}
+            active={active}
         />
     );
 }

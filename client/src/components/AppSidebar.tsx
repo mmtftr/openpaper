@@ -27,10 +27,9 @@ import {
 import { useMemo } from "react";
 import useSWR from "swr";
 import { api, unwrap } from "@/lib/api/client";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useAuth, User } from "@/lib/auth";
-import { Avatar } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
     Popover,
@@ -73,9 +72,23 @@ const items = [
         url: "/discover",
         icon: Compass,
         requiresAuth: true,
-        isNew: true,
     },
 ]
+
+function initials(user: User) {
+    const source = (user.name || user.email || "?").trim();
+    const parts = source.split(/[\s@._-]+/).filter(Boolean);
+    return ((parts[0]?.[0] ?? "?") + (parts[1]?.[0] ?? "")).toUpperCase();
+}
+
+const UserAvatar = ({ user, className }: { user: User; className?: string }) => (
+    <Avatar className={className}>
+        {user.picture && <AvatarImage src={user.picture} alt={user.name || user.email} />}
+        <AvatarFallback className="bg-brand/15 text-[10px] font-semibold text-brand">
+            {initials(user)}
+        </AvatarFallback>
+    </Avatar>
+)
 
 const UserMenuContent = ({
     user,
@@ -90,13 +103,10 @@ const UserMenuContent = ({
 }) => (
     <div className="flex flex-col gap-1">
         <div className="flex items-center gap-3 p-3">
-            <Avatar className="h-10 w-10">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                {user.picture ? (<img src={user.picture} alt={user.name || user.email} />) : (<UserIcon size={24} />)}
-            </Avatar>
-            <div>
-                <h3 className="font-medium">{user.name || user.email}</h3>
-                <p className="text-sm text-muted-foreground">{user.email}</p>
+            <UserAvatar user={user} className="h-10 w-10 [&_[data-slot=avatar-fallback]]:text-sm" />
+            <div className="min-w-0">
+                <h3 className="truncate font-medium">{user.name || user.email}</h3>
+                <p className="truncate text-sm text-muted-foreground">{user.email}</p>
             </div>
         </div>
         <Link href="/settings" className="w-full">
@@ -135,6 +145,7 @@ export function AppSidebar() {
     const darkMode = resolvedTheme === "dark";
     const toggleDarkMode = () => setTheme(darkMode ? "light" : "dark");
     const isMobile = useIsMobile();
+    const pathname = usePathname();
 
     const onFetchError = (error: unknown) => console.error("Error fetching sidebar data:", error);
     const { data: activePapers } = useSWR(
@@ -165,7 +176,7 @@ export function AppSidebar() {
     }
 
     return (
-        <Sidebar variant="floating">
+        <Sidebar>
             <SidebarContent>
                 <SidebarGroup>
                     <SidebarGroupContent>
@@ -183,6 +194,7 @@ export function AppSidebar() {
                                             viewAllUrl="/papers"
                                             viewAllText="View all papers"
                                             defaultOpen={true}
+                                            pathname={pathname}
                                         />
                                     )
                                 }
@@ -200,20 +212,20 @@ export function AppSidebar() {
                                             viewAllText="View all projects"
                                             defaultOpen={false}
                                             maxItems={3}
+                                            pathname={pathname}
                                         />
                                     )
                                 }
+                                const active = item.url === "/" ? pathname === "/" : pathname.startsWith(item.url);
                                 return (
                                     <SidebarMenuItem key={item.title}>
-                                        <SidebarMenuButton asChild>
-                                            <Link href={item.requiresAuth && !user ? "/login" : item.url}>
+                                        <SidebarMenuButton asChild isActive={active}>
+                                            <Link
+                                                href={item.requiresAuth && !user ? "/login" : item.url}
+                                                aria-current={active ? "page" : undefined}
+                                            >
                                                 <item.icon />
                                                 <span>{item.title}</span>
-                                                {item.isNew && (
-                                                    <Badge className="ml-auto text-[10px] px-1.5 py-0 bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900">
-                                                        New
-                                                    </Badge>
-                                                )}
                                             </Link>
                                         </SidebarMenuButton>
                                     </SidebarMenuItem>
@@ -226,37 +238,31 @@ export function AppSidebar() {
             <SidebarFooter>
                 {/* User Profile (if logged in) */}
                 {user && (
-                    <SidebarMenuItem className="mb-2">
+                    <SidebarMenuItem>
                         {isMobile ? (
                             <Sheet>
                                 <SheetTrigger asChild>
-                                    <SidebarMenuButton className="flex items-center gap-2">
-                                        <span className="flex items-center gap-2 truncate">
-                                            <Avatar className="h-6 w-6">
-                                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                                {user.picture ? <img src={user.picture} alt={user.name || user.email} /> : <UserIcon size={16} />}
-                                            </Avatar>
+                                    <SidebarMenuButton size="lg" className="flex items-center gap-2">
+                                        <span className="flex min-w-0 items-center gap-2">
+                                            <UserAvatar user={user} className="h-6 w-6" />
                                             <span className="truncate">{user.name || user.email}</span>
                                         </span>
-                                        <ChevronsUpDown className="h-4 w-4 ml-auto" />
+                                        <ChevronsUpDown className="ml-auto h-4 w-4 text-muted-foreground" />
                                     </SidebarMenuButton>
                                 </SheetTrigger>
-                                <SheetContent side="bottom">
+                                <SheetContent side="bottom" className="gap-0 rounded-t-2xl px-2 pt-2 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
                                     <UserMenuContent user={user} handleLogout={handleLogout} toggleDarkMode={toggleDarkMode} darkMode={darkMode} />
                                 </SheetContent>
                             </Sheet>
                         ) : (
                             <Popover>
                                 <PopoverTrigger asChild>
-                                    <SidebarMenuButton className="flex items-center gap-2">
-                                        <span className="flex items-center gap-2 truncate">
-                                            <Avatar className="h-6 w-6">
-                                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                                {user.picture ? (<img src={user.picture} alt={user.name || user.email} />) : (<UserIcon size={16} />)}
-                                            </Avatar>
+                                    <SidebarMenuButton size="lg" className="flex items-center gap-2">
+                                        <span className="flex min-w-0 items-center gap-2">
+                                            <UserAvatar user={user} className="h-6 w-6" />
                                             <span className="truncate">{user.name || user.email}</span>
                                         </span>
-                                        <ChevronsUpDown className="h-4 w-4 ml-auto" />
+                                        <ChevronsUpDown className="ml-auto h-4 w-4 text-muted-foreground" />
                                     </SidebarMenuButton>
                                 </PopoverTrigger>
                                 <PopoverContent className="w-60 p-1" align="start">
@@ -282,6 +288,6 @@ export function AppSidebar() {
                     </SidebarMenuItem>
                 )}
             </SidebarFooter>
-        </Sidebar >
+        </Sidebar>
     )
 }

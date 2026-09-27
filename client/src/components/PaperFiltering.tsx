@@ -21,7 +21,8 @@ import {
     CommandList,
 } from "@/components/ui/command"
 import { Button } from "@/components/ui/button"
-import { ChevronsUpDown, Check } from "lucide-react"
+import { Check, ListFilter } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { PaperItem } from "@/lib/schema";
 import { PaperStatusEnum } from "@/components/utils/PdfStatus";
 
@@ -44,9 +45,10 @@ interface PaperFilteringProps {
     filters: Filter[]
     sort: Sort
     showSort?: boolean
+    className?: string
 }
 
-export function PaperFiltering({ papers, onFilterChange, onSortChange, filters, sort, showSort = true }: PaperFilteringProps) {
+export function PaperFiltering({ papers, onFilterChange, onSortChange, filters, sort, showSort = true, className }: PaperFilteringProps) {
     const authors = Array.from(new Set(papers.flatMap(p => p.authors || [])))
     const keywords = Array.from(new Set(papers.flatMap(p => p.keywords || [])))
     const tags = Array.from(new Set(papers.flatMap(p => p.tags?.map(t => t.name) || [])))
@@ -71,18 +73,23 @@ export function PaperFiltering({ papers, onFilterChange, onSortChange, filters, 
     }
 
     return (
-        <div>
+        <div className={cn("shrink-0", className)}>
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <Button
                         variant="outline"
-                        className="w-[200px] justify-between"
+                        className={cn("h-10 gap-2 px-3", filters.length > 0 && "border-brand/40 text-brand")}
                     >
-                        {showSort ? "Filter & Sort" : "Filter"}
-                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        <ListFilter className="size-4" />
+                        <span className="max-[359px]:sr-only">{showSort ? "Filter & Sort" : "Filter"}</span>
+                        {filters.length > 0 && (
+                            <span className="-mr-1 min-w-5 rounded-full bg-brand px-1.5 text-center text-[11px] leading-5 font-semibold text-brand-foreground tabular-nums">
+                                {filters.length}
+                            </span>
+                        )}
                     </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-56">
+                <DropdownMenuContent className="w-56" align="end">
                     {showSort &&
                         <>
                             <DropdownMenuLabel>Sort by</DropdownMenuLabel>

@@ -1,32 +1,27 @@
 import { Skeleton } from "@/components/ui/skeleton";
 
+/** Stand-in for the paper page while it loads: the split on desktop, one pane on phones. */
 export default function PaperViewSkeleton() {
     return (
-        <div className="flex flex-row w-full h-[calc(100vh-64px)]">
-            <div className="w-full h-full flex items-center justify-center gap-0">
-                {/* PDF Viewer Skeleton */}
-                <div
-                    className="border-r-2 dark:border-gray-800 border-gray-200 p-4 h-full w-3/5"
-                >
-                    <Skeleton className="h-full w-full" />
+        <div className="flex min-h-0 w-full flex-1 flex-col md:flex-row">
+            <div className="flex min-h-0 flex-1 flex-col md:w-3/5 md:flex-none md:border-r">
+                <div className="flex h-11 shrink-0 items-center gap-2 border-b px-3">
+                    <Skeleton className="h-6 w-6" />
+                    <Skeleton className="h-6 w-16" />
+                    <Skeleton className="mx-auto h-6 w-24" />
                 </div>
-
-                {/* Resizable Divider Skeleton */}
-                <div
-                    className="w-2 bg-gray-200 dark:bg-gray-800 h-full rounded-2xl"
-                />
-
-                {/* Right Side Panel Skeleton */}
-                <div
-                    className="flex flex-col h-full relative p-4 w-2/5 space-y-4"
-                >
-                    <Skeleton className="h-12 w-full" />
-                    <Skeleton className="h-24 w-full" />
-                    <Skeleton className="h-48 w-full" />
-                    <div className="flex-grow" />
-                    <Skeleton className="h-16 w-full" />
+                <div className="min-h-0 flex-1 bg-muted p-4 md:p-6">
+                    <Skeleton className="mx-auto h-full max-w-3xl rounded-sm bg-background/80" />
                 </div>
-            </div >
-        </div >
+            </div>
+            <div className="hidden w-2/5 flex-col gap-4 p-4 md:flex">
+                <Skeleton className="h-8 w-40" />
+                <Skeleton className="h-24 w-full" />
+                <Skeleton className="h-40 w-full" />
+                <div className="flex-1" />
+                <Skeleton className="h-24 w-full rounded-xl" />
+            </div>
+            <div className="h-(--app-tabbar-h) shrink-0 border-t md:hidden" />
+        </div>
     );
 }

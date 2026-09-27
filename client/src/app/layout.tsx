@@ -1,9 +1,10 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
 import { Toaster } from "@/components/ui/sonner";
+import { MotionProvider } from "@/components/utils/MotionProvider";
 
 const geistSans = Geist({
 	variable: "--font-geist-sans",
@@ -42,6 +43,17 @@ export const metadata: Metadata = {
 	},
 };
 
+// `viewport-fit=cover` exposes the safe-area insets the bottom bars pad for.
+export const viewport: Viewport = {
+	width: "device-width",
+	initialScale: 1,
+	viewportFit: "cover",
+	themeColor: [
+		{ media: "(prefers-color-scheme: light)", color: "#ffffff" },
+		{ media: "(prefers-color-scheme: dark)", color: "#1c1f22" },
+	],
+};
+
 export default function RootLayout({
 	children,
 }: Readonly<{
@@ -64,9 +76,11 @@ export default function RootLayout({
 					enableColorScheme={false}
 					storageKey="darkMode"
 				>
-					<AuthProvider>
-						{children}
-					</AuthProvider>
+					<MotionProvider>
+						<AuthProvider>
+							{children}
+						</AuthProvider>
+					</MotionProvider>
 					<Toaster
 						position="top-right"
 						richColors

@@ -155,22 +155,14 @@ export default function Home() {
 	const hasContent = relevantPapers.length > 0 || projects.length > 0;
 
 	return (
-		<div className="min-h-[calc(100vh-64px)] bg-gradient-to-b from-background to-muted/20 flex flex-col">
+		<div className="flex flex-1 flex-col">
 			<div
-				className={`max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 flex-1 w-full rounded-xl transition-colors duration-200 ${isDragging ? 'bg-primary/5 ring-2 ring-primary ring-dashed' : ''}`}
+				className={`mx-auto w-full max-w-6xl flex-1 rounded-xl px-4 py-5 transition-[background-color,box-shadow] duration-200 ease-out-soft sm:px-6 sm:py-10 lg:px-8 ${isDragging ? 'bg-brand/5 ring-2 ring-brand/60' : ''}`}
 				onDragEnter={handleDragEnter}
 				onDragLeave={handleDragLeave}
 				onDragOver={handleDragOver}
 				onDrop={handleDrop}
 			>
-				{/* Header with branding and search */}
-				<header className="mb-10">
-					<div className="flex flex-col items-center gap-6">
-						{/* Search Bar */}
-						{hasContent && <HomeSearch />}
-					</div>
-				</header>
-
 				{/* Main Content */}
 				{!isLoadingData && !hasContent ? (
 					<HomeEmptyState
@@ -179,16 +171,18 @@ export default function Home() {
 						onUrlImportStart={handleUrlImportStart}
 					/>
 				) : (
-					<div className="space-y-12">
-						{/* Quick Actions */}
-						<section>
-							<QuickActions
-								onUploadComplete={refreshData}
-								onProjectCreated={refreshData}
-								onUploadStart={handleUploadStart}
-								onUrlImportStart={handleUrlImportStart}
-							/>
-						</section>
+					<div className="space-y-8 sm:space-y-12">
+						<div className="space-y-4 sm:space-y-6">
+							<HomeSearch />
+							<section aria-label="Quick actions">
+								<QuickActions
+									onUploadComplete={refreshData}
+									onProjectCreated={refreshData}
+									onUploadStart={handleUploadStart}
+									onUrlImportStart={handleUrlImportStart}
+								/>
+							</section>
+						</div>
 
 						{projects.length > 0 && (
 							<section>
@@ -205,19 +199,15 @@ export default function Home() {
 
 			{/* Footer */}
 			<footer className="mt-auto border-t border-border/40">
-				<div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-					<div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
-						<div className="flex items-center gap-4">
-							<a
-								href="https://github.com/khoj-ai/openpaper"
-								target="_blank"
-								rel="noopener noreferrer"
-								className="hover:text-foreground transition-colors"
-							>
-								GitHub
-							</a>
-						</div>
-					</div>
+				<div className="mx-auto flex max-w-6xl items-center px-4 py-5 text-sm text-muted-foreground sm:px-6 sm:py-6 lg:px-8">
+					<a
+						href="https://github.com/khoj-ai/openpaper"
+						target="_blank"
+						rel="noopener noreferrer"
+						className="transition-colors hover:text-foreground"
+					>
+						GitHub
+					</a>
 				</div>
 			</footer>
 
