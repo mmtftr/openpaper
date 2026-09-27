@@ -10,6 +10,12 @@
 - `PaperPage` — `(paper_id, page_no)` 1-based. `text_layer` ← text_layer;
   `ocr_markdown` + `ocr_payload` ← ocr; `ocr_quality`, `repair_markdown`,
   final `markdown` + `markdown_source` (`MarkdownSource`) ← ocr_repair.
+  Page text is body only: running headers/footers stay in `ocr_payload`
+  (`header`, `footer`, `blocks`); footnotes are GFM `[^n]` definitions at the
+  end of their page, numbered per page by ocr and paper-unique after
+  ocr_repair; the markdown API moves them to the end (`footnotes.py`), then
+  re-joins paragraphs a page break cut mid-sentence (`paragraphs.py`, read
+  time only: stored pages and `content.py` keep the per-page text).
 - `PaperFigure` — `bbox` in PDF points, top-left origin `{x0,y0,x1,y1}`;
   unique `(paper_id, page_no, ocr_image_id)` (Mistral ids restart per batch).
 - `Paper.metadata_source` — `{field: MetadataSource}`; `"user"` = edited by

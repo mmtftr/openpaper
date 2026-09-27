@@ -13,7 +13,7 @@ from app.database.database import get_db
 from app.database.models import Paper, PaperStatus
 from app.database.telemetry import track_event
 from app.helpers.s3 import s3_service
-from app.ingest import content
+from app.ingest import content, footnotes, paragraphs
 from app.ingest.models import METADATA_FIELDS, MetadataSource
 from app.llm.paper_outline import OutlineEntry
 from app.schemas.paper import (
@@ -52,6 +52,10 @@ def _paper_markdown_payload(db: Session, paper: Paper) -> PaperMarkdown:
 
     pages = content.pages(db, paper.id)
     markdown = "\n\n".join(page_text(page) for page in pages).strip()
+    # Each page carries its own footnote definitions; the reader wants them
+    # all at the end. Then the paragraphs that page breaks (and the figures,
+    # page numbers and running headers in them) cut mid-sentence are joined.
+    markdown = paragraphs.rejoin(footnotes.collect_definitions(markdown))
     return PaperMarkdown(markdown=markdown, source="mistral")
 
 

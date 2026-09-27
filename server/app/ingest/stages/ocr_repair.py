@@ -11,6 +11,10 @@ thresholds and prompt:
    scores poorly, the page falls back to its text layer (`'text_layer'`),
    or keeps the OCR text when the text layer is empty.
 
+Finally the pages' footnotes (`[^k]`, numbered per page by the `ocr`
+stage) are renumbered to be unique across the paper, and running footers
+are dropped (`footnotes.renumber`).
+
 A failed repair never fails the stage (per-page fallback, as before).
 `ocr_quality` holds the OCR score plus, for suspect pages, `repair:
 {model, quality | error}` and `model` when the repair was used.
@@ -20,7 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Optional
 
 import pymupdf
@@ -31,7 +35,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deadline import Deadline
 from app.core.errors import classify
-from app.ingest import storage
+from app.ingest import footnotes, storage
 from app.ingest.config import Resource
 from app.ingest.models import MarkdownSource, PaperPage
 from app.ingest.pdf import quality
@@ -169,7 +173,10 @@ class OcrRepair(Stage[list[PageText]]):
 
             results += await asyncio.gather(*(repair(p, q) for p, q in suspect))
 
-        return sorted(results, key=lambda r: r.page_no)
+        results.sort(key=lambda r: r.page_no)
+        # Footnote labels are per page until here; make them paper-unique.
+        final = footnotes.renumber([r.markdown for r in results])
+        return [replace(r, markdown=md) for r, md in zip(results, final)]
 
     async def _repair(
         self,

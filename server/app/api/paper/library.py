@@ -44,12 +44,14 @@ def _list_item_fields(paper: Paper) -> Dict[str, Any]:
 def get_paper_ids(
     db: Session = Depends(get_db),
     detailed: bool = False,
+    archived: bool = False,
     current_user: CurrentUser = Depends(get_required_user),
 ) -> LibraryPapersResponse:
     """
-    Get all paper IDs
+    The library: the owner's unarchived papers, or with `archived=true` the
+    archived ones.
     """
-    papers = library.library_papers(db, user=current_user)
+    papers = library.library_papers(db, user=current_user, archived=archived)
 
     # Bulk retrieve presigned URLs for all papers (optimized with parallelization)
     file_urls = {}
@@ -68,6 +70,7 @@ def get_paper_ids(
                 file_url=file_urls.get(str(paper.id)),
                 tags=[PaperTagResponse.model_validate(tag) for tag in paper.tags],
                 processing=paper.id in processing,
+                archived_at=paper.archived_at,
             )
             for paper in papers
         ]
@@ -80,7 +83,7 @@ def get_active_paper_ids(
     current_user: CurrentUser = Depends(get_required_user),
 ) -> ActivePapersResponse:
     """
-    Get all active paper IDs
+    The unarchived papers being read (the command menu).
     """
     papers: List[Paper] = library.library_papers(
         db, user=current_user, status=PaperStatus.reading

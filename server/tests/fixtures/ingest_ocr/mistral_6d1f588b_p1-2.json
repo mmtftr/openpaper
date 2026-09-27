@@ -1,0 +1,296 @@
+{
+  "pages": [
+    {
+      "index": 0,
+      "markdown": "arXiv:2602.08964v2 [cs.LG] 29 May 2026\n\n# A Behavioural and Representational Evaluation of Goal-Directedness in Language Model Agents\n\nRaghu Arghal \\( ^{1*} \\)  Fade Chen \\( ^{2*} \\)  Niall Dalton \\( ^{3*} \\)  Evgenii Kortukov \\( ^{4*} \\)  Calum McNamara \\( ^{5*} \\)  Angelos Nalmpantis \\( ^{6*} \\)  Moksh Nirvaan \\( ^{7*} \\)  Gabriele Sarti \\( ^{8} \\)  Mario Giulianelli \\( ^{3} \\)\n\n## Abstract\n\nUnderstanding an agent's goals helps explain and predict its behaviour, yet there is no established methodology for reliably attributing goals to agentic systems. We propose a framework for evaluating goal-directedness that integrates behavioural evaluation with interpretability-based analyses of models' internal representations. As a case study, we examine an LLM agent navigating a 2D grid world towards a goal state. Behaviourally, we evaluate the agent against optimal policies across varying grid sizes, obstacle densities, and goal structures, finding that performance scales with task difficulty while remaining robust to difficulty-preserving transformations and multi-goal structures. We then use probing methods to decode internal representations of the environment and multi-step action plans. We find that the LLM agent non-linearly encodes a coarse spatial map, preserving approximate task-relevant cues about its position and the goal location; that its actions are broadly consistent with these internal representations; and that reasoning reorganises them, shifting from spatial cues towards immediate action selection. Our findings support the view that introspective examination is required beyond behavioural evaluations to characterise how agents represent and pursue their objectives.\n\n## 1. Introduction\n\nAttributing goals to agents helps explain and predict their behaviour and provides a useful abstraction for reasoning about agency. Goal attribution has been studied across a\n\n*Alphabetical order; see Statement of Author Contributions. \\( ^{1} \\)University of Pennsylvania \\( ^{2} \\)New York University \\( ^{3} \\)University College London \\( ^{4} \\)Fraunhofer HHI \\( ^{5} \\)Indiana University, Bloomington \\( ^{6} \\)TKH AI \\( ^{7} \\)Independent \\( ^{8} \\)Northeastern University. Correspondence to: Mario Giulianelli <m.giulianelli@ucl.ac.uk>.\n\nProceedings of the 43 \\( ^{rd} \\) International Conference on Machine Learning, Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s).\n\n![img-0.jpeg](img-0.jpeg)\n\nFigure 1. Overview of our goal-directedness analysis. We prompt an LLM-based agent to reason and act over a fully observable grid world. Behaviourally, we evaluate whether its trajectories agree or disagree with the optimal policy. A: Iso-difficulty transforms test whether the agent's behaviour is invariant to changes in grid configuration that preserve task difficulty. B: Multi-goal environments test how agents handle instrumental and implicit goal structures. C: We extract pre- and post-reasoning activations from intermediate layers, probe the agent's beliefs over goal distance, planned actions, and reconstruct cognitive maps for the current grid state.\n\nwide range of fields, including philosophy (Davidson, 1973; Dennett, 1990), psychology and neuroscience (Baker et al., 2009; Schultz et al., 1997), economics and decision theory (von Neumann & Morgenstern, 1944; Savage, 1948),",
+      "images": [
+        {
+          "id": "img-0.jpeg",
+          "top_left_x": 432,
+          "top_left_y": 267,
+          "bottom_right_x": 657,
+          "bottom_right_y": 693,
+          "image_base64": "<base64 elided>",
+          "image_annotation": null
+        }
+      ],
+      "tables": [],
+      "hyperlinks": [
+        "https://arxiv.org/abs/2602.08964v2",
+        "mailto:m.giulianelli%40ucl.ac.uk"
+      ],
+      "header": null,
+      "footer": "1",
+      "dimensions": {
+        "dpi": 93,
+        "height": 1023,
+        "width": 791
+      },
+      "confidence_scores": null,
+      "blocks": [
+        {
+          "top_left_x": 18,
+          "top_left_y": 279,
+          "bottom_right_x": 48,
+          "bottom_right_y": 742,
+          "content": "arXiv:2602.08964v2 [cs.LG] 29 May 2026",
+          "confidence_scores": null,
+          "type": "aside_text"
+        },
+        {
+          "top_left_x": 183,
+          "top_left_y": 113,
+          "bottom_right_x": 588,
+          "bottom_right_y": 161,
+          "content": "# A Behavioural and Representational Evaluation of Goal-Directedness in Language Model Agents",
+          "confidence_scores": null,
+          "type": "title"
+        },
+        {
+          "top_left_x": 128,
+          "top_left_y": 203,
+          "bottom_right_x": 639,
+          "bottom_right_y": 237,
+          "content": "Raghu Arghal \\( ^{1*} \\)  Fade Chen \\( ^{2*} \\)  Niall Dalton \\( ^{3*} \\)  Evgenii Kortukov \\( ^{4*} \\)  Calum McNamara \\( ^{5*} \\)  Angelos Nalmpantis \\( ^{6*} \\)  Moksh Nirvaan \\( ^{7*} \\)  Gabriele Sarti \\( ^{8} \\)  Mario Giulianelli \\( ^{3} \\)",
+          "confidence_scores": null,
+          "type": "text"
+        },
+        {
+          "top_left_x": 191,
+          "top_left_y": 263,
+          "bottom_right_x": 253,
+          "bottom_right_y": 280,
+          "content": "## Abstract",
+          "confidence_scores": null,
+          "type": "title"
+        },
+        {
+          "top_left_x": 92,
+          "top_left_y": 291,
+          "bottom_right_x": 352,
+          "bottom_right_y": 709,
+          "content": "Understanding an agent's goals helps explain and predict its behaviour, yet there is no established methodology for reliably attributing goals to agentic systems. We propose a framework for evaluating goal-directedness that integrates behavioural evaluation with interpretability-based analyses of models' internal representations. As a case study, we examine an LLM agent navigating a 2D grid world towards a goal state. Behaviourally, we evaluate the agent against optimal policies across varying grid sizes, obstacle densities, and goal structures, finding that performance scales with task difficulty while remaining robust to difficulty-preserving transformations and multi-goal structures. We then use probing methods to decode internal representations of the environment and multi-step action plans. We find that the LLM agent non-linearly encodes a coarse spatial map, preserving approximate task-relevant cues about its position and the goal location; that its actions are broadly consistent with these internal representations; and that reasoning reorganises them, shifting from spatial cues towards immediate action selection. Our findings support the view that introspective examination is required beyond behavioural evaluations to characterise how agents represent and pursue their objectives.",
+          "confidence_scores": null,
+          "type": "text"
+        },
+        {
+          "top_left_x": 68,
+          "top_left_y": 728,
+          "bottom_right_x": 172,
+          "bottom_right_y": 743,
+          "content": "## 1. Introduction",
+          "confidence_scores": null,
+          "type": "title"
+        },
+        {
+          "top_left_x": 67,
+          "top_left_y": 755,
+          "bottom_right_x": 375,
+          "bottom_right_y": 802,
+          "content": "Attributing goals to agents helps explain and predict their behaviour and provides a useful abstraction for reasoning about agency. Goal attribution has been studied across a",
+          "confidence_scores": null,
+          "type": "text"
+        },
+        {
+          "top_left_x": 67,
+          "top_left_y": 809,
+          "bottom_right_x": 375,
+          "bottom_right_y": 876,
+          "content": "*Alphabetical order; see Statement of Author Contributions. \\( ^{1} \\)University of Pennsylvania \\( ^{2} \\)New York University \\( ^{3} \\)University College London \\( ^{4} \\)Fraunhofer HHI \\( ^{5} \\)Indiana University, Bloomington \\( ^{6} \\)TKH AI \\( ^{7} \\)Independent \\( ^{8} \\)Northeastern University. Correspondence to: Mario Giulianelli <m.giulianelli@ucl.ac.uk>.",
+          "confidence_scores": null,
+          "type": "text"
+        },
+        {
+          "top_left_x": 67,
+          "top_left_y": 886,
+          "bottom_right_x": 375,
+          "bottom_right_y": 928,
+          "content": "Proceedings of the 43 \\( ^{rd} \\) International Conference on Machine Learning, Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s).",
+          "confidence_scores": null,
+          "type": "text"
+        },
+        {
+          "top_left_x": 432,
+          "top_left_y": 267,
+          "bottom_right_x": 657,
+          "bottom_right_y": 693,
+          "content": "![img-0.jpeg](img-0.jpeg)",
+          "confidence_scores": null,
+          "type": "image",
+          "image_id": "img-0.jpeg"
+        },
+        {
+          "top_left_x": 391,
+          "top_left_y": 705,
+          "bottom_right_x": 702,
+          "bottom_right_y": 836,
+          "content": "Figure 1. Overview of our goal-directedness analysis. We prompt an LLM-based agent to reason and act over a fully observable grid world. Behaviourally, we evaluate whether its trajectories agree or disagree with the optimal policy. A: Iso-difficulty transforms test whether the agent's behaviour is invariant to changes in grid configuration that preserve task difficulty. B: Multi-goal environments test how agents handle instrumental and implicit goal structures. C: We extract pre- and post-reasoning activations from intermediate layers, probe the agent's beliefs over goal distance, planned actions, and reconstruct cognitive maps for the current grid state.",
+          "confidence_scores": null,
+          "type": "caption"
+        },
+        {
+          "top_left_x": 391,
+          "top_left_y": 864,
+          "bottom_right_x": 703,
+          "bottom_right_y": 928,
+          "content": "wide range of fields, including philosophy (Davidson, 1973; Dennett, 1990), psychology and neuroscience (Baker et al., 2009; Schultz et al., 1997), economics and decision theory (von Neumann & Morgenstern, 1944; Savage, 1948),",
+          "confidence_scores": null,
+          "type": "text"
+        },
+        {
+          "top_left_x": 381,
+          "top_left_y": 945,
+          "bottom_right_x": 389,
+          "bottom_right_y": 957,
+          "content": "1",
+          "confidence_scores": null,
+          "type": "footer"
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "markdown": "and reinforcement learning (Bellman, 1966; Ng & Russell, 2000). More recently, the question of when, and in what sense, goal attributions are warranted has become increasingly important for LLM-based agents (Xu & Rivera, 2024; MacDermott et al., 2024; Everitt et al., 2025; Goldstein & Lederman, 2025; Mazeika et al., 2025), particularly in the context of AI safety (Naik et al., 2025; Wentworth & Lorell, 2025; Marks et al., 2025; Li et al., 2025; Summerfield et al., 2025; Järviniemi et al., 2026).\n\nA natural way to measure goal-directedness is through behavioural evaluation, i.e., assessing an agent's actions relative to a candidate goal, often by comparing them to an optimal policy (Xu & Rivera, 2024; Everitt et al., 2025). However, purely behavioural approaches face fundamental theoretical, practical, and philosophical challenges (Bellot et al., 2025; Rajcic & Søgaard, 2025; Chalmers, 2025). First, agent capabilities may act as confounders for behavioural measures, as consistent failure may reflect capability limitations rather than an absence of goal-directed behaviour. Second, behavioural monitoring alone may be insufficient to guarantee alignment: a system with misaligned internal goals could produce aligned behaviour, or fail a safety-relevant evaluation task, when doing so is instrumentally useful (Hubinger et al., 2019; Ngo et al., 2024).\n\nTo address these limitations, we propose a framework that combines behavioural evaluation with the analysis of internal representations, enabling holistic assessment of goal-directedness as a rich property arising from the interaction of beliefs, planning, and action selection. We study an LLM agent in a fully observable grid world, tasked with navigating to a goal state across grids of varying sizes and obstacle densities. We first subject the agent to standard capability tests, then introduce controlled environment perturbations and multi-goal task structures to assess the generalisability of its goal-directed behaviour. We find that the agent is sensitive to task difficulty and goal-like task-irrelevant cues, but robust to difficulty-preserving transformations and instrumental goals. We then use activation probes to test if goal-relevant information can be decoded from the agent's internal activations before and after reasoning. The probing analyses recover cognitive maps—latent beliefs about the current environment state, including the agent position and the goal location—as well as planned multi-step action sequences. We further find that task-relevant representations reorganise during reasoning: pre-reasoning activations preserve broader spatial cues and longer-horizon plans, while post-reasoning activations sharpen focus on next action selection. Fig. 1 provides an overview of our approach.\n\nContributions. Our primary contributions are as follows:\n\n1. We propose a white-box framework combining behavioural assessment and representation probing analyses for goal-directedness evaluation.\n\n2. We design controlled environment perturbations and multi-goal task structures to measure bias and robustness in the agent's goal-directed behaviour.\n3. We probe the agent's activations for environment state beliefs and multi-step action plans, and use these decoded representations to assess behavioural coherence relative to internal task-relevant information.\n\nOur code is available at github.com/SPAR-Telos/interp and github.com/SPAR-Telos/reveng. We also provide an interactive viewer for decoded grids (cognitive maps) at huggingface.co/spaces/project-telos/trace-viewer.\n\n## 2. Related Work\n\nThe problem of identifying an agent's goals and intentions has a rich history spanning multiple research fields. Seminal work in philosophy (Davidson, 1973; Lewis, 1974; Dennett, 1990) and microeconomics (von Neumann & Morgenstern, 1944; Savage, 1948) has emphasised the predictive and explanatory power of assigning goals to an agent.\n\nMeasuring Agents' Goal-directedness. Recent work has sought to formally define and measure goal-directedness, particularly in the context of AI alignment and safety (Ward et al., 2024; Xu & Rivera, 2024; Everitt et al., 2025; MacDermott et al., 2024). Notably, Everitt et al. (2025) define a measure of goal-directedness conditioned upon an agent's task-relevant capabilities and show goal-directedness is measurably distinct from performance in LLMs and generalises across tasks. MacDermott et al. (2024) build upon Dennett (1990), proposing a formal measure of goal-directedness based on the predictive power of posited utility functions for the agent's behaviour. However, behavioural approaches to measuring goal-directedness are not without their weaknesses. Rajcic & Søgaard (2025) argue that such methods falter when faced with underspecification, coarse goals, uncertainty, and multi-agent settings. Bellot et al. (2025) prove bounds on learnability from agent behaviour, showing that goal inferences are strictly limited by gaps between internal world models and the environment, as well as out-of-distribution shifts. Our work complements these approaches by enabling assessment of goal-directed behaviour relative to the agent's internal beliefs rather than ground truth alone.\n\nInverse Reinforcement Learning (IRL). IRL is a direct instantiation of the goal attribution problem, aiming to infer a reward function from a policy or a set of demonstrations (see Ng & Russell, 2000; Abbeel & Ng, 2004, surveyed by Arora & Doshi, 2021). Work in this area has also been developed in connection with AI alignment (e.g., Hadfield-Menell et al., 2016; 2017). While a weakness of classical IRL is the assumption that observed behaviour is optimal, approaches like MaxEnt IRL (Ziebart et al., 2008) aim to relax this via stochastic models of behaviour. Still, IRL methods suffer",
+      "images": [],
+      "tables": [],
+      "hyperlinks": [
+        "https://github.com/SPAR-Telos/interp",
+        "https://github.com/SPAR-Telos/reveng",
+        "https://huggingface.co/spaces/project-telos/trace-viewer"
+      ],
+      "header": "A Behavioural and Representational Evaluation of Goal-Directedness in Language Model Agents",
+      "footer": "2",
+      "dimensions": {
+        "dpi": 93,
+        "height": 1023,
+        "width": 791
+      },
+      "confidence_scores": null,
+      "blocks": [
+        {
+          "top_left_x": 143,
+          "top_left_y": 59,
+          "bottom_right_x": 626,
+          "bottom_right_y": 74,
+          "content": "A Behavioural and Representational Evaluation of Goal-Directedness in Language Model Agents",
+          "confidence_scores": null,
+          "type": "header"
+        },
+        {
+          "top_left_x": 67,
+          "top_left_y": 87,
+          "bottom_right_x": 377,
+          "bottom_right_y": 226,
+          "content": "and reinforcement learning (Bellman, 1966; Ng & Russell, 2000). More recently, the question of when, and in what sense, goal attributions are warranted has become increasingly important for LLM-based agents (Xu & Rivera, 2024; MacDermott et al., 2024; Everitt et al., 2025; Goldstein & Lederman, 2025; Mazeika et al., 2025), particularly in the context of AI safety (Naik et al., 2025; Wentworth & Lorell, 2025; Marks et al., 2025; Li et al., 2025; Summerfield et al., 2025; Järviniemi et al., 2026).",
+          "confidence_scores": null,
+          "type": "text"
+        },
+        {
+          "top_left_x": 67,
+          "top_left_y": 233,
+          "bottom_right_x": 377,
+          "bottom_right_y": 466,
+          "content": "A natural way to measure goal-directedness is through behavioural evaluation, i.e., assessing an agent's actions relative to a candidate goal, often by comparing them to an optimal policy (Xu & Rivera, 2024; Everitt et al., 2025). However, purely behavioural approaches face fundamental theoretical, practical, and philosophical challenges (Bellot et al., 2025; Rajcic & Søgaard, 2025; Chalmers, 2025). First, agent capabilities may act as confounders for behavioural measures, as consistent failure may reflect capability limitations rather than an absence of goal-directed behaviour. Second, behavioural monitoring alone may be insufficient to guarantee alignment: a system with misaligned internal goals could produce aligned behaviour, or fail a safety-relevant evaluation task, when doing so is instrumentally useful (Hubinger et al., 2019; Ngo et al., 2024).",
+          "confidence_scores": null,
+          "type": "text"
+        },
+        {
+          "top_left_x": 67,
+          "top_left_y": 474,
+          "bottom_right_x": 377,
+          "bottom_right_y": 846,
+          "content": "To address these limitations, we propose a framework that combines behavioural evaluation with the analysis of internal representations, enabling holistic assessment of goal-directedness as a rich property arising from the interaction of beliefs, planning, and action selection. We study an LLM agent in a fully observable grid world, tasked with navigating to a goal state across grids of varying sizes and obstacle densities. We first subject the agent to standard capability tests, then introduce controlled environment perturbations and multi-goal task structures to assess the generalisability of its goal-directed behaviour. We find that the agent is sensitive to task difficulty and goal-like task-irrelevant cues, but robust to difficulty-preserving transformations and instrumental goals. We then use activation probes to test if goal-relevant information can be decoded from the agent's internal activations before and after reasoning. The probing analyses recover cognitive maps—latent beliefs about the current environment state, including the agent position and the goal location—as well as planned multi-step action sequences. We further find that task-relevant representations reorganise during reasoning: pre-reasoning activations preserve broader spatial cues and longer-horizon plans, while post-reasoning activations sharpen focus on next action selection. Fig. 1 provides an overview of our approach.",
+          "confidence_scores": null,
+          "type": "text"
+        },
+        {
+          "top_left_x": 68,
+          "top_left_y": 852,
+          "bottom_right_x": 370,
+          "bottom_right_y": 868,
+          "content": "Contributions. Our primary contributions are as follows:",
+          "confidence_scores": null,
+          "type": "text"
+        },
+        {
+          "top_left_x": 78,
+          "top_left_y": 881,
+          "bottom_right_x": 377,
+          "bottom_right_y": 928,
+          "content": "1. We propose a white-box framework combining behavioural assessment and representation probing analyses for goal-directedness evaluation.",
+          "confidence_scores": null,
+          "type": "text"
+        },
+        {
+          "top_left_x": 402,
+          "top_left_y": 87,
+          "bottom_right_x": 702,
+          "bottom_right_y": 201,
+          "content": "2. We design controlled environment perturbations and multi-goal task structures to measure bias and robustness in the agent's goal-directed behaviour.\n3. We probe the agent's activations for environment state beliefs and multi-step action plans, and use these decoded representations to assess behavioural coherence relative to internal task-relevant information.",
+          "confidence_scores": null,
+          "type": "list"
+        },
+        {
+          "top_left_x": 392,
+          "top_left_y": 217,
+          "bottom_right_x": 702,
+          "bottom_right_y": 279,
+          "content": "Our code is available at github.com/SPAR-Telos/interp and github.com/SPAR-Telos/reveng. We also provide an interactive viewer for decoded grids (cognitive maps) at huggingface.co/spaces/project-telos/trace-viewer.",
+          "confidence_scores": null,
+          "type": "text"
+        },
+        {
+          "top_left_x": 393,
+          "top_left_y": 298,
+          "bottom_right_x": 506,
+          "bottom_right_y": 314,
+          "content": "## 2. Related Work",
+          "confidence_scores": null,
+          "type": "title"
+        },
+        {
+          "top_left_x": 392,
+          "top_left_y": 325,
+          "bottom_right_x": 702,
+          "bottom_right_y": 418,
+          "content": "The problem of identifying an agent's goals and intentions has a rich history spanning multiple research fields. Seminal work in philosophy (Davidson, 1973; Lewis, 1974; Dennett, 1990) and microeconomics (von Neumann & Morgenstern, 1944; Savage, 1948) has emphasised the predictive and explanatory power of assigning goals to an agent.",
+          "confidence_scores": null,
+          "type": "text"
+        },
+        {
+          "top_left_x": 392,
+          "top_left_y": 425,
+          "bottom_right_x": 703,
+          "bottom_right_y": 766,
+          "content": "Measuring Agents' Goal-directedness. Recent work has sought to formally define and measure goal-directedness, particularly in the context of AI alignment and safety (Ward et al., 2024; Xu & Rivera, 2024; Everitt et al., 2025; MacDermott et al., 2024). Notably, Everitt et al. (2025) define a measure of goal-directedness conditioned upon an agent's task-relevant capabilities and show goal-directedness is measurably distinct from performance in LLMs and generalises across tasks. MacDermott et al. (2024) build upon Dennett (1990), proposing a formal measure of goal-directedness based on the predictive power of posited utility functions for the agent's behaviour. However, behavioural approaches to measuring goal-directedness are not without their weaknesses. Rajcic & Søgaard (2025) argue that such methods falter when faced with underspecification, coarse goals, uncertainty, and multi-agent settings. Bellot et al. (2025) prove bounds on learnability from agent behaviour, showing that goal inferences are strictly limited by gaps between internal world models and the environment, as well as out-of-distribution shifts. Our work complements these approaches by enabling assessment of goal-directed behaviour relative to the agent's internal beliefs rather than ground truth alone.",
+          "confidence_scores": null,
+          "type": "text"
+        },
+        {
+          "top_left_x": 392,
+          "top_left_y": 773,
+          "bottom_right_x": 702,
+          "bottom_right_y": 928,
+          "content": "Inverse Reinforcement Learning (IRL). IRL is a direct instantiation of the goal attribution problem, aiming to infer a reward function from a policy or a set of demonstrations (see Ng & Russell, 2000; Abbeel & Ng, 2004, surveyed by Arora & Doshi, 2021). Work in this area has also been developed in connection with AI alignment (e.g., Hadfield-Menell et al., 2016; 2017). While a weakness of classical IRL is the assumption that observed behaviour is optimal, approaches like MaxEnt IRL (Ziebart et al., 2008) aim to relax this via stochastic models of behaviour. Still, IRL methods suffer",
+          "confidence_scores": null,
+          "type": "text"
+        },
+        {
+          "top_left_x": 380,
+          "top_left_y": 945,
+          "bottom_right_x": 389,
+          "bottom_right_y": 957,
+          "content": "2",
+          "confidence_scores": null,
+          "type": "footer"
+        }
+      ]
+    }
+  ],
+  "model": "mistral-ocr-latest",
+  "document_annotation": null,
+  "usage_info": {
+    "pages_processed": 2,
+    "doc_size_bytes": 371362
+  }
+}

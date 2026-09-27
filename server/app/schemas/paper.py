@@ -1,7 +1,7 @@
 from typing import List, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
 from app.database.models import PaperStatus
 from app.schemas.common import MessageResponse  # noqa: F401  (re-export)
@@ -11,6 +11,19 @@ from app.schemas.json_datetime import IsoDatetime, StrDatetime
 class BulkTagRequest(BaseModel):
     paper_ids: List[UUID]
     tag_ids: List[UUID]
+
+
+class ArchivePapersRequest(BaseModel):
+    paper_ids: List[UUID] = Field(min_length=1)
+    # False unarchives.
+    archived: bool = True
+
+
+class ArchivePapersResponse(BaseModel):
+    """The papers that were (un)archived, and their `archived_at` now."""
+
+    paper_ids: List[UUID]
+    archived_at: Optional[IsoDatetime] = None
 
 
 # -- tags -----------------------------------------------------------------
@@ -64,6 +77,8 @@ class LibraryPaper(ActivePaper):
     tags: List[PaperTagResponse] = []
     # Ingest is still running (some stage pending/queued/running).
     processing: bool = False
+    # Only set in the archived view (`archived=true`).
+    archived_at: Optional[IsoDatetime] = None
 
 
 class RelevantPapersResponse(BaseModel):
@@ -109,6 +124,8 @@ class PaperRecord(BaseModel):
     supplementary_of_paper_id: Optional[UUID] = None
     created_at: Optional[StrDatetime] = None
     updated_at: Optional[StrDatetime] = None
+    # Archived papers stay openable; they're only left out of the lists.
+    archived_at: Optional[IsoDatetime] = None
 
 
 class PaperDetail(PaperRecord):

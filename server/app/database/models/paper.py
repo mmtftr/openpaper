@@ -70,6 +70,11 @@ class Paper(Base):
     last_accessed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    # Set while the paper is archived: hidden from the library, home and
+    # command-menu lists, but still openable (chats, notes, highlights kept).
+    archived_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Cached presigned URL for the PDF.
     cached_presigned_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)

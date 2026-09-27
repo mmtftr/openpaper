@@ -1,6 +1,7 @@
 """The owner's paper lists: the library, reading list and "relevant" papers.
 
 Supplementary materials are Paper rows too; none of these lists show them.
+Archived papers (`archived_at` set) only show in the library's archived view.
 """
 
 import uuid
@@ -21,9 +22,11 @@ def library_papers(
     skip: int = 0,
     limit: int = 500,
     status: Optional[PaperStatus] = None,
+    archived: bool = False,
 ) -> List[Paper]:
     """The owner's papers (optionally one status), last updated first, with
-    their tags loaded.
+    their tags loaded: the unarchived ones, or with `archived` the archived
+    ones.
 
     Papers still being ingested are included: they are readable at once.
     """
@@ -34,6 +37,7 @@ def library_papers(
             Paper.user_id == user.id,
             Paper.status == status if status else true(),
             Paper.supplementary_of_paper_id.is_(None),
+            Paper.archived_at.is_not(None) if archived else Paper.archived_at.is_(None),
         )
         .order_by(Paper.updated_at.desc())
         .offset(skip)
@@ -43,8 +47,8 @@ def library_papers(
 
 
 def relevant_papers(db: Session, *, user: CurrentUser, limit: int = 9) -> List[Paper]:
-    """Up to `limit` papers the owner is working on: those being read (most
-    recently opened first), topped up with to-read ones."""
+    """Up to `limit` unarchived papers the owner is working on: those being
+    read (most recently opened first), topped up with to-read ones."""
 
     def by_status(status: PaperStatus, n: int) -> List[Paper]:
         return (
@@ -53,6 +57,7 @@ def relevant_papers(db: Session, *, user: CurrentUser, limit: int = 9) -> List[P
                 Paper.user_id == user.id,
                 Paper.status == status,
                 Paper.supplementary_of_paper_id.is_(None),
+                Paper.archived_at.is_(None),
             )
             .order_by(Paper.last_accessed_at.desc())
             .limit(n)

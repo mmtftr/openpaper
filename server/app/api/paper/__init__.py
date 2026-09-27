@@ -1,6 +1,7 @@
 """The `/api/paper` routes, one module per concern:
 
 - `library`: the paper lists (`/all`, `/active`, `/relevant`)
+- `archive`: archiving / unarchiving papers (`/archive`)
 - `detail`: one paper's record, edits, outline and markdown
 - `supplementary`: a paper's supplementary materials
 - `conversations`: a paper's chat conversations
@@ -14,10 +15,17 @@ uploads and tags have their own routers under the same prefix (see
 
 from fastapi import APIRouter
 
-from app.api.paper import conversations, delete, detail, library, supplementary
+from app.api.paper import (
+    archive,
+    conversations,
+    delete,
+    detail,
+    library,
+    supplementary,
+)
 
 PREFIX = "/api/paper"
 
 paper_router = APIRouter()
-for _module in (library, detail, supplementary, conversations, delete):
+for _module in (library, archive, detail, supplementary, conversations, delete):
     paper_router.include_router(_module.router, prefix=PREFIX)

@@ -272,6 +272,10 @@ def test_request_body_and_headers():
     assert sent["headers"]["authorization"] == "Bearer test-key"
     assert sent["body"]["model"] == "mistral-ocr-latest"
     assert sent["body"]["include_image_base64"] is False
+    # Header/footer out of the markdown, layout blocks in (ingest.footnotes).
+    assert sent["body"]["extract_header"] is True
+    assert sent["body"]["extract_footer"] is True
+    assert sent["body"]["include_blocks"] is True
     assert sent["body"]["document"]["type"] == "document_url"
     assert len(body["pages"]) == 2
 
@@ -635,6 +639,23 @@ def test_ocr_repair_without_suspect_pages_makes_no_model_call(monkeypatch):
     assert all(p.markdown_source is MarkdownSource.OCR for p in out)
     assert ctx.model_used is None
     assert progress == [(0, 0)]
+
+
+def test_ocr_repair_makes_footnote_labels_unique_across_pages(monkeypatch):
+    note = "[^1]: Code at https://example.org."
+    inputs = [
+        repair_stage.PageInput(1, f"{page_text(1)} ref[^1]\n\n{note}", page_text(1)),
+        repair_stage.PageInput(2, page_text(2), page_text(2)),
+        repair_stage.PageInput(3, f"{page_text(3)} ref[^1]\n\n{note}", page_text(3)),
+    ]
+    monkeypatch.setattr(repair_stage, "load_pages", lambda s, pid: inputs)
+    ctx, _ = make_ctx("ocr_repair")
+    out = asyncio.run(repair_stage.OcrRepair().run(ctx))
+    assert [p.markdown for p in out] == [
+        f"{page_text(1)} ref[^1]\n\n[^1]: Code at https://example.org.",
+        page_text(2),
+        f"{page_text(3)} ref[^2]\n\n[^2]: Code at https://example.org.",
+    ]
 
 
 def test_render_page_png_real_pdf():

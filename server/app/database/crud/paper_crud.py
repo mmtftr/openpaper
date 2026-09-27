@@ -3,10 +3,11 @@ supplementary materials. The owner's paper lists are in
 `app.database.queries.library`."""
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from pydantic import BaseModel
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.database.crud.base_crud import CRUDBase
@@ -66,6 +67,32 @@ class PaperCRUD(CRUDBase[Paper, PaperCreate, PaperUpdate]):
             .order_by(Paper.created_at.asc())
             .all()
         )
+
+    def set_archived(
+        self,
+        db: Session,
+        paper_ids: List[uuid.UUID],
+        archived: bool,
+        user: CurrentUser,
+    ) -> tuple[List[uuid.UUID], Optional[datetime]]:
+        """Archive (or unarchive) the user's papers among `paper_ids`.
+
+        Returns the ids that matched and the `archived_at` they now carry.
+        `updated_at` is left alone: archiving isn't an edit, and the library
+        orders by it.
+        """
+        archived_at = datetime.now(timezone.utc) if archived else None
+        matched = list(
+            db.scalars(
+                update(Paper)
+                .where(Paper.id.in_(paper_ids), Paper.user_id == user.id)
+                .values(archived_at=archived_at, updated_at=Paper.updated_at)
+                .returning(Paper.id)
+                .execution_options(synchronize_session=False)
+            )
+        )
+        db.commit()
+        return matched, archived_at
 
 
 paper_crud = PaperCRUD(Paper)

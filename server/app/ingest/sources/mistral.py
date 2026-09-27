@@ -13,7 +13,10 @@ api.mistral.ai directly (not Azure's gateway, ~250x slower there).
   `core.retry.retry_call` and anything longer is a stage retry.
 - `parse_pages(body, page_nos)` maps the response's 0-based `index` (within
   the batch PDF) back to 1-based page numbers of the whole PDF and returns
-  each page's markdown, its stored payload, and its figure boxes.
+  each page's markdown, its stored payload, and its figure boxes. The
+  markdown is the page's body text with its footnotes as page-local GFM
+  footnotes (`footnotes.split_page`); the running header and footer stay
+  in the payload (`header`, `footer`, `blocks`).
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ import httpx
 import pymupdf
 
 from app.core.errors import PermanentError
+from app.ingest import footnotes
 from app.ingest.config import OcrConfig
 
 # Mistral's own cap on a request is minutes for big documents; a batch is
@@ -76,6 +80,13 @@ def request_body(pdf_bytes: bytes, model: str) -> dict[str, Any]:
         # Image boxes come back either way; the bitmaps aren't needed (the
         # `figures` stage re-renders the boxes from the PDF at 300 DPI).
         "include_image_base64": False,
+        # The page's running header / footer (footnotes included) come back
+        # in `header` / `footer` instead of the markdown, and `blocks` lists
+        # the layout blocks; `ingest.footnotes` turns that into body text
+        # with GFM footnotes.
+        "extract_header": True,
+        "extract_footer": True,
+        "include_blocks": True,
     }
 
 
@@ -126,7 +137,7 @@ class FigureBox:
 @dataclass(frozen=True)
 class OcrPage:
     page_no: int  # 1-based in the whole PDF
-    markdown: str
+    markdown: str  # body text + page-local `[^k]` footnotes
     # The page object minus `markdown` and image base64 (`paper_pages.ocr_payload`).
     payload: dict[str, Any]
     figures: list[FigureBox] = field(default_factory=list)
@@ -223,7 +234,7 @@ def parse_pages(
             raise PermanentError(f"Mistral OCR returned page index {index!r}")
         page_no = page_nos[index]
         page = _strip_nul(raw)
-        markdown = page.pop("markdown", None) or ""
+        markdown = footnotes.split_page(page.pop("markdown", None) or "", page)
         page["images"] = [
             {k: v for k, v in img.items() if k != "image_base64"}
             for img in page.get("images") or []
