@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: openpaper
-    # No host publish: only used by openpaper containers (per ~/p/tmp/caddy/ports.md).
+    # No host publish: only used by openpaper containers (per the host Caddy's port map).
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:

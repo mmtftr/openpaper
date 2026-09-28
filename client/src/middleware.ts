@@ -16,7 +16,7 @@ function isPublic(pathname: string) {
 /**
  * The API's session cookie is only visible here when the browser sends it to
  * this host too. Cookies are scoped by host (not port), so that holds when the
- * API is same-origin (production: https://paper.example.com) or on another port
+ * API is same-origin (production: Caddy serves client and API on one origin) or on another port
  * of the same host (local dev: localhost:8002 -> localhost:8003). If the API
  * lives on a different host we can't see the cookie, so the middleware steps
  * aside and the pages' own client-side checks handle it.

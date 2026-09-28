@@ -72,3 +72,6 @@ client/public/pdf.worker.mjs
 # uses the `repo-snapshots` docker volume instead)
 server/.repo_snapshots/
 *.pyc
+
+# Per-host Claude Code notes (real hostnames, resource names)
+CLAUDE.local.md

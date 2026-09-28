@@ -2,7 +2,7 @@
 
 A single-user deployment of [Open Paper](https://github.com/sabaimran/openpaper),
 a research-paper reader with an AI copilot, running on one host and reached
-over the tailnet at `https://paper.example.com`.
+over the tailnet through a host Caddy.
 
 What it does:
 
@@ -31,7 +31,7 @@ What it does:
 | `server/` | FastAPI app and the ingest worker (same code and image). Python 3.12, uv, pydantic-ai, SQLAlchemy, Alembic |
 | `client/` | Next.js 15 (App Router) app, standalone build, with a typed API client generated from the server's OpenAPI |
 | `compose.yaml` | postgres, minio (local S3), server, ingest-worker, client |
-| `compose.override.yaml` | the `paper.example.com` overlay: HTTPS URLs, secure cookies, S3 under `/s3/` |
+| `compose.override.yaml` | the Caddy deploy overlay (`BASE_HOSTNAME`): HTTPS URLs, secure cookies, S3 under `/s3/` |
 | `docs/INGEST_DESIGN.md` | ingest v2 design; `server/app/ingest/README.md` has the code contracts |
 | `scripts/` | `smoke.py` (end-to-end check), `rebuild.sh` (rebuild, restart, prune) |
 | `benchmarks/` | reader citation-hover and annotation-jump benchmarks |

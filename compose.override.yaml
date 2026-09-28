@@ -1,12 +1,12 @@
 services:
   server:
     environment: &deploy-env
-      CLIENT_DOMAIN: https://paper.example.com
-      API_DOMAIN: https://paper.example.com
-      S3_PUBLIC_BASE_URL: https://paper.example.com/s3/openpaper-local
-      CLOUDFLARE_BUCKET_NAME: paper.example.com/s3/openpaper-local
+      CLIENT_DOMAIN: https://${BASE_HOSTNAME:?set BASE_HOSTNAME in .env}
+      API_DOMAIN: https://${BASE_HOSTNAME:?set BASE_HOSTNAME in .env}
+      S3_PUBLIC_BASE_URL: https://${BASE_HOSTNAME:?set BASE_HOSTNAME in .env}/s3/openpaper-local
+      CLOUDFLARE_BUCKET_NAME: ${BASE_HOSTNAME:?set BASE_HOSTNAME in .env}/s3/openpaper-local
       SECURE_COOKIES: "true"
-      SESSION_COOKIE_DOMAIN: paper.example.com
+      SESSION_COOKIE_DOMAIN: ${BASE_HOSTNAME:?set BASE_HOSTNAME in .env}
 
   # Same env as the server: it writes file/preview URLs (S3_PUBLIC_BASE_URL).
   ingest-worker:

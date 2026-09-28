@@ -1,7 +1,7 @@
 # Development
 
 One host runs everything with Docker Compose; a host Caddy puts it on the
-tailnet at `https://paper.example.com`. For day-to-day iteration you can run the
+tailnet at `https://$BASE_HOSTNAME`. For day-to-day iteration you can run the
 API and the client on the host, against the same compose Postgres and MinIO.
 
 ## The stack
@@ -26,7 +26,7 @@ Configuration:
   Mistral OCR. It is read by `app/settings.py` (pydantic-settings). Compose's
   `environment:` entries override it for the database, S3, domain and cookie
   values.
-- `compose.override.yaml` switches those to `https://paper.example.com`
+- `compose.override.yaml` switches those to `https://$BASE_HOSTNAME`
   (secure cookies, S3 served at `/s3/openpaper-local`).
 
 Environment changes need a recreate. `docker compose restart` keeps the old
@@ -37,7 +37,7 @@ docker compose up -d --force-recreate server ingest-worker   # after editing ser
 scripts/rebuild.sh [service ...]   # build, recreate, prune dangling images
 ```
 
-### paper.example.com
+### The Caddy deploy
 
 The host Caddy (`~/p/tmp/caddy/Caddyfile`, tailnet-only) serves one origin:
 `/api/*` → `127.0.0.1:12001` (prefix kept), `/s3/*` → `127.0.0.1:12010`

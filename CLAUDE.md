@@ -3,7 +3,7 @@
 ## Deployment shape
 
 Everything runs via Docker Compose on this host. `compose.yaml` is canonical;
-`compose.override.yaml` overlays the `paper.example.com` deploy (HTTPS, secure
+`compose.override.yaml` overlays the HTTPS deploy on `BASE_HOSTNAME` (secure
 cookies, S3 served behind Caddy at `/s3/...`). Compose merges them
 automatically — `docker compose up` brings up the production-ish setup.
 
@@ -101,7 +101,7 @@ uv run scripts/smoke.py                           # end-to-end against the runni
 chat model picker when `AZURE_OPENAI=true` — the picker also shows the
 `CODEX_PROXY` provider's models, grouped separately (see below). Its ids
 must be actual **deployment names**
-on the `your-azure-resource` Azure resource, not upstream model names —
+on the Azure resource in `AZURE_OPENAI_ENDPOINT`, not upstream model names —
 Azure lets a deployment be named anything, and this resource's deployments
 happen to reuse the upstream model name for OpenAI's own models (`gpt-5.5`,
 `gpt-5.4-mini`, ...) but not for third-party ones (`FW-Kimi-K3`,
@@ -119,7 +119,8 @@ management API instead (same API key, `Authorization: Bearer`, needs an
 explicit `api-version` — `2025-04-01-preview` 400s, `2025-05-01` works):
 
 ```bash
-curl -s "https://your-azure-resource.services.ai.azure.com/api/projects/your-azure-resource_project/deployments?api-version=2025-05-01" \
+RES=$(sed -nE 's#^AZURE_OPENAI_ENDPOINT=https://([^.]+)\..*#\1#p' server/.env)
+curl -s "https://$RES.services.ai.azure.com/api/projects/${RES}_project/deployments?api-version=2025-05-01" \
   -H "Authorization: Bearer $AZURE_OPENAI_KEY" | jq '.value[] | {name, modelPublisher, chat_completion: .capabilities.chat_completion}'
 ```
 
