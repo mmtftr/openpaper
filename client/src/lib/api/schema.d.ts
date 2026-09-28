@@ -2493,6 +2493,7 @@ export interface components {
         ModelSettingsOut: {
             /** Models */
             models: components["schemas"]["SelectableModel"][];
+            ocr: components["schemas"]["OcrServiceOut"];
             /** Providers */
             providers: components["schemas"]["ProviderOut"][];
             /** Slots */
@@ -2530,6 +2531,23 @@ export interface components {
          * @enum {string}
          */
         OAStatus: "diamond" | "gold" | "green" | "hybrid" | "bronze" | "closed";
+        /**
+         * OcrServiceOut
+         * @description The `ocr` stage's Mistral OCR model: env config (server/.env), not a
+         *     slot — a document API with its own key, so it's shown but not editable.
+         */
+        OcrServiceOut: {
+            /** Configured */
+            configured: boolean;
+            /** Description */
+            description: string;
+            /** Endpoint */
+            endpoint: string;
+            /** Model */
+            model: string;
+            /** Slot */
+            slot: string;
+        };
         /** OpenAccess */
         OpenAccess: {
             /** Is Oa */

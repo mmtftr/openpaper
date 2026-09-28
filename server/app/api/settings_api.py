@@ -2,7 +2,7 @@
 
 GET  /models         every slot with its built-in default, stored override
                      and effective choice, plus the selectable providers and
-                     models.
+                     models, and the (read-only) OCR service model.
 PUT  /models/{slot}  set a slot's override (all fields null = reset).
 
 Global settings (single-user deployment): no per-user rows.
@@ -24,6 +24,7 @@ from app.database.crud.model_slot_crud import (
 )
 from app.database.database import get_db
 from app.database.models import ModelSlot
+from app.ingest.config import ocr_config
 from app.llm.model_registry import LLMProvider, ModelRole, ModelSpec, get_registry
 from app.llm.model_slots import (
     SLOT_DEFAULTS,
@@ -85,10 +86,23 @@ class SelectableModel(BaseModel):
     supports_vision: bool
 
 
+class OcrServiceOut(BaseModel):
+    """The `ocr` stage's Mistral OCR model: env config (server/.env), not a
+    slot — a document API with its own key, so it's shown but not editable."""
+
+    slot: str
+    description: str
+    model: str
+    endpoint: str
+    # False when MISTRAL_API_KEY is unset: `ocr` stages fail until it is.
+    configured: bool
+
+
 class ModelSettingsOut(BaseModel):
     slots: list[ModelSlotOut]
     providers: list[ProviderOut]
     models: list[SelectableModel]
+    ocr: OcrServiceOut
 
 
 class ModelSlotUpdate(BaseModel):
@@ -197,10 +211,18 @@ def get_model_settings(
     """Every model slot with its default, override and effective choice."""
     registry = get_registry()
     rows = {str(row.slot): row for row in list_model_slots(db)}
+    ocr = ocr_config()
     return ModelSettingsOut(
         slots=[_slot_out(slot, rows.get(slot), registry) for slot in SLOT_DEFAULTS],
         providers=_providers(registry),
         models=_selectable_models(registry),
+        ocr=OcrServiceOut(
+            slot="ingest.ocr",
+            description="Ingest: OCR of every page (Mistral OCR)",
+            model=ocr.model,
+            endpoint=ocr.endpoint,
+            configured=bool(ocr.api_key),
+        ),
     )
 
 

@@ -3141,6 +3141,9 @@
             "title": "Models",
             "type": "array"
           },
+          "ocr": {
+            "$ref": "#/components/schemas/OcrServiceOut"
+          },
           "providers": {
             "items": {
               "$ref": "#/components/schemas/ProviderOut"
@@ -3159,7 +3162,8 @@
         "required": [
           "slots",
           "providers",
-          "models"
+          "models",
+          "ocr"
         ],
         "title": "ModelSettingsOut",
         "type": "object"
@@ -3275,6 +3279,40 @@
         ],
         "title": "OAStatus",
         "type": "string"
+      },
+      "OcrServiceOut": {
+        "description": "The `ocr` stage's Mistral OCR model: env config (server/.env), not a\nslot \u2014 a document API with its own key, so it's shown but not editable.",
+        "properties": {
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "endpoint": {
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "slot": {
+            "title": "Slot",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slot",
+          "description",
+          "model",
+          "endpoint",
+          "configured"
+        ],
+        "title": "OcrServiceOut",
+        "type": "object"
       },
       "OpenAccess": {
         "properties": {

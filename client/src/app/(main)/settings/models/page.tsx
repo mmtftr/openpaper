@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -22,6 +22,7 @@ import {
 	ModelSettings,
 	ModelSlot,
 	ModelSlotUpdate,
+	OcrService,
 	ReasoningEffort,
 	SelectableModel,
 } from "@/lib/schema";
@@ -217,6 +218,32 @@ function SlotRow({
 	);
 }
 
+// The OCR model is env config (MISTRAL_OCR_MODEL in server/.env), not a slot:
+// shown so every ingest model is on this page, but not editable here.
+function OcrRow({ ocr }: { ocr: OcrService }) {
+	return (
+		<div className="space-y-3 rounded-xl border p-4">
+			<div className="space-y-1">
+				<h3 className="min-w-0 font-medium leading-snug">{ocr.description}</h3>
+				<p className="break-all font-mono text-xs text-muted-foreground">{ocr.slot}</p>
+			</div>
+			<div className="flex h-10 w-full min-w-0 items-center rounded-md border bg-muted/50 px-3 text-sm text-muted-foreground sm:h-9 sm:w-80">
+				<span className="truncate">{ocr.model}</span>
+			</div>
+			<p className="text-xs text-muted-foreground">
+				Set by <code className="font-mono">MISTRAL_OCR_MODEL</code> in server/.env; not
+				changeable here.
+			</p>
+			{!ocr.configured && (
+				<p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-500">
+					<AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+					MISTRAL_API_KEY is not set, so OCR fails until it is.
+				</p>
+			)}
+		</div>
+	);
+}
+
 function groupByProvider(settings: ModelSettings): [string, SelectableModel[]][] {
 	const groups = new Map<string, SelectableModel[]>();
 	for (const m of settings.models) {
@@ -242,6 +269,13 @@ export default function ModelSettingsPage() {
 		() => (settings ? groupByProvider(settings) : []),
 		[settings]
 	);
+
+	// OCR goes right before the first ingest slot (it runs before them).
+	const ocrIndex = useMemo(() => {
+		if (!settings) return -1;
+		const i = settings.slots.findIndex((s) => s.slot.startsWith("ingest."));
+		return i === -1 ? settings.slots.length : i;
+	}, [settings]);
 
 	const onSave = async (slot: string, update: ModelSlotUpdate) => {
 		try {
@@ -275,16 +309,19 @@ export default function ModelSettingsPage() {
 				</p>
 			) : (
 				<div className="space-y-3">
-					{settings.slots.map((slot) => (
-						<SlotRow
-							key={slot.slot}
-							slot={slot}
-							providers={settings.providers}
-							modelsByProvider={modelsByProvider}
-							models={settings.models}
-							onSave={onSave}
-						/>
+					{settings.slots.map((slot, i) => (
+						<Fragment key={slot.slot}>
+							{i === ocrIndex && <OcrRow ocr={settings.ocr} />}
+							<SlotRow
+								slot={slot}
+								providers={settings.providers}
+								modelsByProvider={modelsByProvider}
+								models={settings.models}
+								onSave={onSave}
+							/>
+						</Fragment>
 					))}
+					{ocrIndex === settings.slots.length && <OcrRow ocr={settings.ocr} />}
 				</div>
 			)}
 		</div>

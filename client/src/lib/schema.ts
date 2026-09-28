@@ -65,6 +65,7 @@ export type ModelProvider = Schemas["ProviderOut"];
 export type SelectableModel = Schemas["SelectableModel"];
 export type ModelSlot = Schemas["ModelSlotOut"];
 export type ModelSettings = Schemas["ModelSettingsOut"];
+export type OcrService = Schemas["OcrServiceOut"];
 
 /** `GET /api/paper?id=` */
 export type PaperData = Schemas["PaperDetail"];

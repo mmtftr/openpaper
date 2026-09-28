@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from app.api import settings_api
 from app.auth.dependencies import get_required_user
 from app.database.database import get_db
+from app.ingest.config import OcrConfig
 from app.llm import model_slots
 from app.llm.model_registry import (
     LLMProvider,
@@ -173,6 +174,11 @@ def store(monkeypatch):
     monkeypatch.setattr(settings_api, "get_model_slot", lambda db, slot: rows.get(slot))
     monkeypatch.setattr(settings_api, "set_model_slot", set_model_slot)
     monkeypatch.setattr(settings_api, "get_registry", _registry)
+    monkeypatch.setattr(
+        settings_api,
+        "ocr_config",
+        lambda: OcrConfig("k", "https://api.mistral.ai/v1/ocr", "mistral-ocr-4-1"),
+    )
     return rows
 
 
@@ -210,6 +216,21 @@ def test_get_lists_every_slot_with_defaults(client):
     assert ("openai", "gpt-5.4-mini-azure") in models
     assert ("codex_proxy", "gpt-5.6-luna") in models
     assert models[("openai", "DeepSeek-V4-Flash-0731")]["supports_vision"] is False
+
+
+def test_get_shows_the_ocr_model_read_only(client, monkeypatch):
+    ocr = client.get("/api/settings/models").json()["ocr"]
+    assert ocr["slot"] == "ingest.ocr"
+    assert ocr["model"] == "mistral-ocr-4-1"
+    assert ocr["configured"] is True
+    assert client.put("/api/settings/models/ingest.ocr", json={}).status_code == 404
+
+    monkeypatch.setattr(
+        settings_api,
+        "ocr_config",
+        lambda: OcrConfig(None, "https://api.mistral.ai/v1/ocr", "mistral-ocr-4-1"),
+    )
+    assert client.get("/api/settings/models").json()["ocr"]["configured"] is False
 
 
 def test_put_sets_then_resets_an_override(client, store):

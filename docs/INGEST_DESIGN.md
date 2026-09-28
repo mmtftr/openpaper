@@ -135,7 +135,8 @@ Settings → Models lists every model call site with a provider/model dropdown
 (NULL = today's default): `chat.default`, `chat.reconcile`, `chat.title`,
 `quick_question`, `discover`, `ingest.ocr_repair` (vision models only),
 `ingest.metadata`, `ingest.outline`, `ingest.highlights`, plus the OCR service
-model (`ingest.ocr`). Outline and discover follow the default provider's fast
+model (`ingest.ocr`) — shown read-only: Mistral OCR is a document API with its
+own key, so its model stays env config (`MISTRAL_OCR_MODEL`). Outline and discover follow the default provider's fast
 model (on the codex proxy: `gpt-5.6-luna` at effort `max`, since refactor
 Phase 6); OCR repair, metadata and highlights stay on OpenAI. Each stage
 records the model it used.
